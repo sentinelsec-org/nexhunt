@@ -7,6 +7,7 @@
 <meta name="description" content="NexHunt runs your full bug bounty workflow automatically. Recon, scanning, exploitation and AI reporting in one Linux desktop app. Free to download.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://app.lemonsqueezy.com/js/lemon.js" defer></script>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -186,6 +187,10 @@ section{padding:clamp(4rem,8vw,6rem) clamp(1rem,4vw,3rem);max-width:1120px;margi
 .plan-feats li.yes{color:var(--muted)}
 .plan-feats li.yes span{color:var(--text)}
 .plan .btn{width:100%;justify-content:center;margin-top:.25rem}
+.plan-badge{font-family:var(--mono);font-size:.55rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--amber);background:rgba(245,166,35,.1);border:1px solid rgba(245,166,35,.2);border-radius:4px;padding:3px 8px;display:inline-block;margin-bottom:.75rem}
+.btn-buy{background:var(--amber);color:#000;font-weight:700;font-size:.9375rem;padding:13px 24px;border-radius:var(--r);width:100%;justify-content:center;box-shadow:0 4px 20px rgba(245,166,35,.25)}
+.btn-buy:hover{box-shadow:0 0 0 3px var(--aglow),0 8px 30px var(--aglow);transform:translateY(-2px)}
+.plan-note{font-size:.6875rem;color:var(--dim);text-align:center;margin-top:.75rem;line-height:1.5}
 
 /* ─── INSTALL ─── */
 .install-block{background:var(--s1);border:1px solid var(--b1);border-radius:var(--r2);overflow:hidden;margin-top:2rem}
@@ -255,7 +260,7 @@ footer{border-top:1px solid var(--b1);padding:2.5rem clamp(1rem,4vw,3rem);displa
     <p class="hero-sub" data-i18n="h_sub">NexHunt runs <strong>20+ security tools</strong> for you — recon, scanning, exploitation and AI reporting in one Linux desktop app. Stop jumping between terminals. Start finding bugs.</p>
     <div class="hero-ctas">
       <a class="btn btn-g" href="https://github.com/sentinelsec-org/nexhunt/releases/latest" target="_blank" data-i18n="cta_dl">⬇ Download — it's free</a>
-      <a class="btn btn-a" href="https://sentinelsec.online/pricing" target="_blank" data-i18n="cta_pro">★ Get PRO</a>
+      <a class="btn btn-a" href="#pricing" target="_blank" data-i18n="cta_pro">★ Get PRO</a>
     </div>
     <div class="hero-stats">
       <div class="stat"><div class="stat-n">20+</div><div class="stat-l" data-i18n="st1">Security tools</div></div>
@@ -436,7 +441,7 @@ footer{border-top:1px solid var(--b1);padding:2.5rem clamp(1rem,4vw,3rem);displa
         <div class="ai-bullet"><span class="ai-ico">✦</span><span data-i18n="ai_b3">Generates professional vulnerability reports ready to submit</span></div>
         <div class="ai-bullet"><span class="ai-ico">✦</span><span data-i18n="ai_b4">Hosted on Sentinel's infrastructure — no API key needed, just your license</span></div>
       </div>
-      <a class="btn btn-a" href="https://sentinelsec.online/pricing" target="_blank" data-i18n="ai_cta">★ Unlock AI Copilot with PRO</a>
+      <a class="btn btn-a" href="#pricing" target="_blank" data-i18n="ai_cta">★ Unlock AI Copilot with PRO</a>
     </div>
   </div>
 </div>
@@ -445,13 +450,13 @@ footer{border-top:1px solid var(--b1);padding:2.5rem clamp(1rem,4vw,3rem);displa
 <div class="sec-wrap rv" id="pricing">
   <div class="sec-wrap-inner">
     <div class="eyebrow" data-i18n="pr_ey">Pricing</div>
-    <h2 class="sec-h" data-i18n="pr_h">Start free. Upgrade when you need more.</h2>
-    <p class="sec-sub" data-i18n="pr_sub">The free tier is not a trial. It's the full tool with no time limit. PRO adds AI, automation, and bulk scanning.</p>
+    <h2 class="sec-h" data-i18n="pr_h">Start free. Go PRO for $15.</h2>
+    <p class="sec-sub" data-i18n="pr_sub">One payment. Yours forever. Beta pricing — will increase when we exit beta. No subscription, no renewal.</p>
     <div class="price-grid">
       <div class="plan">
         <div class="plan-name" data-i18n="pl1_name">Free</div>
         <div class="plan-price">$0<span data-i18n="pl_forever"> forever</span></div>
-        <div class="plan-desc" data-i18n="pl1_desc">The complete bug bounty toolkit. Every tool, every phase, no limits.</div>
+        <div class="plan-desc" data-i18n="pl1_desc">The complete bug bounty toolkit. Every tool, every phase, no time limits and no nag screens.</div>
         <ul class="plan-feats">
           <li class="yes"><span class="pf-check ok">✓</span><span data-i18n="plf1">Full recon suite (subfinder, amass, httpx, nmap, katana, gau, waybackurls)</span></li>
           <li class="yes"><span class="pf-check ok">✓</span><span data-i18n="plf2">Screenshot all hosts (gowitness)</span></li>
@@ -466,9 +471,10 @@ footer{border-top:1px solid var(--b1);padding:2.5rem clamp(1rem,4vw,3rem);displa
         <a class="btn btn-o" href="https://github.com/sentinelsec-org/nexhunt/releases/latest" target="_blank" data-i18n="pl1_cta">Download free</a>
       </div>
       <div class="plan pro">
+        <div class="plan-badge" data-i18n="pl2_badge">Beta pricing — price goes up at launch</div>
         <div class="plan-name" data-i18n="pl2_name">★ PRO</div>
-        <div class="plan-price" style="color:var(--amber)">— <span data-i18n="pl_price">check sentinelsec.online</span></div>
-        <div class="plan-desc" data-i18n="pl2_desc">AI, full automation, and bulk scanning. For hunters who run programs at scale.</div>
+        <div class="plan-price" style="color:var(--amber)">$15<span data-i18n="pl_onetime"> one-time</span></div>
+        <div class="plan-desc" data-i18n="pl2_desc">AI Copilot, full automation, bulk scanning. One payment — all future updates included during beta.</div>
         <ul class="plan-feats">
           <li class="yes"><span class="pf-check pro">✓</span><span data-i18n="plp1">Everything in Free</span></li>
           <li class="yes"><span class="pf-check pro">✓</span><span data-i18n="plp2">AI Copilot — analysis, attack tips, report generation</span></li>
@@ -476,9 +482,12 @@ footer{border-top:1px solid var(--b1);padding:2.5rem clamp(1rem,4vw,3rem);displa
           <li class="yes"><span class="pf-check pro">✓</span><span data-i18n="plp4">Bulk scanning — nuclei, recon, takeover, CORS across all hosts</span></li>
           <li class="yes"><span class="pf-check pro">✓</span><span data-i18n="plp5">Proxy Intruder (cluster bomb / pitchfork)</span></li>
           <li class="yes"><span class="pf-check pro">✓</span><span data-i18n="plp6">JWT attack suite + business logic testing (IDOR, race conditions)</span></li>
-          <li class="yes"><span class="pf-check pro">✓</span><span data-i18n="plp7">Priority support</span></li>
+          <li class="yes"><span class="pf-check pro">✓</span><span data-i18n="plp7">All future updates during beta period</span></li>
         </ul>
-        <a class="btn btn-a" href="https://sentinelsec.online/pricing" target="_blank" data-i18n="pl2_cta">Get PRO at sentinelsec.online</a>
+        <!-- CHECKOUT: replace href with your LemonSqueezy checkout URL -->
+        <!-- Get it from: LemonSqueezy Dashboard → Products → NexHunt PRO → Share → Copy checkout link -->
+        <a class="btn btn-buy lemonsqueezy-button" href="LEMON_CHECKOUT_URL" data-i18n="pl2_cta">Buy PRO — $15</a>
+        <p class="plan-note" data-i18n="pl2_note">Secure payment via LemonSqueezy. License key sent instantly by email.</p>
       </div>
     </div>
   </div>
@@ -566,18 +575,18 @@ en:{
   ai_b3:'Generates professional vulnerability reports ready to submit',
   ai_b4:'Hosted on Sentinel\'s infrastructure — no API key needed, just your license',
   ai_cta:'★ Unlock AI Copilot with PRO',
-  pr_ey:'Pricing',pr_h:'Start free. Upgrade when you need more.',
-  pr_sub:'The free tier is not a trial. It\'s the full tool with no time limit. PRO adds AI, automation, and bulk scanning.',
-  pl1_name:'Free',pl_forever:' forever',pl1_desc:'The complete bug bounty toolkit. Every tool, every phase, no limits.',
+  pr_ey:'Pricing',pr_h:'Start free. Go PRO for $15.',
+  pr_sub:'One payment. Yours forever. Beta pricing — will increase when we exit beta. No subscription, no renewal.',
+  pl1_name:'Free',pl_forever:' forever',pl1_desc:'The complete bug bounty toolkit. Every tool, every phase, no time limits and no nag screens.',
   plf1:'Full recon suite (subfinder, amass, httpx, nmap, katana, gau, waybackurls)',plf2:'Screenshot all hosts (gowitness)',
   plf3:'Scanner single-target (nuclei, ffuf, nikto, gobuster, dirsearch)',plf4:'CVE correlation per technology',
   plf5:'Exploit single-target (sqlmap, dalfox, xsstrike, commix)',plf6:'Security tools (CORS, 403 bypass, cloud buckets, GitHub secrets)',
   plf7:'Proxy + repeater, findings DB, projects, methodology',plf8:'AI Copilot',plf9:'Automated pipelines & bulk scanning',
-  pl1_cta:'Download free',pl2_name:'★ PRO',pl_price:'see sentinelsec.online',pl2_desc:'AI, full automation, and bulk scanning. For hunters who run programs at scale.',
+  pl1_cta:'Download free',pl2_name:'★ PRO',pl2_badge:'Beta pricing — price goes up at launch',pl_onetime:' one-time',pl2_desc:'AI Copilot, full automation, bulk scanning. One payment — all future updates included during beta.',
   plp1:'Everything in Free',plp2:'AI Copilot — analysis, attack tips, report generation',
   plp3:'Automated pipelines (full XSS / SQLi / JS chain)',plp4:'Bulk scanning — nuclei, recon, takeover, CORS across all hosts',
-  plp5:'Proxy Intruder (cluster bomb / pitchfork)',plp6:'JWT attack suite + business logic testing (IDOR, race conditions)',plp7:'Priority support',
-  pl2_cta:'Get PRO at sentinelsec.online',
+  plp5:'Proxy Intruder (cluster bomb / pitchfork)',plp6:'JWT attack suite + business logic testing (IDOR, race conditions)',plp7:'All future updates during beta period',
+  pl2_cta:'Buy PRO — $15',pl2_note:'Secure payment via LemonSqueezy. License key sent instantly by email.',
   in_ey:'Installation',in_h:'One command installs everything.',
   in_sub:'Tested on Kali Linux 2024+, Debian, and Ubuntu. 20+ security tools configured automatically.',
   copy:'Copy',s1h:'Download',s1b:'Fetches the v1.1.0 release and extracts it.',
@@ -640,11 +649,11 @@ es:{
   plf3:'Scanner objetivo único (nuclei, ffuf, nikto, gobuster, dirsearch)',plf4:'Correlación de CVEs por tecnología',
   plf5:'Explotación objetivo único (sqlmap, dalfox, xsstrike, commix)',plf6:'Security tools (CORS, bypass 403, cloud buckets, secretos GitHub)',
   plf7:'Proxy + repeater, BD hallazgos, proyectos, metodología',plf8:'AI Copilot',plf9:'Pipelines automatizados y escaneo masivo',
-  pl1_cta:'Descargar gratis',pl2_name:'★ PRO',pl_price:'ver sentinelsec.online',pl2_desc:'IA, automatización completa y escaneo masivo. Para hunters que trabajan programas a escala.',
+  pl1_cta:'Descargar gratis',pl2_name:'★ PRO',pl2_badge:'Precio beta — sube al salir de beta',pl_onetime:' pago único',pl2_desc:'AI Copilot, automatización completa, escaneo masivo. Un pago — todas las actualizaciones futuras incluidas durante la beta.',
   plp1:'Todo lo incluido en Gratis',plp2:'AI Copilot — análisis, sugerencias, generación de reportes',
   plp3:'Pipelines automatizados (cadena completa XSS / SQLi / JS)',plp4:'Escaneo masivo — nuclei, recon, takeover, CORS en todos los hosts',
-  plp5:'Proxy Intruder (cluster bomb / pitchfork)',plp6:'Suite JWT + lógica de negocio (IDOR, race conditions)',plp7:'Soporte prioritario',
-  pl2_cta:'Obtener PRO en sentinelsec.online',
+  plp5:'Proxy Intruder (cluster bomb / pitchfork)',plp6:'Suite JWT + lógica de negocio (IDOR, race conditions)',plp7:'Todas las actualizaciones futuras durante la beta',
+  pl2_cta:'Comprar PRO — $15',pl2_note:'Pago seguro via LemonSqueezy. Clave de licencia enviada al instante por email.',
   in_ey:'Instalación',in_h:'Un comando instala todo.',
   in_sub:'Probado en Kali Linux 2024+, Debian y Ubuntu. 20+ herramientas de seguridad configuradas automáticamente.',
   copy:'Copiar',s1h:'Descargar',s1b:'Descarga el release v1.1.0 y lo extrae.',
@@ -654,7 +663,7 @@ es:{
 }
 }
 
-const HTML_KEYS=new Set(['h1','h_sub','ai_a1','ai_a2','sc_recon','sc_scan','f1_l1','f1_l2','f1_l3','f1_l4','f2_l1','f2_l2','f2_l3','f2_l4','s3b'])
+const HTML_KEYS=new Set(['h1','h_sub','ai_a1','ai_a2','sc_recon','sc_scan','f1_l1','f1_l2','f1_l3','f1_l4','f2_l1','f2_l2','f2_l3','f2_l4','s3b','pl2_note'])
 
 let lang='en'
 function setLang(l){
