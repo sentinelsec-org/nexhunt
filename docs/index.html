@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NexHunt — Bug Bounty Automation by Sentinel Security</title>
+<meta name="description" content="NexHunt automates your full bug bounty workflow. Recon, scanning, exploitation and AI analysis in one desktop app for Linux.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#09090b;--surface:#111113;--surface2:#18181b;
+  --border:#27272a;--border2:#3f3f46;
+  --green:#22c55e;--green-dim:rgba(34,197,94,.1);--green-glow:rgba(34,197,94,.2);
+  --amber:#f59e0b;--amber-dim:rgba(245,158,11,.1);
+  --red:#ef4444;--blue:#60a5fa;--teal:#2dd4bf;
+  --text:#e4e4e7;--muted:#71717a;--dim:#52525b;
+  --sans:'Space Grotesk',system-ui,sans-serif;
+  --mono:'JetBrains Mono','Fira Code',monospace
+}
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--text);font-family:var(--sans);line-height:1.6;-webkit-font-smoothing:antialiased}
+
+/* ── NAV ── */
+nav{position:sticky;top:0;z-index:100;display:flex;align-items:center;justify-content:space-between;padding:0 1.5rem;height:54px;background:rgba(9,9,11,.88);border-bottom:1px solid var(--border);backdrop-filter:blur(14px)}
+.nav-logo{display:flex;align-items:center;gap:.5rem;font-weight:700;font-size:.9375rem;letter-spacing:-.01em;color:var(--text);text-decoration:none}
+.nav-logo span{color:var(--green)}
+.nav-right{display:flex;align-items:center;gap:1rem}
+.lang-toggle{display:flex;border:1px solid var(--border);border-radius:6px;overflow:hidden}
+.lang-btn{background:none;border:none;color:var(--muted);font-family:var(--sans);font-size:.6875rem;font-weight:700;letter-spacing:.1em;padding:4px 10px;cursor:pointer;transition:all .15s;text-transform:uppercase}
+.lang-btn.active{background:var(--surface2);color:var(--text)}
+.lang-btn:hover:not(.active){color:var(--text)}
+.btn{display:inline-flex;align-items:center;gap:.375rem;padding:7px 16px;border-radius:7px;font-family:var(--sans);font-size:.8125rem;font-weight:600;cursor:pointer;text-decoration:none;transition:all .15s;border:none;white-space:nowrap}
+.btn-ghost{background:transparent;color:var(--muted);border:1px solid var(--border)}
+.btn-ghost:hover{color:var(--text);border-color:var(--border2);background:var(--surface2)}
+.btn-green{background:var(--green);color:#000}
+.btn-green:hover{opacity:.9;transform:translateY(-1px)}
+.btn-amber{background:var(--amber);color:#000}
+.btn-amber:hover{opacity:.9;transform:translateY(-1px)}
+@media(max-width:520px){.nav-right .btn{display:none}}
+
+/* ── HERO ── */
+.hero{padding:4.5rem 1.5rem 3.5rem;max-width:1080px;margin:0 auto}
+.beta-badge{display:inline-flex;align-items:center;gap:.5rem;padding:4px 12px;background:var(--amber-dim);border:1px solid rgba(245,158,11,.28);border-radius:20px;font-family:var(--mono);font-size:.6rem;color:var(--amber);letter-spacing:.12em;text-transform:uppercase;margin-bottom:1.75rem}
+.beta-dot{width:6px;height:6px;background:var(--amber);border-radius:50%;animation:pulse-a 2s infinite}
+@keyframes pulse-a{0%,100%{opacity:1}50%{opacity:.35}}
+.hero-grid{display:grid;grid-template-columns:1fr 1fr;gap:3rem;align-items:start}
+@media(max-width:760px){.hero-grid{grid-template-columns:1fr}}
+.hero-text h1{font-size:clamp(2.25rem,5vw,3.5rem);font-weight:700;letter-spacing:-.035em;line-height:1.08;margin-bottom:1rem}
+.hero-text h1 em{font-style:normal;color:var(--green)}
+.hero-tagline{font-size:1rem;color:var(--muted);line-height:1.7;margin-bottom:2rem;max-width:44ch}
+.hero-ctas{display:flex;gap:.75rem;flex-wrap:wrap}
+.hero-ctas .btn{padding:10px 22px;font-size:.875rem}
+
+/* ── TERMINAL ── */
+.terminal{background:var(--surface2);border:1px solid var(--border);border-radius:10px;overflow:hidden;font-family:var(--mono)}
+.term-bar{display:flex;align-items:center;gap:6px;padding:10px 14px;background:var(--surface);border-bottom:1px solid var(--border)}
+.tdot{width:10px;height:10px;border-radius:50%}
+.td-r{background:#ff5f57}.td-y{background:#ffbd2e}.td-g{background:#28ca42}
+.term-title{margin-left:6px;font-size:.6875rem;color:var(--dim);letter-spacing:.05em}
+.term-body{padding:14px 16px;min-height:290px;font-size:.775rem;line-height:1.75;overflow:hidden}
+.tl{display:block}
+.tc-p{color:var(--green)}
+.tc-cmd{color:var(--text)}
+.tc-info{color:var(--muted)}
+.tc-host{color:var(--blue)}
+.tc-crit{color:var(--red);font-weight:500}
+.tc-high{color:#fb923c;font-weight:500}
+.tc-med{color:var(--amber)}
+.tc-low{color:var(--teal)}
+.tc-ok{color:var(--green);font-weight:500}
+.tc-dim{color:var(--dim)}
+.cursor{display:inline-block;width:8px;height:13px;background:var(--green);vertical-align:text-bottom;animation:blink 1s step-end infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:0}}
+
+/* ── SECTION SHELL ── */
+.section{padding:4rem 1.5rem;max-width:1080px;margin:0 auto}
+.sec-label{font-family:var(--mono);font-size:.625rem;letter-spacing:.2em;text-transform:uppercase;color:var(--green);margin-bottom:.875rem}
+.sec-title{font-size:clamp(1.375rem,2.5vw,1.875rem);font-weight:700;letter-spacing:-.025em;margin-bottom:.625rem}
+.sec-sub{color:var(--muted);font-size:.9375rem;max-width:56ch;margin-bottom:2.25rem;line-height:1.65}
+
+/* ── CAPABILITIES ── */
+.caps-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:1px;background:var(--border);border:1px solid var(--border);border-radius:10px;overflow:hidden}
+.cap-card{background:var(--bg);padding:1.375rem;transition:background .15s}
+.cap-card:hover{background:var(--surface2)}
+.cap-icon{font-family:var(--mono);font-size:.9375rem;color:var(--green);margin-bottom:.625rem;display:block}
+.cap-name{font-size:.875rem;font-weight:600;margin-bottom:.375rem}
+.cap-tools{font-family:var(--mono);font-size:.625rem;color:var(--dim);line-height:1.9}
+.cap-pro-tag{display:inline-flex;align-items:center;gap:.25rem;font-family:var(--mono);font-size:.55rem;color:var(--amber);border:1px solid rgba(245,158,11,.28);border-radius:4px;padding:1px 6px;margin-top:.5rem;letter-spacing:.08em;text-transform:uppercase}
+
+/* ── INSTALL ── */
+.install-wrap{background:var(--surface);border-top:1px solid var(--border);border-bottom:1px solid var(--border);padding:4rem 1.5rem}
+.install-inner{max-width:1080px;margin:0 auto}
+.install-box{background:var(--bg);border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-top:2rem}
+.install-topbar{display:flex;align-items:center;justify-content:space-between;padding:9px 14px;border-bottom:1px solid var(--border)}
+.install-lbl{font-family:var(--mono);font-size:.625rem;color:var(--dim);letter-spacing:.1em;text-transform:uppercase}
+.copy-btn{display:flex;align-items:center;gap:.3rem;background:none;border:1px solid var(--border);border-radius:5px;color:var(--muted);font-family:var(--sans);font-size:.6875rem;font-weight:500;padding:4px 10px;cursor:pointer;transition:all .15s}
+.copy-btn:hover{color:var(--text);border-color:var(--border2)}
+.copy-btn.copied{color:var(--green);border-color:var(--green)}
+.install-cmd{padding:1.125rem 1.375rem;font-family:var(--mono);font-size:.75rem;color:var(--green);overflow-x:auto;white-space:nowrap}
+.install-steps{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;margin-top:1px;background:var(--border)}
+@media(max-width:560px){.install-steps{grid-template-columns:1fr}}
+.install-step{background:var(--bg);padding:1.125rem 1.375rem;display:flex;gap:.875rem}
+.step-n{font-family:var(--mono);font-size:.6875rem;color:var(--dim);min-width:20px;padding-top:2px}
+.step-t{font-size:.8rem;color:var(--muted);line-height:1.55}
+.step-t strong{color:var(--text);font-weight:600;display:block;margin-bottom:2px;font-size:.8125rem}
+
+/* ── PRICING ── */
+.ptable{border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-top:2rem}
+.p-head{display:grid;grid-template-columns:1fr 130px 140px;background:var(--surface);border-bottom:1px solid var(--border)}
+@media(max-width:560px){.p-head{grid-template-columns:1fr 70px 90px}}
+.ph{padding:.875rem 1.125rem;font-size:.8rem;font-weight:600}
+.ph.pro-h{background:rgba(245,158,11,.05);border-left:1px solid rgba(245,158,11,.18)}
+.pro-lbl{display:flex;align-items:center;gap:.375rem;color:var(--amber)}
+.prow{display:grid;grid-template-columns:1fr 130px 140px;border-top:1px solid var(--border)}
+@media(max-width:560px){.prow{grid-template-columns:1fr 70px 90px}}
+.prow:hover{background:var(--surface2)}
+.pc{padding:.6875rem 1.125rem;font-size:.8125rem;color:var(--muted);display:flex;align-items:center}
+.pc.feat{color:var(--text)}
+.pc.free-c,.pc.pro-c{justify-content:center}
+.pc.pro-c{background:rgba(245,158,11,.025);border-left:1px solid rgba(245,158,11,.1)}
+.ck{color:var(--green);font-size:.875rem}
+.ck-p{color:var(--amber);font-size:.875rem}
+.cx{color:var(--dim);font-size:.875rem}
+.p-cta{display:grid;grid-template-columns:1fr 130px 140px;border-top:1px solid var(--border);background:var(--surface)}
+@media(max-width:560px){.p-cta{grid-template-columns:1fr 70px 90px}}
+.pct{padding:1.125rem;display:flex;align-items:center;justify-content:center}
+.pct.pro-pct{background:rgba(245,158,11,.05);border-left:1px solid rgba(245,158,11,.18)}
+
+/* ── FOOTER ── */
+footer{border-top:1px solid var(--border);padding:2rem 1.5rem;text-align:center}
+.footer-brand{font-size:.875rem;color:var(--muted);margin-bottom:.375rem}
+.footer-brand a{color:var(--green);text-decoration:none;font-weight:600}
+.footer-brand a:hover{text-decoration:underline}
+.footer-sub{font-size:.75rem;color:var(--dim)}
+hr.divider{border:none;border-top:1px solid var(--border)}
+</style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <a class="nav-logo" href="#">Nex<span>Hunt</span></a>
+  <div class="nav-right">
+    <div class="lang-toggle">
+      <button class="lang-btn active" onclick="setLang('en')" id="btn-en">EN</button>
+      <button class="lang-btn" onclick="setLang('es')" id="btn-es">ES</button>
+    </div>
+    <a class="btn btn-ghost" href="https://github.com/sentinelsec-org/nexhunt/releases/latest" target="_blank" data-i18n="nav_download">Download</a>
+    <a class="btn btn-amber" href="https://sentinelsec.online/pricing" target="_blank" data-i18n="nav_pro">Get PRO</a>
+  </div>
+</nav>
+
+<!-- HERO -->
+<section class="hero">
+  <div class="beta-badge">
+    <span class="beta-dot"></span>
+    <span data-i18n="beta_label">Beta release</span>
+  </div>
+  <div class="hero-grid">
+    <div class="hero-text">
+      <h1>Nex<em>Hunt</em></h1>
+      <p class="hero-tagline" data-i18n="hero_tagline">
+        Automate your full bug bounty workflow — recon, scanning, exploitation, and AI-powered analysis — from a single Linux desktop app.
+      </p>
+      <div class="hero-ctas">
+        <a class="btn btn-green" href="https://github.com/sentinelsec-org/nexhunt/releases/latest" target="_blank" data-i18n="cta_download">Download free</a>
+        <a class="btn btn-amber" href="https://sentinelsec.online/pricing" target="_blank" data-i18n="cta_pro">Get PRO</a>
+      </div>
+    </div>
+    <div class="terminal">
+      <div class="term-bar">
+        <span class="tdot td-r"></span>
+        <span class="tdot td-y"></span>
+        <span class="tdot td-g"></span>
+        <span class="term-title">nexhunt — terminal</span>
+      </div>
+      <div class="term-body" id="term-body"><span class="cursor"></span></div>
+    </div>
+  </div>
+</section>
+
+<hr class="divider">
+
+<!-- CAPABILITIES -->
+<div class="section">
+  <div class="sec-label" data-i18n="caps_label">Capabilities</div>
+  <h2 class="sec-title" data-i18n="caps_title">Every phase of the workflow</h2>
+  <p class="sec-sub" data-i18n="caps_sub">Each tool is orchestrated and its output is parsed, deduplicated, and fed into the next phase automatically.</p>
+  <div class="caps-grid">
+    <div class="cap-card">
+      <span class="cap-icon">[ recon ]</span>
+      <div class="cap-name" data-i18n="cap_recon_name">Reconnaissance</div>
+      <div class="cap-tools">subfinder · amass<br>httpx · nmap<br>katana · gau<br>waybackurls · gowitness</div>
+    </div>
+    <div class="cap-card">
+      <span class="cap-icon">[ scan  ]</span>
+      <div class="cap-name" data-i18n="cap_scan_name">Vulnerability Scanning</div>
+      <div class="cap-tools">nuclei · ffuf<br>nikto · gobuster<br>dirsearch</div>
+    </div>
+    <div class="cap-card">
+      <span class="cap-icon">[ xploit]</span>
+      <div class="cap-name" data-i18n="cap_exploit_name">Exploitation</div>
+      <div class="cap-tools">sqlmap · dalfox<br>xsstrike · commix<br>paramspider · arjun</div>
+    </div>
+    <div class="cap-card">
+      <span class="cap-icon">[ proxy ]</span>
+      <div class="cap-name" data-i18n="cap_proxy_name">Proxy &amp; Repeater</div>
+      <div class="cap-tools">traffic capture<br>request editor<br>HTTP repeater</div>
+    </div>
+    <div class="cap-card">
+      <span class="cap-icon">[ tools ]</span>
+      <div class="cap-name" data-i18n="cap_tools_name">Security Tools</div>
+      <div class="cap-tools">CORS scanner<br>403 bypass<br>cloud buckets<br>github secrets</div>
+    </div>
+    <div class="cap-card">
+      <span class="cap-icon">[ AI    ]</span>
+      <div class="cap-name" data-i18n="cap_ai_name">AI Copilot</div>
+      <div class="cap-tools">host analysis<br>report generation<br>attack suggestions<br>pipeline assist</div>
+      <span class="cap-pro-tag">★ PRO</span>
+    </div>
+  </div>
+</div>
+
+<hr class="divider">
+
+<!-- INSTALL -->
+<div class="install-wrap">
+  <div class="install-inner">
+    <div class="sec-label" data-i18n="install_label">Installation</div>
+    <h2 class="sec-title" data-i18n="install_title">One command to get started</h2>
+    <p class="sec-sub" data-i18n="install_sub">Installs all required tools, builds the app, and sets up your environment. Kali Linux and Debian-based distros supported.</p>
+    <div class="install-box">
+      <div class="install-topbar">
+        <span class="install-lbl">bash</span>
+        <button class="copy-btn" id="copy-btn" onclick="copyInstall()">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+          <span id="copy-label" data-i18n="copy_btn">Copy</span>
+        </button>
+      </div>
+      <div class="install-cmd" id="install-cmd">curl -fsSL https://github.com/sentinelsec-org/nexhunt/releases/download/v1.1.0/nexhunt-1.1.0.tar.gz | tar xz &amp;&amp; sudo bash install.sh</div>
+      <div class="install-steps">
+        <div class="install-step">
+          <span class="step-n">01</span>
+          <div class="step-t"><strong data-i18n="step1_title">Download &amp; Extract</strong><span data-i18n="step1_body">Fetches the latest release and extracts it to your current directory.</span></div>
+        </div>
+        <div class="install-step">
+          <span class="step-n">02</span>
+          <div class="step-t"><strong data-i18n="step2_title">Auto-install tools</strong><span data-i18n="step2_body">Installs nmap, nuclei, subfinder, ffuf, sqlmap, dalfox, gowitness and 15+ more.</span></div>
+        </div>
+        <div class="install-step">
+          <span class="step-n">03</span>
+          <div class="step-t"><strong data-i18n="step3_title">Run NexHunt</strong><span data-i18n="step3_body">Type <code style="font-family:var(--mono);color:var(--green);font-size:.75rem">nexhunt</code> from any terminal to launch.</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- PRICING -->
+<div class="section pricing-section">
+  <div class="sec-label" data-i18n="pricing_label">Pricing</div>
+  <h2 class="sec-title" data-i18n="pricing_title">Free — and PRO when you need it</h2>
+  <p class="sec-sub" data-i18n="pricing_sub">Most manual workflows are free forever. PRO unlocks AI, automation, and bulk capabilities.</p>
+  <div class="ptable">
+    <div class="p-head">
+      <div class="ph" data-i18n="th_feature">Feature</div>
+      <div class="ph" data-i18n="th_free">Free</div>
+      <div class="ph pro-h"><span class="pro-lbl">★ PRO</span></div>
+    </div>
+
+    <div class="prow"><div class="pc feat" data-i18n="f_recon">Full recon suite (subfinder, amass, httpx, nmap, katana...)</div><div class="pc free-c"><span class="ck">✓</span></div><div class="pc pro-c"><span class="ck-p">✓</span></div></div>
+    <div class="prow"><div class="pc feat" data-i18n="f_scanner">Scanner single-target (nuclei, ffuf, nikto, gobuster)</div><div class="pc free-c"><span class="ck">✓</span></div><div class="pc pro-c"><span class="ck-p">✓</span></div></div>
+    <div class="prow"><div class="pc feat" data-i18n="f_exploit">Exploit single-target (sqlmap, dalfox, xsstrike, commix)</div><div class="pc free-c"><span class="ck">✓</span></div><div class="pc pro-c"><span class="ck-p">✓</span></div></div>
+    <div class="prow"><div class="pc feat" data-i18n="f_proxy">Proxy capture + HTTP repeater</div><div class="pc free-c"><span class="ck">✓</span></div><div class="pc pro-c"><span class="ck-p">✓</span></div></div>
+    <div class="prow"><div class="pc feat" data-i18n="f_sectools">Security tools (CORS, 403 bypass, cloud buckets, GitHub secrets)</div><div class="pc free-c"><span class="ck">✓</span></div><div class="pc pro-c"><span class="ck-p">✓</span></div></div>
+    <div class="prow"><div class="pc feat" data-i18n="f_findings">Findings database, projects, methodology, terminal</div><div class="pc free-c"><span class="ck">✓</span></div><div class="pc pro-c"><span class="ck-p">✓</span></div></div>
+    <div class="prow"><div class="pc feat" data-i18n="f_copilot">AI Copilot (analysis, tips, report generation)</div><div class="pc free-c"><span class="cx">—</span></div><div class="pc pro-c"><span class="ck-p">✓</span></div></div>
+    <div class="prow"><div class="pc feat" data-i18n="f_pipelines">Automated pipelines (XSS/SQLi/JS full-chain)</div><div class="pc free-c"><span class="cx">—</span></div><div class="pc pro-c"><span class="ck-p">✓</span></div></div>
+    <div class="prow"><div class="pc feat" data-i18n="f_bulk">Bulk scanning (nuclei-bulk, full recon, endpoint check)</div><div class="pc free-c"><span class="cx">—</span></div><div class="pc pro-c"><span class="ck-p">✓</span></div></div>
+    <div class="prow"><div class="pc feat" data-i18n="f_intruder">Proxy Intruder (cluster bomb / pitchfork)</div><div class="pc free-c"><span class="cx">—</span></div><div class="pc pro-c"><span class="ck-p">✓</span></div></div>
+    <div class="prow"><div class="pc feat" data-i18n="f_jwt">JWT attack suite + business logic testing</div><div class="pc free-c"><span class="cx">—</span></div><div class="pc pro-c"><span class="ck-p">✓</span></div></div>
+
+    <div class="p-cta">
+      <div class="pct"></div>
+      <div class="pct"><a class="btn btn-ghost" href="https://github.com/sentinelsec-org/nexhunt/releases/latest" target="_blank" data-i18n="cta_free_short" style="font-size:.75rem;padding:6px 12px">Download</a></div>
+      <div class="pct pro-pct"><a class="btn btn-amber" href="https://sentinelsec.online/pricing" target="_blank" data-i18n="cta_pro_short" style="font-size:.75rem;padding:6px 12px">Get PRO</a></div>
+    </div>
+  </div>
+</div>
+
+<!-- FOOTER -->
+<footer>
+  <div class="footer-brand">NexHunt &nbsp;·&nbsp; <span data-i18n="footer_by">by</span> <a href="https://sentinelsec.online" target="_blank">Sentinel Security</a></div>
+  <div class="footer-sub" data-i18n="footer_sub">sentinelsec.online &nbsp;·&nbsp; v1.1.0 beta &nbsp;·&nbsp; Linux</div>
+</footer>
+
+<script>
+// ── i18n ──────────────────────────────────────────────────────────────────
+const STRINGS = {
+  en: {
+    beta_label:'Beta release',
+    hero_tagline:'Automate your full bug bounty workflow — recon, scanning, exploitation, and AI-powered analysis — from a single Linux desktop app.',
+    cta_download:'Download free',cta_pro:'Get PRO',
+    nav_download:'Download',nav_pro:'Get PRO',
+    caps_label:'Capabilities',caps_title:'Every phase of the workflow',
+    caps_sub:'Each tool is orchestrated and its output is parsed, deduplicated, and fed into the next phase automatically.',
+    cap_recon_name:'Reconnaissance',cap_scan_name:'Vulnerability Scanning',
+    cap_exploit_name:'Exploitation',cap_proxy_name:'Proxy & Repeater',
+    cap_tools_name:'Security Tools',cap_ai_name:'AI Copilot',
+    install_label:'Installation',install_title:'One command to get started',
+    install_sub:'Installs all required tools, builds the app, and sets up your environment. Kali Linux and Debian-based distros supported.',
+    copy_btn:'Copy',
+    step1_title:'Download & Extract',step1_body:'Fetches the latest release and extracts it to your current directory.',
+    step2_title:'Auto-install tools',step2_body:'Installs nmap, nuclei, subfinder, ffuf, sqlmap, dalfox, gowitness and 15+ more.',
+    step3_title:'Run NexHunt',step3_body:'Type nexhunt from any terminal to launch.',
+    pricing_label:'Pricing',pricing_title:'Free — and PRO when you need it',
+    pricing_sub:'Most manual workflows are free forever. PRO unlocks AI, automation, and bulk capabilities.',
+    th_feature:'Feature',th_free:'Free',
+    f_recon:'Full recon suite (subfinder, amass, httpx, nmap, katana...)',
+    f_scanner:'Scanner single-target (nuclei, ffuf, nikto, gobuster)',
+    f_exploit:'Exploit single-target (sqlmap, dalfox, xsstrike, commix)',
+    f_proxy:'Proxy capture + HTTP repeater',
+    f_sectools:'Security tools (CORS, 403 bypass, cloud buckets, GitHub secrets)',
+    f_findings:'Findings DB, projects, methodology, terminal',
+    f_copilot:'AI Copilot (analysis, tips, report generation)',
+    f_pipelines:'Automated pipelines (XSS/SQLi/JS full-chain)',
+    f_bulk:'Bulk scanning (nuclei-bulk, full recon, endpoint check)',
+    f_intruder:'Proxy Intruder (cluster bomb / pitchfork)',
+    f_jwt:'JWT attack suite + business logic testing',
+    cta_free_short:'Download',cta_pro_short:'Get PRO',
+    footer_by:'by',footer_sub:'sentinelsec.online · v1.1.0 beta · Linux'
+  },
+  es: {
+    beta_label:'Versión Beta',
+    hero_tagline:'Automatizá tu flujo completo de bug bounty — recon, escaneo, explotación y análisis con IA — desde una sola app de escritorio para Linux.',
+    cta_download:'Descargar gratis',cta_pro:'Obtener PRO',
+    nav_download:'Descargar',nav_pro:'Obtener PRO',
+    caps_label:'Capacidades',caps_title:'Cada fase del flujo de trabajo',
+    caps_sub:'Cada herramienta está orquestada y su salida se parsea, deduplica y alimenta a la siguiente fase automáticamente.',
+    cap_recon_name:'Reconocimiento',cap_scan_name:'Escaneo de Vulnerabilidades',
+    cap_exploit_name:'Explotación',cap_proxy_name:'Proxy y Repeater',
+    cap_tools_name:'Herramientas de Seguridad',cap_ai_name:'Copilot de IA',
+    install_label:'Instalación',install_title:'Un comando para empezar',
+    install_sub:'Instala todas las herramientas necesarias, construye la app y configura tu entorno. Soporta Kali Linux y distribuciones basadas en Debian.',
+    copy_btn:'Copiar',
+    step1_title:'Descargar y extraer',step1_body:'Descarga la última versión y la extrae en tu directorio actual.',
+    step2_title:'Auto-instalar tools',step2_body:'Instala nmap, nuclei, subfinder, ffuf, sqlmap, dalfox, gowitness y 15+ más.',
+    step3_title:'Ejecutar NexHunt',step3_body:'Escribí nexhunt en cualquier terminal para iniciar.',
+    pricing_label:'Precios',pricing_title:'Gratis — y PRO cuando lo necesitás',
+    pricing_sub:'La mayoría de los flujos manuales son gratis para siempre. PRO desbloquea IA, automatización y capacidades masivas.',
+    th_feature:'Función',th_free:'Gratis',
+    f_recon:'Suite completa de recon (subfinder, amass, httpx, nmap, katana...)',
+    f_scanner:'Scanner objetivo único (nuclei, ffuf, nikto, gobuster)',
+    f_exploit:'Exploit objetivo único (sqlmap, dalfox, xsstrike, commix)',
+    f_proxy:'Captura de proxy + repetidor HTTP',
+    f_sectools:'Herramientas (CORS, bypass 403, cloud buckets, secretos GitHub)',
+    f_findings:'BD de hallazgos, proyectos, metodología, terminal',
+    f_copilot:'Copilot IA (análisis, sugerencias, generación de reportes)',
+    f_pipelines:'Pipelines automatizados (XSS/SQLi/JS full-chain)',
+    f_bulk:'Escaneo masivo (nuclei-bulk, recon completo, endpoint check)',
+    f_intruder:'Proxy Intruder (cluster bomb / pitchfork)',
+    f_jwt:'Suite JWT + testing de lógica de negocio',
+    cta_free_short:'Descargar',cta_pro_short:'Obtener PRO',
+    footer_by:'por',footer_sub:'sentinelsec.online · v1.1.0 beta · Linux'
+  }
+}
+
+let currentLang = 'en'
+
+function setLang(lang) {
+  currentLang = lang
+  document.documentElement.lang = lang
+  document.getElementById('btn-en').classList.toggle('active', lang === 'en')
+  document.getElementById('btn-es').classList.toggle('active', lang === 'es')
+  const s = STRINGS[lang]
+  document.querySelectorAll('[data-i18n]').forEach(el => {
+    const key = el.getAttribute('data-i18n')
+    if (s[key] !== undefined) {
+      if (key === 'step3_body') {
+        el.innerHTML = s[key].replace('nexhunt', '<code style="font-family:var(--mono);color:var(--green);font-size:.75rem">nexhunt</code>')
+      } else {
+        el.textContent = s[key]
+      }
+    }
+  })
+}
+
+// ── COPY INSTALL ──────────────────────────────────────────────────────────
+const INSTALL_CMD = 'curl -fsSL https://github.com/sentinelsec-org/nexhunt/releases/download/v1.1.0/nexhunt-1.1.0.tar.gz | tar xz && sudo bash install.sh'
+
+function copyInstall() {
+  navigator.clipboard.writeText(INSTALL_CMD).then(() => {
+    const btn = document.getElementById('copy-btn')
+    const lbl = document.getElementById('copy-label')
+    btn.classList.add('copied')
+    lbl.textContent = currentLang === 'es' ? '¡Copiado!' : 'Copied!'
+    setTimeout(() => {
+      btn.classList.remove('copied')
+      lbl.textContent = STRINGS[currentLang].copy_btn
+    }, 2000)
+  })
+}
+
+// ── TERMINAL ANIMATION ────────────────────────────────────────────────────
+const LINES = [
+  { t: '$ ', c: 'tc-p', nl: false },
+  { t: 'nexhunt recon --target acme-corp.com --all', c: 'tc-cmd', nl: true },
+  { t: '', c: '', nl: true },
+  { t: '  [subfinder]  enumerating subdomains...', c: 'tc-info', nl: true },
+  { t: '  ► ', c: 'tc-dim', s: 'api.acme-corp.com', sc: 'tc-host', nl: true },
+  { t: '  ► ', c: 'tc-dim', s: 'admin.acme-corp.com', sc: 'tc-host', nl: true },
+  { t: '  ► ', c: 'tc-dim', s: 'staging.acme-corp.com', sc: 'tc-host', nl: true },
+  { t: '  ► ', c: 'tc-dim', s: 'dev.acme-corp.com', sc: 'tc-host', nl: true },
+  { t: '', c: '', nl: true },
+  { t: '  [httpx]      probing 4 hosts...', c: 'tc-info', nl: true },
+  { t: '  200  https://api.acme-corp.com        nginx/1.18.0', c: 'tc-host', nl: true },
+  { t: '  200  https://admin.acme-corp.com      Apache/2.4.51', c: 'tc-host', nl: true },
+  { t: '  403  https://staging.acme-corp.com    cloudflare', c: 'tc-dim', nl: true },
+  { t: '', c: '', nl: true },
+  { t: '  [nuclei]     scanning 4 targets...', c: 'tc-info', nl: true },
+  { t: '  [critical]   CVE-2021-44228 (log4j)   https://api.acme-corp.com', c: 'tc-crit', nl: true },
+  { t: '  [high]       default-login             https://admin.acme-corp.com/admin', c: 'tc-high', nl: true },
+  { t: '  [medium]     .env-exposure             https://staging.acme-corp.com', c: 'tc-med', nl: true },
+  { t: '', c: '', nl: true },
+  { t: '  [dalfox]     testing XSS on 31 params...', c: 'tc-info', nl: true },
+  { t: '  [VULN]       reflected XSS             https://admin.acme-corp.com/search?q=', c: 'tc-crit', nl: true },
+  { t: '', c: '', nl: true },
+  { t: '  scan complete  ——  4 findings  ——  3 targets vulnerable', c: 'tc-ok', nl: true },
+]
+
+let lineIdx = 0
+let charIdx = 0
+let tb = document.getElementById('term-body')
+
+function renderTerminal() {
+  tb.innerHTML = ''
+  lineIdx = 0
+  charIdx = 0
+  nextChar()
+}
+
+function nextChar() {
+  if (lineIdx >= LINES.length) {
+    setTimeout(renderTerminal, 3200)
+    return
+  }
+  const line = LINES[lineIdx]
+  let el = document.getElementById('tline-' + lineIdx)
+
+  if (!el) {
+    el = document.createElement('span')
+    el.id = 'tline-' + lineIdx
+    el.className = 'tl'
+    tb.appendChild(el)
+    // remove old cursor
+    const old = tb.querySelector('.cursor')
+    if (old) old.remove()
+    // add cursor at end
+    const cur = document.createElement('span')
+    cur.className = 'cursor'
+    tb.appendChild(cur)
+  }
+
+  const fullText = line.t + (line.s || '')
+  if (charIdx < fullText.length) {
+    const ch = fullText[charIdx]
+    if (charIdx < line.t.length) {
+      el.innerHTML += `<span class="${line.c}">${ch}</span>`
+    } else {
+      el.innerHTML += `<span class="${line.sc || line.c}">${ch}</span>`
+    }
+    charIdx++
+    const delay = ch === ' ' ? 18 : (Math.random() < 0.05 ? 90 : 28)
+    setTimeout(nextChar, delay)
+  } else {
+    if (line.nl) {
+      lineIdx++
+      charIdx = 0
+      const pause = lineIdx > 0 && LINES[lineIdx - 1].t.includes('[') ? 220 : 60
+      setTimeout(nextChar, pause)
+    }
+  }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  setTimeout(renderTerminal, 600)
+})
+</script>
+</body>
+</html>
