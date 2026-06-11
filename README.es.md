@@ -24,6 +24,16 @@
 
 ---
 
+## Capturas de pantalla
+
+| Recon | Scanner |
+|---|---|
+| ![Pantalla Recon mostrando 10 hosts activos en mcdonalds.com.ar con códigos de estado y stack tecnológico](docs/screenshots/recon.png) | ![Pantalla Scanner mostrando 14 hallazgos de nuclei y nikto](docs/screenshots/scanner.png) |
+
+> Sesión real contra mcdonalds.com.ar. subfinder descubrió subdominios, httpx los sondeó en paralelo, nuclei + nikto corrieron contra todos los hosts activos.
+
+---
+
 ## ¿Qué es NexHunt?
 
 NexHunt es una **aplicación de escritorio para bug bounty hunters y pentesters** que reemplaza tu colección de pestañas de terminal, scripts y notas dispersas con un flujo de trabajo único e integrado.

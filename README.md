@@ -24,6 +24,16 @@
 
 ---
 
+## Screenshots
+
+| Recon | Scanner |
+|---|---|
+| ![Recon page showing 10 live hosts discovered on mcdonalds.com.ar with status codes and tech stack](docs/screenshots/recon.png) | ![Scanner page showing 14 vulnerability findings from nuclei and nikto](docs/screenshots/scanner.png) |
+
+> Real session against mcdonalds.com.ar. subfinder discovered subdomains, httpx probed all of them in parallel, nuclei + nikto ran against all live hosts.
+
+---
+
 ## What is NexHunt?
 
 NexHunt is a **desktop app for bug bounty hunters and penetration testers** that replaces your messy collection of terminal tabs, scripts, and notes with a single, integrated workflow.

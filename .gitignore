@@ -32,4 +32,6 @@ dist/
 geckodriver.log
 gowitness.sqlite3
 screenshots/
+!docs/screenshots/
+!docs/screenshots/*.png
 kali/
