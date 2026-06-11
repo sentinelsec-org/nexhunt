@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     license_offline_grace_days: int = 7        # keep PRO this long without a successful check
     license_product_id: str = "1135593"        # LemonSqueezy product ID for NexHunt PRO
     upgrade_url: str = "https://sentinelsec.online/pricing"
-    update_repo: str = "sentinelsec/nexhunt"   # GitHub owner/repo for release updates
+    update_repo: str = "sentinelsec-org/nexhunt"   # GitHub owner/repo for release updates
 
     # UI language
     language: str = "en"  # "en" | "es"

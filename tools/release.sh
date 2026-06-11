@@ -3,7 +3,7 @@
 #
 # Usage: bash tools/release.sh [--dry-run] [--skip-build] [--skip-obfuscate]
 # Run from the nexhunt-prod root on the developer's machine.
-# Requires: gh (GitHub CLI), authenticated to sentinelsec/nexhunt repo.
+# Requires: gh (GitHub CLI), authenticated to sentinelsec-org/nexhunt repo.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
