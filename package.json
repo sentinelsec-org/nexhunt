@@ -1,0 +1,47 @@
+{
+  "name": "nexhunt",
+  "version": "1.0.0",
+  "description": "Bug bounty automation platform",
+  "main": "./out/main/index.js",
+  "scripts": {
+    "dev": "env -u ELECTRON_RUN_AS_NODE electron-vite dev -- --no-sandbox --disable-gpu --disable-gpu-sandbox --in-process-gpu --disable-dev-shm-usage",
+    "build": "electron-vite build",
+    "preview": "env -u ELECTRON_RUN_AS_NODE electron-vite preview -- --no-sandbox --disable-gpu --disable-gpu-sandbox --in-process-gpu --disable-dev-shm-usage",
+    "start": "bash start.sh"
+  },
+  "keywords": [
+    "bug-bounty",
+    "security",
+    "pentesting"
+  ],
+  "author": "",
+  "license": "MIT",
+  "type": "commonjs",
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.2.2",
+    "@types/node": "^25.5.2",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^4.7.0",
+    "autoprefixer": "^10.4.27",
+    "electron": "^32.3.3",
+    "electron-vite": "^4.0.1",
+    "postcss": "^8.5.8",
+    "tailwindcss": "^4.2.2",
+    "typescript": "^6.0.2",
+    "vite": "^6.4.1"
+  },
+  "dependencies": {
+    "@fontsource-variable/space-grotesk": "^5.2.10",
+    "@tanstack/react-table": "^8.21.3",
+    "@tanstack/react-virtual": "^3.13.23",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "^1.7.0",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "react-router-dom": "^7.14.0",
+    "tailwind-merge": "^3.5.0",
+    "zustand": "^5.0.12"
+  }
+}

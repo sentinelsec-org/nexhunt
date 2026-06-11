@@ -1,0 +1,12 @@
+- Nikto v2.6.0/
++ Target Host: www.todoshowcase.com
++ Target Port: 443
++ GET /: Cookie name created without the secure flag. See: https://developer.mozilla.org/en-US/docs/Web/HTTP/Cookies: 
++ GET /: Cookie PHPSESSID created without the secure flag. See: https://developer.mozilla.org/en-US/docs/Web/HTTP/Cookies: 
++ GET /: Cookie PHPSESSID created without the httponly flag. See: https://developer.mozilla.org/en-US/docs/Web/HTTP/Cookies: 
++ GET /: Retrieved x-powered-by header: PHP/5.5.9-1ubuntu4.29.
++ SSL Info:           Subject:  /CN=todoshowcase.com
+                      CN:       todoshowcase.com
+                      SAN:      todoshowcase.com, *.todoshowcase.com
+                      Ciphers:  ECDHE-RSA-AES128-GCM-SHA256
+                      Issuer:   /C=US/O=Amazon/CN=Amazon RSA 2048 M04

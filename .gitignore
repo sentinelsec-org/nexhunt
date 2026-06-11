@@ -1,0 +1,35 @@
+# Python
+backend/venv/
+backend/__pycache__/
+backend/**/__pycache__/
+backend/**/*.pyc
+backend/**/*.pyo
+*.db
+*.db-shm
+*.db-wal
+
+# Secrets
+token.txt
+.env
+*.key
+
+# Node
+node_modules/
+sentinel-ai-proxy/node_modules/
+
+# Build output
+out/
+dist/
+
+# Electron
+*.AppImage
+*.snap
+*.deb
+*.rpm
+
+# Misc
+.DS_Store
+geckodriver.log
+gowitness.sqlite3
+screenshots/
+kali/

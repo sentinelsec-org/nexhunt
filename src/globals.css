@@ -1,0 +1,123 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme {
+  /* Cool graphite palette — blue-cast darks replace generic zinc */
+  --color-zinc-950: #080B0E;
+  --color-zinc-900: #0E1217;
+  --color-zinc-800: #1C2330;
+  --color-zinc-700: #2A3441;
+  --color-zinc-600: #3D4F60;
+  --color-zinc-500: #5A7088;
+  --color-zinc-400: #8AA5BE;
+  --color-zinc-300: #B8CCDE;
+  --color-zinc-200: #D2E0EC;
+  --color-zinc-100: #E8F0F7;
+  --color-zinc-50:  #F0F6FA;
+
+  /* Teal-green accent (replaces Tailwind green) */
+  --color-green-950: #001A15;
+  --color-green-900: #002720;
+  --color-green-800: #003D30;
+  --color-green-700: #006050;
+  --color-green-600: #008F74;
+  --color-green-500: #00D9A6;
+  --color-green-400: #29EBB8;
+  --color-green-300: #6FF5D0;
+  --color-green-200: #A8F9E8;
+  --color-green-100: #D4FDF4;
+
+  --font-sans: 'Space Grotesk Variable', 'Space Grotesk', 'Inter', system-ui, sans-serif;
+}
+
+:root {
+  --background: 210 28% 5%;
+  --foreground: 210 22% 92%;
+  --card: 212 25% 8%;
+  --card-foreground: 210 22% 92%;
+  --popover: 212 25% 8%;
+  --popover-foreground: 210 22% 92%;
+  --primary: 165 100% 43%;
+  --primary-foreground: 165 60% 8%;
+  --secondary: 213 22% 21%;
+  --secondary-foreground: 210 22% 92%;
+  --muted: 214 25% 15%;
+  --muted-foreground: 210 18% 54%;
+  --accent: 214 25% 15%;
+  --accent-foreground: 210 22% 92%;
+  --destructive: 0 84.2% 60.2%;
+  --destructive-foreground: 0 0% 98%;
+  --border: 213 22% 14%;
+  --input: 213 22% 14%;
+  --ring: 165 100% 43%;
+  --radius: 0.5rem;
+}
+
+.dark {
+  --background: 210 28% 5%;
+  --foreground: 210 22% 92%;
+  --card: 212 25% 8%;
+  --card-foreground: 210 22% 92%;
+  --popover: 212 25% 8%;
+  --popover-foreground: 210 22% 92%;
+  --primary: 165 100% 43%;
+  --primary-foreground: 165 60% 8%;
+  --secondary: 213 22% 21%;
+  --secondary-foreground: 210 22% 92%;
+  --muted: 214 25% 15%;
+  --muted-foreground: 210 18% 54%;
+  --accent: 214 25% 15%;
+  --accent-foreground: 210 22% 92%;
+  --destructive: 0 62.8% 30.6%;
+  --destructive-foreground: 0 0% 98%;
+  --border: 213 22% 14%;
+  --input: 213 22% 14%;
+  --ring: 165 100% 43%;
+}
+
+* {
+  border-color: hsl(var(--border));
+}
+
+body {
+  background-color: hsl(var(--background));
+  color: hsl(var(--foreground));
+  font-family: 'Space Grotesk Variable', 'Space Grotesk', 'Inter', system-ui, sans-serif;
+  font-feature-settings: 'cv08', 'cv09', 'cv10';
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  height: 100vh;
+}
+
+#root {
+  height: 100vh;
+  display: flex;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: rgba(138, 165, 190, 0.18);
+  border-radius: 2px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(138, 165, 190, 0.32);
+}
+
+/* Severity */
+.severity-critical { color: #ef4444; }
+.severity-high     { color: #f97316; }
+.severity-medium   { color: #eab308; }
+.severity-low      { color: #3b82f6; }
+.severity-info     { color: #5A7088; }
+
+/* HTTP methods */
+.method-get     { color: #00D9A6; }
+.method-post    { color: #3b82f6; }
+.method-put     { color: #f59e0b; }
+.method-delete  { color: #ef4444; }
+.method-patch   { color: #a855f7; }
+.method-options { color: #5A7088; }
