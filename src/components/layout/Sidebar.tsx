@@ -284,6 +284,20 @@ export function Sidebar() {
             )
           }
         >
+          <FolderOpen size={15} className="shrink-0" />
+          {!sidebarCollapsed && <span>Projects</span>}
+        </NavLink>
+        <NavLink
+          to="/dashboard"
+          className={({ isActive }) =>
+            cn(
+              'flex items-center gap-2.5 rounded-md px-2.5 py-[7px] text-[13px] font-medium transition-colors',
+              isActive
+                ? 'bg-green-950/35 text-green-400 ring-1 ring-inset ring-green-900/50'
+                : 'text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800/40'
+            )
+          }
+        >
           <LayoutDashboard size={15} className="shrink-0" />
           {!sidebarCollapsed && <span>Dashboard</span>}
         </NavLink>
@@ -361,21 +375,6 @@ export function Sidebar() {
         >
           <Settings size={15} className="shrink-0" />
           {!sidebarCollapsed && <span>Settings</span>}
-        </NavLink>
-
-        <NavLink
-          to="/projects"
-          className={({ isActive }) =>
-            cn(
-              'flex items-center gap-2.5 rounded-md px-2.5 py-[7px] text-[13px] font-medium transition-colors',
-              isActive
-                ? 'bg-green-950/35 text-green-400 ring-1 ring-inset ring-green-900/50'
-                : 'text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800/40'
-            )
-          }
-        >
-          <FolderOpen size={15} className="shrink-0" />
-          {!sidebarCollapsed && <span>Projects</span>}
         </NavLink>
 
         <button

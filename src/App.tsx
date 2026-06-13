@@ -6,6 +6,7 @@ import { ProGate } from '@/components/layout/ProGate'
 import { ErrorBoundary } from '@/components/layout/ErrorBoundary'
 import { Toaster } from '@/components/ui/toast'
 import { UpgradeModal } from '@/components/ui/UpgradeModal'
+import { ProSplash } from '@/components/ui/ProSplash'
 import { DashboardPage } from '@/pages/DashboardPage'
 import { ProxyPage } from '@/pages/ProxyPage'
 import { ReconPage } from '@/pages/ReconPage'
@@ -209,7 +210,8 @@ function App() {
         <ErrorBoundary>
           <Routes>
             {/* Always accessible */}
-            <Route path="/" element={<DashboardPage />} />
+            <Route path="/" element={<ProjectsPage />} />
+            <Route path="/dashboard" element={<DashboardPage />} />
             <Route path="/projects" element={<ProjectsPage />} />
             <Route path="/settings" element={<SettingsPage />} />
 
@@ -228,6 +230,7 @@ function App() {
         </ErrorBoundary>
         <Toaster />
         <UpgradeModal />
+        <ProSplash />
       </div>
     </HashRouter>
   )
