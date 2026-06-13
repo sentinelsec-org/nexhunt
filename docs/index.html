@@ -3,778 +3,827 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>NexHunt — Bug Bounty, Automated.</title>
-<meta name="description" content="Bug Bounty, Automated. NexHunt runs 20+ security tools for you — recon, scanning, exploitation and AI reporting in one Linux desktop app. Free to download.">
+<title>NexHunt - Bug Bounty, Automated.</title>
+<meta name="description" content="NexHunt runs 20+ security tools for you. Recon to exploitation, chained into a single automated workflow. Built for Linux bug bounty hunters.">
+<meta property="og:title" content="NexHunt - Bug Bounty, Automated.">
+<meta property="og:description" content="The complete attack toolkit for bug bounty hunters. Recon to exploitation, automated on your Linux machine.">
+<meta property="og:image" content="screenshots/recon-pipeline.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://app.lemonsqueezy.com/js/lemon.js" defer></script>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
-  --bg:#0a0a0f;--s1:#0f0f16;--s2:#14141e;--s3:#1a1a26;
-  --b1:#1e1e2e;--b2:#2a2a3e;--b3:#3a3a52;
-  --green:#00d46a;--gdim:rgba(0,212,106,.07);--gglow:rgba(0,212,106,.25);--gtext:#00d46a;
-  --amber:#f5a623;--adim:rgba(245,166,35,.08);--aglow:rgba(245,166,35,.3);
-  --purple:#7c6af7;--pdim:rgba(124,106,247,.08);--pglow:rgba(124,106,247,.3);
-  --red:#f25f5c;--blue:#4da3ff;--teal:#2dd4bf;--cyan:#22d3ee;
-  --text:#e8e8f0;--muted:#6b6b84;--dim:#3a3a52;
-  --sans:'Inter',system-ui,sans-serif;
+  --bg:#09090b;--s1:#111113;--s2:#18181b;--s3:#222226;
+  --border:#26262a;--border-2:#303036;
+  --text:#f4f4f5;--text-2:#a1a1aa;--text-3:#52525b;
+  --green:#22c55e;--green-dim:rgba(34,197,94,.08);--green-glow:rgba(34,197,94,.18);
+  --amber:#f59e0b;--amber-dim:rgba(245,158,11,.08);--amber-glow:rgba(245,158,11,.18);
+  --r:8px;
+  --font:'Outfit',system-ui,-apple-system,sans-serif;
   --mono:'JetBrains Mono','Fira Code',monospace;
-  --r:8px;--r2:12px;--r3:16px
+  --max:1160px
 }
 html{scroll-behavior:smooth}
-body{background:var(--bg);color:var(--text);font-family:var(--sans);line-height:1.6;-webkit-font-smoothing:antialiased;overflow-x:hidden}
+body{background:var(--bg);color:var(--text);font-family:var(--font);line-height:1.6;-webkit-font-smoothing:antialiased;overflow-x:hidden}
+body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:9000;opacity:.018;background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");background-size:160px}
+a{color:inherit;text-decoration:none}
+img{display:block;max-width:100%}
 
-/* ─── NOISE ─── */
-body::after{content:'';position:fixed;inset:0;pointer-events:none;opacity:.025;z-index:9999;background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");background-size:180px}
-
-/* ─── NAV ─── */
-nav{position:sticky;top:0;z-index:600;display:flex;align-items:center;justify-content:space-between;padding:0 clamp(1rem,4vw,3rem);height:60px;background:rgba(10,10,15,.85);border-bottom:1px solid var(--b1);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px)}
-.nav-brand{display:flex;align-items:center;gap:.5rem;text-decoration:none;font-weight:700;font-size:.9375rem;letter-spacing:-.02em;color:var(--text)}
-.brand-mark{display:flex;align-items:center;justify-content:center;width:28px;height:28px;background:var(--green);border-radius:6px}
-.brand-mark svg{width:16px;height:16px;color:#000}
-.brand-by{font-size:.625rem;font-weight:500;color:var(--muted);letter-spacing:.05em;margin-left:6px;text-transform:uppercase;padding-top:1px}
-.nav-mid{display:flex;align-items:center;gap:.25rem}
-.nav-link{color:var(--muted);font-size:.8125rem;font-weight:500;text-decoration:none;padding:6px 12px;border-radius:6px;transition:all .15s}
+/* ---- NAV ---- */
+nav{position:sticky;top:0;z-index:500;height:62px;display:flex;align-items:center;justify-content:space-between;padding:0 clamp(1rem,4vw,2.5rem);background:rgba(9,9,11,.88);border-bottom:1px solid var(--border);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px)}
+.nav-logo{display:flex;align-items:center;gap:9px;font-weight:700;font-size:.9375rem;letter-spacing:-.025em;color:var(--text)}
+.logo-mark{width:28px;height:28px;background:var(--green);border-radius:6px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.logo-mark svg{width:15px;height:15px;fill:#000}
+.nav-links{display:flex;align-items:center;gap:2px}
+.nav-link{font-size:.8125rem;font-weight:500;color:var(--text-2);padding:6px 13px;border-radius:6px;transition:color .15s,background .15s}
 .nav-link:hover{color:var(--text);background:var(--s2)}
-.nav-r{display:flex;align-items:center;gap:.75rem}
-.lang-pill{display:flex;border:1px solid var(--b1);border-radius:100px;padding:3px;background:var(--s1)}
-.lbtn{background:none;border:none;color:var(--muted);font-family:var(--sans);font-size:.625rem;font-weight:700;letter-spacing:.1em;padding:4px 11px;cursor:pointer;transition:all .15s;text-transform:uppercase;border-radius:100px}
-.lbtn.on{background:var(--b2);color:var(--text)}
-.lbtn:hover:not(.on){color:var(--text)}
-.btn{display:inline-flex;align-items:center;gap:.375rem;padding:8px 18px;border-radius:var(--r);font-family:var(--sans);font-size:.8125rem;font-weight:600;cursor:pointer;text-decoration:none;transition:all .18s;border:none;white-space:nowrap}
-.btn-g{background:var(--green);color:#000;font-weight:700}
-.btn-g:hover{box-shadow:0 0 0 3px var(--gglow),0 6px 24px var(--gglow);transform:translateY(-1px)}
-.btn-o{background:transparent;color:var(--text);border:1px solid var(--b2)}
-.btn-o:hover{background:var(--s2);border-color:var(--b3)}
-.btn-a{background:var(--amber);color:#000;font-weight:700}
-.btn-a:hover{box-shadow:0 0 0 3px var(--aglow),0 6px 24px var(--aglow);transform:translateY(-1px)}
-@media(max-width:560px){.nav-mid,.nav-r .btn-g{display:none}}
+.nav-right{display:flex;align-items:center;gap:.75rem}
+.ver-badge{font-family:var(--mono);font-size:.5625rem;color:var(--text-3);border:1px solid var(--border);border-radius:4px;padding:2px 7px;letter-spacing:.06em}
+.lang-toggle{display:flex;border:1px solid var(--border);border-radius:100px;padding:3px;gap:2px}
+.lbtn{background:none;border:none;color:var(--text-3);font-family:var(--font);font-size:.5625rem;font-weight:700;letter-spacing:.12em;padding:3px 9px;border-radius:100px;cursor:pointer;transition:all .15s;text-transform:uppercase}
+.lbtn.active{background:var(--s3);color:var(--text-2)}
+.lbtn:hover:not(.active){color:var(--text-2)}
+.btn{display:inline-flex;align-items:center;gap:.375rem;padding:8px 18px;border-radius:var(--r);font-family:var(--font);font-size:.8125rem;font-weight:600;cursor:pointer;text-decoration:none;transition:all .18s;border:1px solid transparent;white-space:nowrap;line-height:1}
+.btn-green{background:var(--green);color:#000;font-weight:700;border-color:var(--green)}
+.btn-green:hover{box-shadow:0 0 0 3px var(--green-glow);transform:translateY(-1px)}
+.btn-amber{background:var(--amber);color:#000;font-weight:700;border-color:var(--amber)}
+.btn-amber:hover{box-shadow:0 0 0 3px var(--amber-glow);transform:translateY(-1px)}
+.btn-outline{background:transparent;color:var(--text-2);border-color:var(--border-2)}
+.btn-outline:hover{color:var(--text);border-color:var(--border-2);background:var(--s2)}
+@media(max-width:620px){.nav-links,.ver-badge{display:none}}
+@media(max-width:400px){.nav-right .btn-green{display:none}}
 
-/* ─── HERO ─── */
-.hero{position:relative;overflow:hidden;padding:clamp(4rem,10vw,7rem) clamp(1rem,4vw,3rem) 0}
-.hero-canvas{position:absolute;inset:0;pointer-events:none;z-index:0}
-.grid-fade{position:absolute;inset:0;background-image:linear-gradient(rgba(0,212,106,.04) 1px,transparent 1px),linear-gradient(90deg,rgba(0,212,106,.04) 1px,transparent 1px);background-size:48px 48px;mask-image:radial-gradient(ellipse 80% 60% at 50% 0,black 40%,transparent 100%)}
-.glow-top{position:absolute;top:-200px;left:50%;transform:translateX(-50%);width:900px;height:600px;background:radial-gradient(ellipse,rgba(0,212,106,.055) 0%,rgba(124,106,247,.025) 50%,transparent 70%);border-radius:50%}
-.hero-inner{position:relative;z-index:1;max-width:900px;margin:0 auto;text-align:center}
-.beta-tag{display:inline-flex;align-items:center;gap:.5rem;padding:5px 14px 5px 8px;border:1px solid rgba(0,212,106,.25);border-radius:100px;background:rgba(0,212,106,.06);font-size:.6875rem;font-weight:600;color:var(--green);letter-spacing:.04em;margin-bottom:2rem;animation:up .6s ease both}
-.beta-dot{width:6px;height:6px;background:var(--green);border-radius:50%;animation:blink-g 1.8s ease-in-out infinite}
-@keyframes blink-g{0%,100%{opacity:1;box-shadow:0 0 0 0 var(--gglow)}50%{opacity:.4;box-shadow:0 0 0 5px transparent}}
-@keyframes up{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
-.hero h1{font-size:clamp(2.5rem,6.5vw,4.5rem);font-weight:800;letter-spacing:-.045em;line-height:1.05;margin-bottom:1.5rem;animation:up .7s ease .08s both}
-.hero h1 em{font-style:normal;color:var(--green)}
-.hero-sub{font-size:clamp(.9375rem,2vw,1.125rem);color:var(--muted);line-height:1.75;max-width:52ch;margin:0 auto 2.5rem;font-weight:400;animation:up .7s ease .15s both}
-.hero-sub strong{color:var(--text);font-weight:600}
-.hero-ctas{display:flex;gap:.75rem;justify-content:center;flex-wrap:wrap;margin-bottom:3.5rem;animation:up .7s ease .22s both}
-.hero-ctas .btn{padding:12px 28px;font-size:.9375rem}
-.hero-stats{display:flex;gap:clamp(1.5rem,4vw,3rem);justify-content:center;flex-wrap:wrap;margin-bottom:3.5rem;animation:up .7s ease .28s both;padding:1.5rem 2rem;background:var(--s1);border:1px solid var(--b1);border-radius:var(--r2);max-width:580px;margin-left:auto;margin-right:auto}
-.stat-n{font-size:1.5rem;font-weight:800;color:var(--green);font-family:var(--mono);letter-spacing:-.03em;line-height:1}
-.stat-l{font-size:.6875rem;color:var(--muted);text-transform:uppercase;letter-spacing:.1em;margin-top:.25rem;font-weight:500}
+/* ---- HERO ---- */
+.hero{position:relative;overflow:hidden;padding:0 clamp(1rem,4vw,2.5rem)}
+.hero-grid{position:absolute;inset:0;pointer-events:none;background-image:linear-gradient(rgba(34,197,94,.035) 1px,transparent 1px),linear-gradient(90deg,rgba(34,197,94,.035) 1px,transparent 1px);background-size:52px 52px;mask-image:radial-gradient(ellipse 90% 80% at 60% 0,black 30%,transparent 80%)}
+.hero-inner{position:relative;z-index:1;max-width:var(--max);margin:0 auto;display:grid;grid-template-columns:1fr 1fr;gap:4.5rem;align-items:center;padding:5.5rem 0 4.5rem}
+.hero-copy{display:flex;flex-direction:column;align-items:flex-start;gap:0}
+.beta-pill{display:inline-flex;align-items:center;gap:.5rem;font-family:var(--mono);font-size:.5875rem;font-weight:500;color:var(--text-3);border:1px solid var(--border);border-radius:100px;padding:4px 11px;margin-bottom:1.75rem;letter-spacing:.04em}
+.beta-dot{width:5px;height:5px;background:var(--green);border-radius:50%;animation:pulse-g 2s ease-in-out infinite}
+@keyframes pulse-g{0%,100%{opacity:1}50%{opacity:.35}}
+.hero-h1{font-size:clamp(2.75rem,5.5vw,5rem);font-weight:800;letter-spacing:-.04em;line-height:1.06;margin-bottom:1.25rem}
+.hero-h1 em{font-style:normal;color:var(--green)}
+.hero-sub{font-size:clamp(.9375rem,1.5vw,1.0625rem);color:var(--text-2);line-height:1.7;max-width:44ch;margin-bottom:2rem}
+.hero-ctas{display:flex;gap:.75rem;flex-wrap:wrap;margin-bottom:2rem}
+.hero-ctas .btn{padding:11px 24px;font-size:.9375rem}
+.install-wrap{width:100%;background:var(--s1);border:1px solid var(--border);border-radius:var(--r);display:flex;align-items:center;gap:0;overflow:hidden}
+.install-prompt{font-family:var(--mono);font-size:.6875rem;color:var(--green);padding:0 10px 0 14px;flex-shrink:0}
+.install-cmd{font-family:var(--mono);font-size:.6875rem;color:var(--text-2);flex:1;padding:11px 0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.copy-btn{flex-shrink:0;background:none;border:none;border-left:1px solid var(--border);color:var(--text-3);font-family:var(--font);font-size:.625rem;font-weight:600;letter-spacing:.04em;padding:0 14px;height:38px;cursor:pointer;transition:color .15s;text-transform:uppercase}
+.copy-btn:hover{color:var(--text-2)}
+.copy-btn.copied{color:var(--green)}
+.hero-visual{position:relative}
+.shot-frame{background:var(--s1);border:1px solid var(--border-2);border-radius:10px;overflow:hidden;box-shadow:0 24px 80px rgba(0,0,0,.6),0 0 0 1px rgba(255,255,255,.04);animation:fadein .7s ease .15s both}
+@keyframes fadein{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}
+.shot-titlebar{display:flex;align-items:center;gap:6px;padding:10px 14px;background:var(--s2);border-bottom:1px solid var(--border)}
+.tbar-dot{width:10px;height:10px;border-radius:50%}
+.tbar-dot-r{background:#ff5f57}.tbar-dot-y{background:#febc2e}.tbar-dot-g{background:#28c840}
+.tbar-title{margin-left:6px;font-family:var(--mono);font-size:.5875rem;color:var(--text-3);letter-spacing:.04em}
+.shot-frame img{width:100%;height:auto;object-fit:cover}
+@media(max-width:840px){
+  .hero-inner{grid-template-columns:1fr;gap:2.5rem;padding:4rem 0 3rem;text-align:left}
+  .hero-visual{order:2}
+}
 
-/* ─── APP SCREENSHOT ─── */
-.app-shot{position:relative;z-index:1;max-width:1100px;margin:0 auto;padding:0 clamp(1rem,4vw,3rem);animation:up .8s ease .35s both}
-.app-frame{background:var(--s1);border:1px solid var(--b2);border-radius:var(--r3) var(--r3) 0 0;overflow:hidden;box-shadow:0 -4px 0 0 var(--green) inset,0 32px 100px rgba(0,0,0,.8),0 0 0 1px rgba(255,255,255,.04)}
-.app-titlebar{display:flex;align-items:center;gap:7px;padding:12px 16px;background:var(--s2);border-bottom:1px solid var(--b1)}
-.awin-dot{width:12px;height:12px;border-radius:50%}
-.awd-r{background:#ff5f57}.awd-y{background:#febc2e}.awd-g{background:#28c840}
-.app-title{margin-left:6px;font-size:.6875rem;color:var(--muted);font-family:var(--mono);letter-spacing:.03em}
-.shot-tabs-nav{display:flex;gap:0;border-bottom:1px solid var(--b1);background:var(--s2);overflow-x:auto;scrollbar-width:none}
-.shot-tab{background:none;border:none;border-bottom:2px solid transparent;color:var(--muted);font-family:var(--sans);font-size:.75rem;font-weight:500;padding:10px 18px;cursor:pointer;transition:all .15s;white-space:nowrap;flex-shrink:0}
-.shot-tab.on{color:var(--green);border-bottom-color:var(--green)}
-.shot-tab:hover:not(.on){color:var(--text)}
-.shot-img-wrap{position:relative;line-height:0}
-.shot-img-wrap img{width:100%;height:auto;display:block;object-fit:cover}
-.shot-img-wrap img.hidden{display:none}
-.shot-desc{display:none;padding:1.25rem 1.5rem;background:var(--s2);border-top:1px solid var(--b1);font-size:.8125rem;color:var(--muted);line-height:1.6}
-.shot-desc.on{display:block}
-.shot-desc strong{color:var(--green);font-weight:600}
+/* ---- MARQUEE ---- */
+.marquee-wrap{border-top:1px solid var(--border);border-bottom:1px solid var(--border);background:var(--s1);overflow:hidden;padding:12px 0}
+.marquee-track{display:flex;gap:2rem;animation:marquee 35s linear infinite;width:max-content}
+.marquee-track:hover{animation-play-state:paused}
+.marquee-item{display:flex;align-items:center;gap:.5rem;font-family:var(--mono);font-size:.6875rem;color:var(--text-3);white-space:nowrap;padding:0 1rem}
+.marquee-item::after{content:'·';color:var(--border-2);margin-left:.5rem}
+@keyframes marquee{from{transform:translateX(0)}to{transform:translateX(-50%)}}
 
-/* ─── DIVIDER ─── */
-hr.div{border:none;border-top:1px solid var(--b1);margin:0}
+/* ---- SECTION BASE ---- */
+.section{padding:clamp(4rem,7vw,6rem) clamp(1rem,4vw,2.5rem)}
+.section-inner{max-width:var(--max);margin:0 auto}
+.section-header{margin-bottom:3rem}
+.section-header h2{font-size:clamp(1.75rem,3.5vw,2.5rem);font-weight:800;letter-spacing:-.04em;line-height:1.15;margin-bottom:.625rem}
+.section-header p{font-size:.9375rem;color:var(--text-2);max-width:52ch;line-height:1.7}
 
-/* ─── SECTION LAYOUT ─── */
-section{padding:clamp(4rem,8vw,6rem) clamp(1rem,4vw,3rem);max-width:1120px;margin:0 auto}
-.sec-wrap{padding:clamp(4rem,8vw,6rem) 0;border-top:1px solid var(--b1)}
-.sec-wrap-inner{max-width:1120px;margin:0 auto;padding:0 clamp(1rem,4vw,3rem)}
-.eyebrow{font-family:var(--mono);font-size:.625rem;font-weight:600;letter-spacing:.2em;text-transform:uppercase;color:var(--green);margin-bottom:.875rem}
-.sec-h{font-size:clamp(1.625rem,3.5vw,2.25rem);font-weight:800;letter-spacing:-.04em;line-height:1.15;margin-bottom:.75rem}
-.sec-sub{color:var(--muted);font-size:.9375rem;max-width:54ch;line-height:1.7;margin-bottom:2.5rem}
+/* ---- BENTO ---- */
+.bento-section{background:var(--bg);border-top:1px solid var(--border)}
+.bento-grid{display:grid;grid-template-columns:2fr 1fr;grid-template-rows:auto auto;gap:1.25rem}
+.bento-cell{background:var(--s1);border:1px solid var(--border);border-radius:var(--r);overflow:hidden;transition:border-color .2s}
+.bento-cell:hover{border-color:var(--border-2)}
+.bento-a{grid-column:1;grid-row:1}
+.bento-b{grid-column:2;grid-row:1;display:flex;flex-direction:column;justify-content:center;padding:2rem 1.75rem}
+.bento-c{grid-column:1;grid-row:2;display:flex;flex-direction:column;justify-content:center;padding:2rem 1.75rem}
+.bento-d{grid-column:2;grid-row:2}
+.bento-img-wrap{position:relative;line-height:0}
+.bento-img-wrap img{width:100%;height:auto;object-fit:cover}
+.bento-inner-bar{display:flex;align-items:center;gap:5px;padding:9px 12px;background:var(--s2);border-bottom:1px solid var(--border)}
+.bento-inner-dot{width:8px;height:8px;border-radius:50%}
+.bento-inner-label{margin-left:4px;font-family:var(--mono);font-size:.5625rem;color:var(--text-3);letter-spacing:.04em}
+.bento-label{font-family:var(--mono);font-size:.5875rem;font-weight:500;color:var(--green);letter-spacing:.08em;text-transform:uppercase;margin-bottom:.75rem}
+.bento-cell h3{font-size:1.125rem;font-weight:700;letter-spacing:-.03em;line-height:1.25;margin-bottom:.625rem}
+.bento-cell p{font-size:.875rem;color:var(--text-2);line-height:1.65}
+.bento-tags{display:flex;flex-wrap:wrap;gap:4px;margin-top:1rem}
+.bento-tag{font-family:var(--mono);font-size:.5625rem;color:var(--text-3);background:var(--s2);border:1px solid var(--border);border-radius:4px;padding:2px 7px}
+@media(max-width:760px){
+  .bento-grid{grid-template-columns:1fr;grid-template-rows:auto}
+  .bento-a,.bento-b,.bento-c,.bento-d{grid-column:1;grid-row:auto}
+  .bento-b,.bento-c{min-height:auto;padding:1.5rem}
+}
 
-/* ─── WORKFLOW STRIP ─── */
-.wf-strip{display:grid;grid-template-columns:repeat(5,1fr);gap:0;border:1px solid var(--b1);border-radius:var(--r2);overflow:hidden}
-@media(max-width:800px){.wf-strip{grid-template-columns:1fr 1fr}}
-@media(max-width:460px){.wf-strip{grid-template-columns:1fr}}
-.wf-item{padding:1.25rem;border-right:1px solid var(--b1);transition:background .15s;cursor:default;position:relative}
-.wf-item:last-child{border-right:none}
-.wf-item:hover{background:var(--s2)}
-.wf-num{font-family:var(--mono);font-size:.5625rem;color:var(--dim);letter-spacing:.1em;text-transform:uppercase;margin-bottom:.625rem}
-.wf-icon{font-size:1.25rem;margin-bottom:.5rem;display:block}
-.wf-phase{font-size:.625rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--green);margin-bottom:.25rem}
-.wf-name{font-size:.875rem;font-weight:600;margin-bottom:.5rem;line-height:1.35}
-.wf-tools{display:flex;flex-wrap:wrap;gap:3px}
-.tt{font-family:var(--mono);font-size:.55rem;color:var(--muted);background:var(--s2);border:1px solid var(--b1);border-radius:4px;padding:1px 6px}
-.wf-item:hover .tt{border-color:var(--b2)}
-.wf-pro-badge{position:absolute;top:.75rem;right:.75rem;font-family:var(--mono);font-size:.5rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--amber);border:1px solid rgba(245,166,35,.3);border-radius:4px;padding:1px 5px}
+/* ---- PHASES ---- */
+.phases-section{border-top:1px solid var(--border)}
+.phases-grid{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--border);border:1px solid var(--border);border-radius:var(--r);overflow:hidden}
+.phase-cell{background:var(--bg);padding:1.75rem;transition:background .18s}
+.phase-cell:hover{background:var(--s1)}
+.phase-icon{width:36px;height:36px;border-radius:8px;background:var(--green-dim);border:1px solid rgba(34,197,94,.15);display:flex;align-items:center;justify-content:center;margin-bottom:1rem}
+.phase-icon svg{width:16px;height:16px;stroke:var(--green);fill:none;stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round}
+.phase-cell h3{font-size:1rem;font-weight:700;letter-spacing:-.025em;margin-bottom:.5rem}
+.phase-cell p{font-size:.8125rem;color:var(--text-2);line-height:1.6;margin-bottom:.875rem}
+.phase-tools{display:flex;flex-wrap:wrap;gap:3px}
+.phase-tool{font-family:var(--mono);font-size:.5375rem;color:var(--text-3);background:var(--s1);border:1px solid var(--border);border-radius:4px;padding:2px 6px}
+.phase-pro{font-family:var(--mono);font-size:.5375rem;font-weight:600;color:var(--amber);border:1px solid rgba(245,158,11,.25);border-radius:4px;padding:2px 6px;letter-spacing:.06em}
+@media(max-width:620px){.phases-grid{grid-template-columns:1fr}}
 
-/* ─── FEATURE SPLIT ─── */
-.feat-split{display:grid;grid-template-columns:1fr 1fr;gap:4rem;align-items:center}
-@media(max-width:720px){.feat-split{grid-template-columns:1fr;gap:2.5rem}}
-.feat-split.rev{direction:rtl}
-.feat-split.rev>*{direction:ltr}
-.feat-panel{background:var(--s1);border:1px solid var(--b1);border-radius:var(--r2);overflow:hidden}
-.fp-bar{display:flex;align-items:center;gap:5px;padding:10px 14px;background:var(--s2);border-bottom:1px solid var(--b1)}
-.fp-dot{width:10px;height:10px;border-radius:50%}
-.fp-bar-title{margin-left:6px;font-size:.625rem;color:var(--dim);font-family:var(--mono)}
-.feat-term{padding:1rem 1.25rem;font-family:var(--mono);font-size:.7rem;line-height:1.9;min-height:200px}
-.c-p{color:var(--green)}.c-c{color:var(--text)}.c-i{color:var(--muted)}.c-h{color:var(--blue)}
-.c-crit{color:var(--red);font-weight:600}.c-high{color:var(--amber);font-weight:600}
-.c-med{color:#fbbf24}.c-ok{color:var(--green);font-weight:600}.c-dim{color:var(--dim)}
-.feat-text .eyebrow{margin-bottom:.5rem}
-.feat-text h3{font-size:clamp(1.25rem,2.5vw,1.75rem);font-weight:800;letter-spacing:-.035em;margin-bottom:.875rem;line-height:1.2}
-.feat-text p{color:var(--muted);font-size:.9rem;line-height:1.75;margin-bottom:1.25rem}
-.feat-list{list-style:none;display:flex;flex-direction:column;gap:.5rem;margin-bottom:1.75rem}
-.feat-list li{display:flex;align-items:flex-start;gap:.625rem;font-size:.875rem;color:var(--muted);line-height:1.5}
-.feat-list li::before{content:'';width:5px;height:5px;background:var(--green);border-radius:50%;margin-top:.5rem;flex-shrink:0}
-.feat-list li strong{color:var(--text);font-weight:600}
+/* ---- PRO SECTION ---- */
+.pro-section{border-top:1px solid var(--border);background:linear-gradient(180deg,var(--s1) 0%,var(--bg) 100%)}
+.pro-grid{display:grid;grid-template-columns:1fr 1fr;gap:1.25rem;margin-top:2.5rem}
+.pro-cell{background:var(--bg);border:1px solid var(--border);border-radius:var(--r);padding:1.5rem 1.5rem 1.5rem;transition:border-color .2s}
+.pro-cell:hover{border-color:var(--border-2)}
+.pro-cell-icon{width:40px;height:40px;border-radius:8px;background:var(--amber-dim);border:1px solid rgba(245,158,11,.18);display:flex;align-items:center;justify-content:center;margin-bottom:1rem}
+.pro-cell-icon svg{width:18px;height:18px;stroke:var(--amber);fill:none;stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round}
+.pro-cell h3{font-size:.9375rem;font-weight:700;letter-spacing:-.02em;margin-bottom:.375rem}
+.pro-cell p{font-size:.8125rem;color:var(--text-2);line-height:1.65}
+.pro-badge{display:inline-flex;align-items:center;gap:.375rem;font-family:var(--mono);font-size:.5rem;font-weight:700;color:var(--amber);border:1px solid rgba(245,158,11,.3);border-radius:4px;padding:2px 7px;letter-spacing:.1em;text-transform:uppercase;margin-bottom:1rem}
+@media(max-width:620px){.pro-grid{grid-template-columns:1fr}}
 
-/* ─── SCAN GRID ─── */
-.scan-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:1px;background:var(--b1);border:1px solid var(--b1);border-radius:var(--r2);overflow:hidden}
-.sc{background:var(--bg);padding:1.25rem;transition:background .15s;cursor:default}
-.sc:hover{background:var(--s2)}
-.sc-icon{font-size:1.25rem;margin-bottom:.75rem;display:block}
-.sc-name{font-size:.875rem;font-weight:600;margin-bottom:.375rem}
-.sc-body{font-size:.7875rem;color:var(--muted);line-height:1.6}
-.sc-pro{display:inline-flex;align-items:center;gap:.25rem;font-family:var(--mono);font-size:.55rem;font-weight:700;color:var(--amber);border:1px solid rgba(245,166,35,.25);border-radius:4px;padding:1px 6px;text-transform:uppercase;letter-spacing:.08em;margin-top:.5rem}
+/* ---- PRICING ---- */
+.pricing-section{border-top:1px solid var(--border)}
+.pricing-cols{display:grid;grid-template-columns:1fr 1fr;gap:1.25rem;margin-top:2.5rem}
+.pricing-col{background:var(--s1);border:1px solid var(--border);border-radius:var(--r);padding:2rem}
+.pricing-col.pro-col{border-color:rgba(245,158,11,.3);background:linear-gradient(160deg,rgba(245,158,11,.04) 0%,var(--s1) 60%)}
+.pricing-tier{font-size:.6875rem;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--text-3);margin-bottom:.75rem}
+.pricing-tier.pro-tier{color:var(--amber)}
+.pricing-price{font-size:2.25rem;font-weight:800;letter-spacing:-.045em;line-height:1;margin-bottom:.25rem}
+.pricing-price-note{font-size:.75rem;color:var(--text-3);margin-bottom:1.5rem}
+.pricing-divider{border:none;border-top:1px solid var(--border);margin:1.5rem 0}
+.pricing-list{list-style:none;display:flex;flex-direction:column;gap:.875rem}
+.pricing-list li{display:flex;align-items:flex-start;gap:.75rem;font-size:.875rem;line-height:1.5}
+.pricing-list li svg{width:15px;height:15px;flex-shrink:0;margin-top:1px}
+.check-g svg{stroke:var(--green)}
+.check-a svg{stroke:var(--amber)}
+.pricing-list li span{color:var(--text-2)}
+.pricing-list li span strong{color:var(--text);font-weight:600}
+.pricing-cta{margin-top:1.75rem;display:flex;flex-direction:column;gap:.75rem}
+.pricing-cta .btn{width:100%;justify-content:center;padding:12px 20px;font-size:.9375rem}
+@media(max-width:640px){.pricing-cols{grid-template-columns:1fr}}
 
-/* ─── AI SECTION ─── */
-.ai-wrap{background:var(--s1);border-top:1px solid var(--b1);border-bottom:1px solid var(--b1);padding:clamp(4rem,8vw,6rem) clamp(1rem,4vw,3rem)}
-.ai-inner{max-width:1120px;margin:0 auto;display:grid;grid-template-columns:1fr 1fr;gap:4rem;align-items:start}
-@media(max-width:720px){.ai-inner{grid-template-columns:1fr;gap:2.5rem}}
-.ai-window{background:var(--bg);border:1px solid var(--b1);border-radius:var(--r2);overflow:hidden}
-.ai-win-top{display:flex;align-items:center;gap:.5rem;padding:11px 14px;background:var(--s2);border-bottom:1px solid var(--b1)}
-.ai-live{width:7px;height:7px;background:var(--purple);border-radius:50%;animation:blink-p 2s ease-in-out infinite}
-@keyframes blink-p{0%,100%{opacity:1}50%{opacity:.25}}
-.ai-win-title{font-size:.6875rem;font-weight:600}
-.ai-win-badge{margin-left:auto;font-family:var(--mono);font-size:.55rem;font-weight:700;color:var(--amber);background:rgba(245,166,35,.1);border:1px solid rgba(245,166,35,.25);border-radius:4px;padding:1px 7px;text-transform:uppercase;letter-spacing:.08em}
-.ai-messages{padding:1rem;display:flex;flex-direction:column;gap:.875rem}
-.msg-role{font-size:.6rem;font-family:var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--dim);margin-bottom:.25rem}
-.msg-role.user-r{color:var(--muted)}
-.msg-body{font-size:.7875rem;line-height:1.65;padding:.625rem .875rem;border-radius:var(--r)}
-.msg-body.user{background:var(--s2);border:1px solid var(--b1);color:var(--text)}
-.msg-body.ai{background:rgba(124,106,247,.08);border:1px solid rgba(124,106,247,.15);color:var(--text)}
-.msg-body code{font-family:var(--mono);font-size:.7rem;background:var(--s1);border:1px solid var(--b1);padding:1px 5px;border-radius:3px;color:var(--green)}
-.ai-text h3{font-size:clamp(1.25rem,2.5vw,1.875rem);font-weight:800;letter-spacing:-.04em;line-height:1.15;margin-bottom:.875rem}
-.ai-text p{color:var(--muted);font-size:.9rem;line-height:1.75;margin-bottom:1.25rem}
-.ai-bullets{display:flex;flex-direction:column;gap:.625rem;margin-bottom:1.75rem}
-.ai-bullet{display:flex;align-items:flex-start;gap:.625rem;font-size:.875rem;color:var(--muted)}
-.ai-bullet .ai-ico{color:var(--purple);margin-top:2px;flex-shrink:0;font-size:.875rem}
+/* ---- INSTALL CTA ---- */
+.install-section{border-top:1px solid var(--border);text-align:center}
+.install-inner{max-width:680px;margin:0 auto}
+.install-inner h2{font-size:clamp(2rem,4vw,3rem);font-weight:800;letter-spacing:-.04em;line-height:1.15;margin-bottom:.75rem}
+.install-inner p{font-size:.9375rem;color:var(--text-2);max-width:42ch;margin:0 auto 2.5rem}
+.terminal-block{background:var(--s1);border:1px solid var(--border);border-radius:var(--r);overflow:hidden;margin-bottom:1.75rem;text-align:left}
+.terminal-bar{display:flex;align-items:center;gap:6px;padding:10px 14px;background:var(--s2);border-bottom:1px solid var(--border)}
+.tbar-dot{width:10px;height:10px;border-radius:50%}
+.terminal-body{padding:1.25rem 1.25rem 1.25rem}
+.terminal-line{font-family:var(--mono);font-size:.7375rem;line-height:1.8;color:var(--text-2);display:flex;gap:.625rem}
+.prompt{color:var(--green);flex-shrink:0}
+.term-cmd{word-break:break-all}
+.cursor{display:inline-block;width:8px;height:14px;background:var(--green);vertical-align:middle;margin-left:3px;animation:blink-c .9s step-end infinite}
+@keyframes blink-c{0%,100%{opacity:1}50%{opacity:0}}
+.terminal-copy{width:100%;background:none;border:none;border-top:1px solid var(--border);color:var(--text-3);font-family:var(--font);font-size:.6875rem;font-weight:600;letter-spacing:.06em;padding:10px;cursor:pointer;transition:color .15s,background .15s;text-transform:uppercase}
+.terminal-copy:hover{color:var(--text-2);background:var(--s2)}
+.terminal-copy.copied{color:var(--green)}
+.install-note{font-size:.75rem;color:var(--text-3);line-height:1.6}
+.install-note a{color:var(--text-2);text-decoration:underline;text-decoration-color:var(--border-2)}
+.install-note a:hover{color:var(--text)}
 
-/* ─── PRICING ─── */
-.price-grid{display:grid;grid-template-columns:1fr 1fr;gap:1.25rem;margin-top:2rem}
-@media(max-width:600px){.price-grid{grid-template-columns:1fr}}
-.plan{background:var(--s1);border:1px solid var(--b1);border-radius:var(--r2);padding:1.75rem;transition:border-color .2s}
-.plan.pro{background:linear-gradient(135deg,rgba(124,106,247,.08),rgba(0,212,106,.04));border-color:rgba(124,106,247,.35)}
-.plan-name{font-size:.75rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin-bottom:.625rem}
-.plan.pro .plan-name{color:var(--purple)}
-.plan-price{font-size:2.25rem;font-weight:800;letter-spacing:-.04em;font-family:var(--mono);margin-bottom:.25rem;color:var(--text)}
-.plan-price span{font-size:.875rem;color:var(--muted);font-weight:400;letter-spacing:0;font-family:var(--sans)}
-.plan-desc{font-size:.8125rem;color:var(--muted);margin-bottom:1.5rem;line-height:1.55}
-.plan-feats{list-style:none;display:flex;flex-direction:column;gap:.5rem;margin-bottom:1.5rem}
-.plan-feats li{display:flex;align-items:flex-start;gap:.5rem;font-size:.8125rem}
-.pf-check{flex-shrink:0;margin-top:2px}
-.pf-check.ok{color:var(--green)}.pf-check.pro{color:var(--amber)}.pf-check.no{color:var(--dim)}
-.plan-feats li.no{color:var(--dim)}
-.plan-feats li.yes{color:var(--muted)}
-.plan-feats li.yes span{color:var(--text)}
-.plan .btn{width:100%;justify-content:center;margin-top:.25rem}
-.plan-badge{font-family:var(--mono);font-size:.55rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--amber);background:rgba(245,166,35,.1);border:1px solid rgba(245,166,35,.2);border-radius:4px;padding:3px 8px;display:inline-block;margin-bottom:.75rem}
-.btn-buy{background:var(--amber);color:#000;font-weight:700;font-size:.9375rem;padding:13px 24px;border-radius:var(--r);width:100%;justify-content:center;box-shadow:0 4px 20px rgba(245,166,35,.25)}
-.btn-buy:hover{box-shadow:0 0 0 3px var(--aglow),0 8px 30px var(--aglow);transform:translateY(-2px)}
-.plan-note{font-size:.6875rem;color:var(--dim);text-align:center;margin-top:.75rem;line-height:1.5}
+/* ---- FOOTER ---- */
+footer{border-top:1px solid var(--border);padding:2rem clamp(1rem,4vw,2.5rem)}
+.footer-inner{max-width:var(--max);margin:0 auto;display:flex;align-items:center;justify-content:space-between;gap:1.5rem;flex-wrap:wrap}
+.footer-left{display:flex;align-items:center;gap:.625rem;font-size:.8125rem;color:var(--text-3)}
+.footer-logo{width:22px;height:22px;background:var(--green);border-radius:5px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.footer-logo svg{width:12px;height:12px;fill:#000}
+.footer-links{display:flex;align-items:center;gap:1.25rem;flex-wrap:wrap}
+.footer-links a{font-size:.8125rem;color:var(--text-3);transition:color .15s}
+.footer-links a:hover{color:var(--text-2)}
+.footer-right{display:flex;align-items:center;gap:1rem;flex-wrap:wrap}
+.footer-lang{display:flex;border:1px solid var(--border);border-radius:100px;padding:3px}
+.flbtn{background:none;border:none;color:var(--text-3);font-family:var(--font);font-size:.5625rem;font-weight:700;letter-spacing:.1em;padding:3px 9px;border-radius:100px;cursor:pointer;transition:all .15s;text-transform:uppercase}
+.flbtn.active{background:var(--s3);color:var(--text-2)}
+.flbtn:hover:not(.active){color:var(--text-2)}
 
-/* ─── INSTALL ─── */
-.install-block{background:var(--s1);border:1px solid var(--b1);border-radius:var(--r2);overflow:hidden;margin-top:2rem}
-.ib-header{display:flex;align-items:center;justify-content:space-between;padding:10px 16px;background:var(--s2);border-bottom:1px solid var(--b1)}
-.ib-lang{font-family:var(--mono);font-size:.6rem;color:var(--dim);letter-spacing:.1em;text-transform:uppercase}
-.copy-btn{display:inline-flex;align-items:center;gap:.3rem;background:none;border:1px solid var(--b1);border-radius:5px;color:var(--muted);font-family:var(--sans);font-size:.6875rem;font-weight:500;padding:4px 10px;cursor:pointer;transition:all .15s}
-.copy-btn:hover{color:var(--text);border-color:var(--b2)}
-.copy-btn.ok{color:var(--green);border-color:rgba(0,212,106,.4)}
-.ib-cmd{padding:1.25rem 1.5rem;font-family:var(--mono);font-size:.775rem;color:var(--green);overflow-x:auto;white-space:nowrap;letter-spacing:.01em}
-.ib-steps{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--b1)}
-@media(max-width:560px){.ib-steps{grid-template-columns:1fr}}
-.ib-step{background:var(--bg);padding:1.25rem;display:flex;gap:.875rem;align-items:flex-start}
-.sn{font-family:var(--mono);font-size:.6rem;color:var(--dim);margin-top:3px;min-width:16px;letter-spacing:.05em}
-.sb strong{color:var(--text);font-weight:600;font-size:.8125rem;display:block;margin-bottom:.25rem}
-.sb{font-size:.7875rem;color:var(--muted);line-height:1.55}
+/* ---- REVEAL ANIMATION ---- */
+.reveal{opacity:0;transform:translateY(20px);transition:opacity .55s ease,transform .55s ease}
+.reveal.in{opacity:1;transform:none}
+.reveal-delay-1{transition-delay:.08s}
+.reveal-delay-2{transition-delay:.16s}
+.reveal-delay-3{transition-delay:.24s}
 
-/* ─── REVEAL ─── */
-.rv{opacity:0;transform:translateY(20px);transition:opacity .5s ease,transform .5s ease}
-.rv.vis{opacity:1;transform:none}
-
-/* ─── FOOTER ─── */
-footer{border-top:1px solid var(--b1);padding:2.5rem clamp(1rem,4vw,3rem);display:flex;flex-direction:column;align-items:center;gap:.5rem;text-align:center}
-.foot-brand{font-size:.9375rem;font-weight:700;letter-spacing:-.02em}
-.foot-brand em{font-style:normal;color:var(--green)}
-.foot-by{font-size:.8125rem;color:var(--muted)}
-.foot-by a{color:var(--green);text-decoration:none;font-weight:600}
-.foot-by a:hover{text-decoration:underline}
-.foot-meta{font-size:.6875rem;color:var(--dim);margin-top:.25rem}
+/* ---- HERO LOAD ANIM ---- */
+.hero-copy>*{animation:fadein .6s ease both}
+.beta-pill{animation-delay:.05s}
+.hero-h1{animation-delay:.1s}
+.hero-sub{animation-delay:.17s}
+.hero-ctas{animation-delay:.24s}
+.install-wrap{animation-delay:.3s}
 </style>
 </head>
 <body>
 
 <!-- NAV -->
 <nav>
-  <a class="nav-brand" href="#">
-    <span class="brand-mark">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-        <circle cx="11" cy="11" r="7"/><path d="m21 21-4.35-4.35"/>
-      </svg>
-    </span>
-    NexHunt
-    <span class="brand-by">by Sentinel Security</span>
-  </a>
-  <div class="nav-mid">
-    <a class="nav-link" href="#features" data-i18n="nav_feat">Features</a>
-    <a class="nav-link" href="#pricing" data-i18n="nav_price">Pricing</a>
-    <a class="nav-link" href="https://github.com/sentinelsec-org/nexhunt" target="_blank">GitHub</a>
-  </div>
-  <div class="nav-r">
-    <div class="lang-pill">
-      <button class="lbtn on" onclick="setLang('en')" id="btn-en">EN</button>
-      <button class="lbtn" onclick="setLang('es')" id="btn-es">ES</button>
+  <a href="#" class="nav-logo">
+    <div class="logo-mark">
+      <svg viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
     </div>
-    <a class="btn btn-g" href="https://github.com/sentinelsec-org/nexhunt/releases/latest" target="_blank" data-i18n="nav_dl">Download free</a>
+    NexHunt
+  </a>
+  <div class="nav-links">
+    <a href="#features" class="nav-link" data-key="nav_features">Features</a>
+    <a href="#phases" class="nav-link" data-key="nav_phases">Workflow</a>
+    <a href="#pricing" class="nav-link" data-key="nav_pricing">Pricing</a>
+    <a href="#install" class="nav-link" data-key="nav_install">Install</a>
+  </div>
+  <div class="nav-right">
+    <div class="lang-toggle">
+      <button class="lbtn active" data-lang="en">EN</button>
+      <button class="lbtn" data-lang="es">ES</button>
+    </div>
+    <span class="ver-badge">v1.2.0</span>
+    <a href="https://github.com/sentinelsec-org/nexhunt/releases/latest" class="btn btn-green" data-key="nav_download">Download</a>
   </div>
 </nav>
 
 <!-- HERO -->
-<div class="hero">
-  <div class="hero-canvas">
-    <div class="grid-fade"></div>
-    <div class="glow-top"></div>
-  </div>
+<section class="hero">
+  <div class="hero-grid"></div>
   <div class="hero-inner">
-    <div class="beta-tag"><span class="beta-dot"></span><span data-i18n="beta_tag">Beta — actively developed, core features stable</span></div>
-    <h1 data-i18n="h1">Bug Bounty,<br><em>Automated.</em></h1>
-    <p class="hero-sub" data-i18n="h_sub">NexHunt runs <strong>20+ security tools</strong> for you — recon, scanning, exploitation and AI reporting in one Linux desktop app. Stop jumping between terminals. Start finding bugs.</p>
-    <div class="hero-ctas">
-      <a class="btn btn-g" href="https://github.com/sentinelsec-org/nexhunt/releases/latest" target="_blank" data-i18n="cta_dl">⬇ Download — it's free</a>
-      <a class="btn btn-a" href="#pricing" target="_blank" data-i18n="cta_pro">★ Get PRO</a>
-    </div>
-    <div class="hero-stats">
-      <div class="stat"><div class="stat-n">20+</div><div class="stat-l" data-i18n="st1">Security tools</div></div>
-      <div class="stat"><div class="stat-n">8k+</div><div class="stat-l" data-i18n="st2">Nuclei templates</div></div>
-      <div class="stat"><div class="stat-n">5</div><div class="stat-l" data-i18n="st3">Workflow phases</div></div>
-      <div class="stat"><div class="stat-n">Free</div><div class="stat-l" data-i18n="st4">No time limit</div></div>
-    </div>
-  </div>
-
-  <!-- APP SCREENSHOT -->
-  <div class="app-shot">
-    <div class="app-frame">
-      <div class="app-titlebar">
-        <span class="awin-dot awd-r"></span><span class="awin-dot awd-y"></span><span class="awin-dot awd-g"></span>
-        <span class="app-title">NexHunt — McDonalds / mcdonalds.com.ar</span>
+    <div class="hero-copy">
+      <div class="beta-pill">
+        <span class="beta-dot"></span>
+        <span>v1.2.0 beta · Linux</span>
       </div>
-      <div class="shot-tabs-nav">
-        <button class="shot-tab on" onclick="switchShot('recon',this)" data-i18n="tab_recon">Recon</button>
-        <button class="shot-tab" onclick="switchShot('sitemap',this)" data-i18n="tab_sitemap">Proxy — Site Map</button>
-        <button class="shot-tab" onclick="switchShot('jwt',this)" data-i18n="tab_jwt">JWT Attacks</button>
-        <button class="shot-tab" onclick="switchShot('scanner',this)" data-i18n="tab_scan">Scanner</button>
+      <h1 class="hero-h1" data-key="hero_h1">Bug Bounty,<br><em>Automated.</em></h1>
+      <p class="hero-sub" data-key="hero_sub">The complete attack toolkit for bug bounty hunters. Recon to exploitation, chained and automated on your Linux machine.</p>
+      <div class="hero-ctas">
+        <a href="https://github.com/sentinelsec-org/nexhunt/releases/latest" class="btn btn-green">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7,10 12,15 17,10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          <span data-key="cta_dl">Download Free</span>
+        </a>
+        <a href="#pricing" class="btn btn-outline"><span data-key="cta_pro">Get PRO</span></a>
       </div>
-      <div class="shot-img-wrap">
-        <img id="si-recon" src="screenshots/recon-pipeline.png" alt="NexHunt Recon — subfinder, amass, httpx and gowitness pipeline on mcdonalds.com.ar. 13 subdomains, 10 live hosts, 282 endpoints, screenshots." style="display:block">
-        <img id="si-sitemap" src="screenshots/proxy-sitemap.png" alt="NexHunt Proxy Site Map — Burp-style host/path tree built from 44 captured requests" style="display:none">
-        <img id="si-jwt" src="screenshots/jwt-attacks.png" alt="NexHunt JWT Attacks — 10 attack techniques with CRITICAL/HIGH/MED severity ratings" style="display:none">
-        <img id="si-scanner" src="screenshots/scanner.png" alt="NexHunt Scanner — 14 vulnerability findings from nuclei and nikto" style="display:none">
-      </div>
-      <div id="sd-recon" class="shot-desc on" data-i18n="sc_recon"><strong>Real session on mcdonalds.com.ar.</strong> subfinder enumerated 13 subdomains, httpx probed all in parallel — status codes, titles, tech stacks. gowitness screenshotted every live host automatically. 282 endpoints discovered. One click, full coverage.</div>
-      <div id="sd-sitemap" class="shot-desc" data-i18n="sc_sitemap"><strong>Burp-style site map, built automatically.</strong> Every request through the proxy is organized into a host/path tree. Click any node to inspect the request and response. Send directly to Brute Force from here.</div>
-      <div id="sd-jwt" class="shot-desc" data-i18n="sc_jwt"><strong>10 JWT attack techniques, severity-rated.</strong> alg:none, Empty Signature, RS256→HS256 Confusion, Weak Secret Brute Force, kid Header Injection, jku/x5u SSRF, Privilege Escalation, and more. Each attack shows how it works, prerequisites, and step-by-step instructions. Run All in one click.</div>
-      <div id="sd-scanner" class="shot-desc" data-i18n="sc_scan"><strong>14 findings, two tools.</strong> Nuclei detected WAF and Microsoft Azure tenant ID. Nikto found 12 issues including missing security headers and Cloudflare fingerprints. Every finding stored per-project, tagged by tool and severity.</div>
-    </div>
-  </div>
-</div>
-
-<!-- WORKFLOW -->
-<div class="sec-wrap rv" id="features">
-  <div class="sec-wrap-inner">
-    <div class="eyebrow" data-i18n="wf_eyebrow">How it works</div>
-    <h2 class="sec-h" data-i18n="wf_h">Five phases. One app. Zero copy-paste.</h2>
-    <p class="sec-sub" data-i18n="wf_sub">Each phase feeds the next. Subdomains discovered in Stage 1 are probed in Stage 2, scanned in Stage 3, exploited in Stage 4, and reported in Stage 5. You point it at a target — it runs the chain.</p>
-    <div class="wf-strip">
-      <div class="wf-item">
-        <div class="wf-num">01</div>
-        <span class="wf-icon">🔍</span>
-        <div class="wf-phase" data-i18n="wf1_ph">Recon</div>
-        <div class="wf-name" data-i18n="wf1_n">Subdomain & surface discovery</div>
-        <div class="wf-tools"><span class="tt">subfinder</span><span class="tt">amass</span><span class="tt">httpx</span><span class="tt">nmap</span><span class="tt">katana</span><span class="tt">gau</span><span class="tt">waybackurls</span><span class="tt">gowitness</span></div>
-      </div>
-      <div class="wf-item">
-        <div class="wf-num">02</div>
-        <span class="wf-icon">🔎</span>
-        <div class="wf-phase" data-i18n="wf2_ph">Parameters</div>
-        <div class="wf-name" data-i18n="wf2_n">Input & endpoint discovery</div>
-        <div class="wf-tools"><span class="tt">paramspider</span><span class="tt">arjun</span><span class="tt">linkfinder</span></div>
-      </div>
-      <div class="wf-item">
-        <div class="wf-num">03</div>
-        <span class="wf-icon">🎯</span>
-        <div class="wf-phase" data-i18n="wf3_ph">Scanning</div>
-        <div class="wf-name" data-i18n="wf3_n">Vulnerability detection</div>
-        <div class="wf-tools"><span class="tt">nuclei</span><span class="tt">ffuf</span><span class="tt">nikto</span><span class="tt">gobuster</span><span class="tt">dirsearch</span></div>
-      </div>
-      <div class="wf-item">
-        <div class="wf-num">04</div>
-        <span class="wf-icon">💥</span>
-        <div class="wf-phase" data-i18n="wf4_ph">Exploitation</div>
-        <div class="wf-name" data-i18n="wf4_n">Proof of impact</div>
-        <div class="wf-tools"><span class="tt">sqlmap</span><span class="tt">dalfox</span><span class="tt">xsstrike</span><span class="tt">commix</span></div>
-      </div>
-      <div class="wf-item">
-        <div class="wf-num">05</div>
-        <span class="wf-icon">🤖</span>
-        <div class="wf-phase" data-i18n="wf5_ph">AI Analysis</div>
-        <div class="wf-name" data-i18n="wf5_n">Report & recommendations</div>
-        <div class="wf-tools"><span class="tt">AI Copilot</span></div>
-        <div class="wf-pro-badge">PRO</div>
+      <div class="install-wrap">
+        <span class="install-prompt">$</span>
+        <code class="install-cmd" id="install-cmd-hero">curl -fsSL https://github.com/sentinelsec-org/nexhunt/releases/download/v1.2.0/nexhunt-1.2.0.tar.gz | tar xz &amp;&amp; sudo bash install.sh</code>
+        <button class="copy-btn" id="copy-hero" onclick="copyCmd('install-cmd-hero','copy-hero')" data-key="btn_copy">Copy</button>
       </div>
     </div>
-  </div>
-</div>
-
-<!-- FEATURE: RECON -->
-<div class="sec-wrap rv">
-  <div class="sec-wrap-inner">
-    <div class="feat-split">
-      <div class="feat-panel">
-        <div class="fp-bar"><span class="fp-dot awd-r"></span><span class="fp-dot awd-y"></span><span class="fp-dot awd-g"></span><span class="fp-bar-title">nexhunt — recon output</span></div>
-        <div class="feat-term" id="term1"></div>
-      </div>
-      <div class="feat-text">
-        <div class="eyebrow" data-i18n="f1_ey">Reconnaissance</div>
-        <h3 data-i18n="f1_h">Everything runs in parallel, automatically</h3>
-        <p data-i18n="f1_p">subfinder and amass enumerate subdomains simultaneously. httpx probes every host for status, title, and tech stack. gowitness screenshots them all. One button, full coverage.</p>
-        <ul class="feat-list">
-          <li data-i18n="f1_l1"><strong>CVE correlation</strong> — detected tech stacks matched to known CVEs automatically</li>
-          <li data-i18n="f1_l2"><strong>URL history</strong> — gau + waybackurls surface years of archived endpoints</li>
-          <li data-i18n="f1_l3"><strong>Visual triage</strong> — browse gowitness screenshots to find interesting targets fast</li>
-          <li data-i18n="f1_l4"><strong>Full pipeline</strong> — chain all recon tools in one automated run</li>
-        </ul>
-      </div>
-    </div>
-  </div>
-</div>
-
-<!-- FEATURE: SCAN + EXPLOIT -->
-<div class="sec-wrap rv">
-  <div class="sec-wrap-inner">
-    <div class="feat-split rev">
-      <div class="feat-text">
-        <div class="eyebrow" data-i18n="f2_ey">Scanning & Exploitation</div>
-        <h3 data-i18n="f2_h">From detection to proven impact</h3>
-        <p data-i18n="f2_p">Nuclei runs 8,000+ templates with OWASP presets. When you find a vulnerable endpoint, sqlmap, dalfox, xsstrike, and commix are one click away to prove it. Everything stored and organized per project.</p>
-        <ul class="feat-list">
-          <li data-i18n="f2_l1"><strong>8,000+ Nuclei templates</strong> — CVEs, misconfigs, exposures, default creds</li>
-          <li data-i18n="f2_l2"><strong>OWASP Top 10 presets</strong> — run the right templates in one click</li>
-          <li data-i18n="f2_l3"><strong>SQLi + XSS + CMDi</strong> — validate findings with WAF evasion built in</li>
-          <li data-i18n="f2_l4"><strong>Security tools</strong> — CORS, 403 bypass, cloud buckets, GitHub secrets, OOB</li>
-        </ul>
-      </div>
-      <div class="feat-panel">
-        <div class="fp-bar"><span class="fp-dot awd-r"></span><span class="fp-dot awd-y"></span><span class="fp-dot awd-g"></span><span class="fp-bar-title">nexhunt — scanner findings</span></div>
-        <div class="feat-term" id="term2"></div>
-      </div>
-    </div>
-  </div>
-</div>
-
-<!-- SCAN CARDS -->
-<div class="sec-wrap rv">
-  <div class="sec-wrap-inner">
-    <div class="eyebrow" data-i18n="sc_ey">Security tools</div>
-    <h2 class="sec-h" data-i18n="sc_h">Everything you run on a target, in one place</h2>
-    <p class="sec-sub" data-i18n="sc_sub">Specialized checks that most scanners miss. All integrated, all project-scoped.</p>
-    <div class="scan-grid">
-      <div class="sc"><span class="sc-icon">🔀</span><div class="sc-name" data-i18n="sc1n">Proxy + Repeater</div><div class="sc-body" data-i18n="sc1b">Intercept live traffic, edit and replay requests. Set global session headers and cookies for all tools.</div></div>
-      <div class="sc"><span class="sc-icon">🛡️</span><div class="sc-name" data-i18n="sc2n">CORS Scanner</div><div class="sc-body" data-i18n="sc2b">Tests origin reflection, credential exposure, and wildcard policies across all live hosts.</div></div>
-      <div class="sc"><span class="sc-icon">🚫</span><div class="sc-name" data-i18n="sc3n">403 Bypass</div><div class="sc-body" data-i18n="sc3b">20+ bypass techniques — header injection, path normalization, verb tampering. On forbidden endpoints automatically.</div></div>
-      <div class="sc"><span class="sc-icon">☁️</span><div class="sc-name" data-i18n="sc4n">Cloud Buckets</div><div class="sc-body" data-i18n="sc4b">Discovers misconfigured S3, GCS, and Azure Blob storage associated with the target.</div></div>
-      <div class="sc"><span class="sc-icon">🔑</span><div class="sc-name" data-i18n="sc5n">GitHub Secrets</div><div class="sc-body" data-i18n="sc5b">TruffleHog scans the target org's public repos for leaked API keys, tokens, and credentials.</div></div>
-      <div class="sc"><span class="sc-icon">📁</span><div class="sc-name" data-i18n="sc6n">Project Database</div><div class="sc-body" data-i18n="sc6b">Every finding stored with severity, evidence, and status. Full project isolation — switch targets instantly.</div></div>
-      <div class="sc"><span class="sc-icon">🔄</span><div class="sc-name" data-i18n="sc7n">Proxy Intruder</div><div class="sc-body" data-i18n="sc7b">Cluster bomb and pitchfork attack modes with payload wordlists and response filtering.<div class="sc-pro">★ PRO</div></div></div>
-      <div class="sc"><span class="sc-icon">🔐</span><div class="sc-name" data-i18n="sc8n">JWT Attacks</div><div class="sc-body" data-i18n="sc8b">Algorithm confusion, key injection, claim forgery. Full JWT attack suite.<div class="sc-pro">★ PRO</div></div></div>
-    </div>
-  </div>
-</div>
-
-<!-- AI SECTION -->
-<div class="ai-wrap rv">
-  <div class="ai-inner">
-    <div class="ai-window">
-      <div class="ai-win-top">
-        <span class="ai-live"></span>
-        <span class="ai-win-title">AI Copilot</span>
-        <span class="ai-win-badge">PRO</span>
-      </div>
-      <div class="ai-messages">
-        <div class="ai-msg">
-          <div class="msg-role user-r" data-i18n="ai_you">You</div>
-          <div class="msg-body user" data-i18n="ai_q1">I found staging.acme.com running Apache 2.4.49. What should I try?</div>
+    <div class="hero-visual">
+      <div class="shot-frame">
+        <div class="shot-titlebar">
+          <span class="tbar-dot tbar-dot-r"></span>
+          <span class="tbar-dot tbar-dot-y"></span>
+          <span class="tbar-dot tbar-dot-g"></span>
+          <span class="tbar-title">NexHunt - Reconnaissance</span>
         </div>
-        <div class="ai-msg">
-          <div class="msg-role">Copilot</div>
-          <div class="msg-body ai" data-i18n="ai_a1">Apache 2.4.49 is vulnerable to <code>CVE-2021-41773</code> — path traversal and potential RCE if <code>mod_cgi</code> is enabled. Test with: <code>curl "http://staging.acme.com/cgi-bin/.%2e/.%2e/etc/passwd"</code>. If you get file output, escalate to RCE via the POST vector. Document the full request/response before going further — this is critical.</div>
+        <img src="screenshots/recon-pipeline.png" alt="NexHunt recon pipeline: subfinder, amass, and httpx running in parallel against a target, showing 13 subdomains discovered and 10 live hosts probed automatically" loading="eager">
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- TOOL MARQUEE -->
+<div class="marquee-wrap">
+  <div class="marquee-track" id="marquee-track">
+    <span class="marquee-item">subfinder</span>
+    <span class="marquee-item">amass</span>
+    <span class="marquee-item">httpx</span>
+    <span class="marquee-item">nmap</span>
+    <span class="marquee-item">nuclei</span>
+    <span class="marquee-item">ffuf</span>
+    <span class="marquee-item">nikto</span>
+    <span class="marquee-item">gobuster</span>
+    <span class="marquee-item">dirsearch</span>
+    <span class="marquee-item">sqlmap</span>
+    <span class="marquee-item">dalfox</span>
+    <span class="marquee-item">xsstrike</span>
+    <span class="marquee-item">katana</span>
+    <span class="marquee-item">gau</span>
+    <span class="marquee-item">waybackurls</span>
+    <span class="marquee-item">commix</span>
+    <span class="marquee-item">interactsh</span>
+    <span class="marquee-item">gowitness</span>
+    <span class="marquee-item">paramspider</span>
+    <span class="marquee-item">arjun</span>
+    <span class="marquee-item">trufflehog</span>
+    <span class="marquee-item">hydra</span>
+    <span class="marquee-item">subfinder</span>
+    <span class="marquee-item">amass</span>
+    <span class="marquee-item">httpx</span>
+    <span class="marquee-item">nmap</span>
+    <span class="marquee-item">nuclei</span>
+    <span class="marquee-item">ffuf</span>
+    <span class="marquee-item">nikto</span>
+    <span class="marquee-item">gobuster</span>
+    <span class="marquee-item">dirsearch</span>
+    <span class="marquee-item">sqlmap</span>
+    <span class="marquee-item">dalfox</span>
+    <span class="marquee-item">xsstrike</span>
+    <span class="marquee-item">katana</span>
+    <span class="marquee-item">gau</span>
+    <span class="marquee-item">waybackurls</span>
+    <span class="marquee-item">commix</span>
+    <span class="marquee-item">interactsh</span>
+    <span class="marquee-item">gowitness</span>
+    <span class="marquee-item">paramspider</span>
+    <span class="marquee-item">arjun</span>
+    <span class="marquee-item">trufflehog</span>
+    <span class="marquee-item">hydra</span>
+  </div>
+</div>
+
+<!-- FEATURES BENTO -->
+<section class="section bento-section reveal" id="features">
+  <div class="section-inner">
+    <div class="section-header">
+      <h2 data-key="bento_h">The full attack surface, one app</h2>
+      <p data-key="bento_sub">Every tool runs where it belongs in the workflow. You set the target and press go.</p>
+    </div>
+    <div class="bento-grid">
+      <!-- Cell A: recon screenshot, large -->
+      <div class="bento-cell bento-a">
+        <div class="bento-inner-bar">
+          <span class="bento-inner-dot" style="background:#ff5f57"></span>
+          <span class="bento-inner-dot" style="background:#febc2e"></span>
+          <span class="bento-inner-dot" style="background:#28c840"></span>
+          <span class="bento-inner-label">Recon - mcdonalds.com.ar</span>
         </div>
-        <div class="ai-msg">
-          <div class="msg-role user-r" data-i18n="ai_you">You</div>
-          <div class="msg-body user" data-i18n="ai_q2">Generate a submission report for this finding.</div>
+        <div class="bento-img-wrap">
+          <img src="screenshots/recon-pipeline.png" alt="Subdomain enumeration and live host probing pipeline running in NexHunt, showing 13 discovered subdomains and 282 endpoints" loading="lazy">
         </div>
-        <div class="ai-msg">
-          <div class="msg-role">Copilot</div>
-          <div class="msg-body ai" data-i18n="ai_a2">Generated: <strong>Path Traversal + RCE — Critical (CVSS 9.8)</strong>. Report includes reproduction steps, evidence screenshots, impact assessment, CVSS breakdown, and remediation guidance. Ready to export. ✓</div>
+      </div>
+      <!-- Cell B: recon text -->
+      <div class="bento-cell bento-b">
+        <div class="bento-label" data-key="bento_r_label">Reconnaissance</div>
+        <h3 data-key="bento_r_h">One button. Full recon chain.</h3>
+        <p data-key="bento_r_p">subfinder and amass run in parallel. httpx probes every host. katana crawls every live target. Results deduplicated and fed to the next phase automatically.</p>
+        <div class="bento-tags">
+          <span class="bento-tag">subfinder</span>
+          <span class="bento-tag">amass</span>
+          <span class="bento-tag">httpx</span>
+          <span class="bento-tag">katana</span>
+          <span class="bento-tag">gau</span>
+          <span class="bento-tag">nmap</span>
+        </div>
+      </div>
+      <!-- Cell C: attack text -->
+      <div class="bento-cell bento-c">
+        <div class="bento-label" data-key="bento_a_label">Attack Automation</div>
+        <h3 data-key="bento_a_h">Complex attacks, simplified.</h3>
+        <p data-key="bento_a_p">JWT confusion, SQLi chains, XSS scanning, and business logic testing. Configured and launched from the UI. Results fed directly to your findings database.</p>
+        <div class="bento-tags">
+          <span class="bento-tag">sqlmap</span>
+          <span class="bento-tag">dalfox</span>
+          <span class="bento-tag">commix</span>
+          <span class="bento-tag">hydra</span>
+          <span class="bento-tag" style="color:var(--amber);border-color:rgba(245,158,11,.3)">PRO</span>
+        </div>
+      </div>
+      <!-- Cell D: JWT screenshot -->
+      <div class="bento-cell bento-d">
+        <div class="bento-inner-bar">
+          <span class="bento-inner-dot" style="background:#ff5f57"></span>
+          <span class="bento-inner-dot" style="background:#febc2e"></span>
+          <span class="bento-inner-dot" style="background:#28c840"></span>
+          <span class="bento-inner-label">Exploitation - JWT Attacks</span>
+        </div>
+        <div class="bento-img-wrap">
+          <img src="screenshots/jwt-attacks.png" alt="JWT attack suite in NexHunt showing 10 attack techniques including algorithm confusion, empty signature, and key injection with severity ratings" loading="lazy">
         </div>
       </div>
     </div>
-    <div class="ai-text">
-      <div class="eyebrow" data-i18n="ai_ey">AI Copilot — PRO</div>
-      <h3 data-i18n="ai_h">A security analyst that knows your targets</h3>
-      <p data-i18n="ai_p">Not a generic chatbot. The AI Copilot has context from your actual project — your hosts, your findings, your tech stacks. It suggests what to try next and writes the report when you're done.</p>
-      <div class="ai-bullets">
-        <div class="ai-bullet"><span class="ai-ico">✦</span><span data-i18n="ai_b1">Analyzes hosts and suggests attack vectors based on detected technologies</span></div>
-        <div class="ai-bullet"><span class="ai-ico">✦</span><span data-i18n="ai_b2">Explains CVEs and exploitation paths in plain language</span></div>
-        <div class="ai-bullet"><span class="ai-ico">✦</span><span data-i18n="ai_b3">Generates professional vulnerability reports ready to submit</span></div>
-        <div class="ai-bullet"><span class="ai-ico">✦</span><span data-i18n="ai_b4">Hosted on Sentinel's infrastructure — no API key needed, just your license</span></div>
+  </div>
+</section>
+
+<!-- WORKFLOW PHASES -->
+<section class="section phases-section reveal" id="phases">
+  <div class="section-inner">
+    <div class="section-header">
+      <h2 data-key="phases_h">Recon to report, without switching tools</h2>
+      <p data-key="phases_sub">Five phases. Each one feeds the next. All running locally on your machine.</p>
+    </div>
+    <div class="phases-grid">
+      <div class="phase-cell">
+        <div class="phase-icon">
+          <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        </div>
+        <h3 data-key="ph1_h">Reconnaissance</h3>
+        <p data-key="ph1_p">Subdomain enumeration, live host probing, port scanning, web crawling, URL history, and parameter discovery. All parallel, all automatic.</p>
+        <div class="phase-tools">
+          <span class="phase-tool">subfinder</span>
+          <span class="phase-tool">amass</span>
+          <span class="phase-tool">httpx</span>
+          <span class="phase-tool">nmap</span>
+          <span class="phase-tool">katana</span>
+          <span class="phase-tool">gau</span>
+          <span class="phase-tool">arjun</span>
+        </div>
       </div>
-      <a class="btn btn-a" href="#pricing" target="_blank" data-i18n="ai_cta">★ Unlock AI Copilot with PRO</a>
+      <div class="phase-cell">
+        <div class="phase-icon">
+          <svg viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        </div>
+        <h3 data-key="ph2_h">Vulnerability Scanning</h3>
+        <p data-key="ph2_p">8,000+ Nuclei templates, CVE correlation by detected tech stack, directory brute-force with smart wordlist selection, web server audits.</p>
+        <div class="phase-tools">
+          <span class="phase-tool">nuclei</span>
+          <span class="phase-tool">ffuf</span>
+          <span class="phase-tool">nikto</span>
+          <span class="phase-tool">gobuster</span>
+          <span class="phase-tool">dirsearch</span>
+        </div>
+      </div>
+      <div class="phase-cell">
+        <div class="phase-icon">
+          <svg viewBox="0 0 24 24"><polyline points="16,18 22,12 16,6"/><polyline points="8,6 2,12 8,18"/></svg>
+        </div>
+        <h3 data-key="ph3_h">Exploitation</h3>
+        <p data-key="ph3_p">SQLi, XSS, command injection, SSRF, JWT attacks. Validate findings and prove impact before writing the report.</p>
+        <div class="phase-tools">
+          <span class="phase-tool">sqlmap</span>
+          <span class="phase-tool">dalfox</span>
+          <span class="phase-tool">xsstrike</span>
+          <span class="phase-tool">commix</span>
+          <span class="phase-tool">interactsh</span>
+          <span class="phase-pro">10 JWT attacks</span>
+        </div>
+      </div>
+      <div class="phase-cell">
+        <div class="phase-icon">
+          <svg viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+        </div>
+        <h3 data-key="ph4_h">Proxy and Reporting</h3>
+        <p data-key="ph4_p">Capture and replay live traffic, use the Burp-style site map, fuzz with Intruder (PRO), and generate a full vulnerability report with the AI Copilot (PRO).</p>
+        <div class="phase-tools">
+          <span class="phase-tool">proxy</span>
+          <span class="phase-tool">repeater</span>
+          <span class="phase-tool">site map</span>
+          <span class="phase-pro">Intruder PRO</span>
+          <span class="phase-pro">AI Report PRO</span>
+        </div>
+      </div>
     </div>
   </div>
-</div>
+</section>
+
+<!-- PROXY SCREENSHOT: standalone feature highlight -->
+<section class="section reveal" style="padding-top:0;border-top:1px solid var(--border)">
+  <div class="section-inner">
+    <div style="display:grid;grid-template-columns:1fr 1.6fr;gap:3rem;align-items:center">
+      <div>
+        <h2 style="font-size:clamp(1.5rem,3vw,2.25rem);font-weight:800;letter-spacing:-.04em;line-height:1.15;margin-bottom:.75rem" data-key="proxy_h">Proxy with a built-in site map</h2>
+        <p style="font-size:.9375rem;color:var(--text-2);line-height:1.7;margin-bottom:1.25rem" data-key="proxy_p">Every request flows through NexHunt's proxy and builds a Burp-style host/path tree automatically. Capture, inspect, replay, and fuzz without leaving the app.</p>
+        <div class="phase-tools" style="gap:5px">
+          <span class="phase-tool">traffic capture</span>
+          <span class="phase-tool">site map</span>
+          <span class="phase-tool">repeater</span>
+          <span class="phase-pro">Intruder PRO</span>
+        </div>
+      </div>
+      <div class="shot-frame">
+        <div class="shot-titlebar">
+          <span class="tbar-dot tbar-dot-r"></span>
+          <span class="tbar-dot tbar-dot-y"></span>
+          <span class="tbar-dot tbar-dot-g"></span>
+          <span class="tbar-title">NexHunt - Proxy / Site Map</span>
+        </div>
+        <img src="screenshots/proxy-sitemap.png" alt="NexHunt proxy site map showing host/path tree built automatically from 44 captured requests across two target domains" loading="lazy">
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- PRO SECTION -->
+<section class="section pro-section reveal">
+  <div class="section-inner">
+    <div class="section-header">
+      <div class="pro-badge">
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="var(--amber)" stroke="none"><polygon points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"/></svg>
+        NexHunt PRO
+      </div>
+      <h2 data-key="pro_h">Go further with PRO</h2>
+      <p data-key="pro_sub">Unlock automation, AI assistance, and advanced attack modules that would take hours to configure manually.</p>
+    </div>
+    <div class="pro-grid">
+      <div class="pro-cell">
+        <div class="pro-cell-icon">
+          <svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 100 20A10 10 0 0012 2z"/><path d="M12 8v4l3 3"/></svg>
+        </div>
+        <h3 data-key="pro1_h">AI Copilot</h3>
+        <p data-key="pro1_p">Paste any hostname and get a full attack surface breakdown. Feed in your findings and get a professional vulnerability report, ready to submit.</p>
+      </div>
+      <div class="pro-cell">
+        <div class="pro-cell-icon">
+          <svg viewBox="0 0 24 24"><polygon points="13,2 3,14 12,14 11,22 21,10 12,10"/></svg>
+        </div>
+        <h3 data-key="pro2_h">Automated Pipelines</h3>
+        <p data-key="pro2_p">Full XSS chain, SQLi chain, and complete recon pipelines triggered in one click. Each tool's output feeds directly into the next.</p>
+      </div>
+      <div class="pro-cell">
+        <div class="pro-cell-icon">
+          <svg viewBox="0 0 24 24"><rect x="2" y="3" width="6" height="8" rx="1"/><rect x="10" y="3" width="6" height="5" rx="1"/><rect x="10" y="12" width="6" height="9" rx="1"/><rect x="2" y="15" width="6" height="6" rx="1"/><rect x="18" y="8" width="4" height="13" rx="1"/><rect x="18" y="3" width="4" height="3" rx="1"/></svg>
+        </div>
+        <h3 data-key="pro3_h">Bulk Operations</h3>
+        <p data-key="pro3_p">Run Nuclei, CORS scans, subdomain takeover checks, and screenshots across every discovered host in your project at once.</p>
+      </div>
+      <div class="pro-cell">
+        <div class="pro-cell-icon">
+          <svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        </div>
+        <h3 data-key="pro4_h">Advanced Attack Suite</h3>
+        <p data-key="pro4_p">10 JWT attack techniques, Proxy Intruder with cluster bomb and pitchfork modes, brute force module with custom wordlists.</p>
+      </div>
+    </div>
+  </div>
+</section>
 
 <!-- PRICING -->
-<div class="sec-wrap rv" id="pricing">
-  <div class="sec-wrap-inner">
-    <div class="eyebrow" data-i18n="pr_ey">Pricing</div>
-    <h2 class="sec-h" data-i18n="pr_h">Start free. Go PRO for $15.</h2>
-    <p class="sec-sub" data-i18n="pr_sub">One payment. Yours forever. Beta pricing — will increase when we exit beta. No subscription, no renewal.</p>
-    <div class="price-grid">
-      <div class="plan">
-        <div class="plan-name" data-i18n="pl1_name">Free</div>
-        <div class="plan-price">$0<span data-i18n="pl_forever"> forever</span></div>
-        <div class="plan-desc" data-i18n="pl1_desc">The complete bug bounty toolkit. Every tool, every phase, no time limits and no nag screens.</div>
-        <ul class="plan-feats">
-          <li class="yes"><span class="pf-check ok">✓</span><span data-i18n="plf1">Full recon suite (subfinder, amass, httpx, nmap, katana, gau, waybackurls)</span></li>
-          <li class="yes"><span class="pf-check ok">✓</span><span data-i18n="plf2">Screenshot all hosts (gowitness)</span></li>
-          <li class="yes"><span class="pf-check ok">✓</span><span data-i18n="plf3">Scanner single-target (nuclei, ffuf, nikto, gobuster, dirsearch)</span></li>
-          <li class="yes"><span class="pf-check ok">✓</span><span data-i18n="plf4">CVE correlation per technology</span></li>
-          <li class="yes"><span class="pf-check ok">✓</span><span data-i18n="plf5">Exploit single-target (sqlmap, dalfox, xsstrike, commix)</span></li>
-          <li class="yes"><span class="pf-check ok">✓</span><span data-i18n="plf6">Security tools (CORS, 403 bypass, cloud buckets, GitHub secrets)</span></li>
-          <li class="yes"><span class="pf-check ok">✓</span><span data-i18n="plf7">Proxy + repeater, findings DB, projects, methodology</span></li>
-          <li class="no"><span class="pf-check no">—</span><span data-i18n="plf8">AI Copilot</span></li>
-          <li class="no"><span class="pf-check no">—</span><span data-i18n="plf9">Automated pipelines &amp; bulk scanning</span></li>
+<section class="section pricing-section reveal" id="pricing">
+  <div class="section-inner">
+    <div class="section-header">
+      <h2 data-key="pricing_h">Two tiers. No tricks.</h2>
+      <p data-key="pricing_sub">The free tier is genuinely useful. No time limits, no feature degradation, no nag screens.</p>
+    </div>
+    <div class="pricing-cols">
+      <div class="pricing-col">
+        <div class="pricing-tier" data-key="tier_free">Free</div>
+        <div class="pricing-price" data-key="price_free">$0</div>
+        <div class="pricing-price-note" data-key="price_free_note">Forever. No card required.</div>
+        <hr class="pricing-divider">
+        <ul class="pricing-list">
+          <li class="check-g">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20,6 9,17 4,12"/></svg>
+            <span data-key="pf1">Full recon suite (subfinder, amass, httpx, nmap, katana, gau, arjun)</span>
+          </li>
+          <li class="check-g">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20,6 9,17 4,12"/></svg>
+            <span data-key="pf2">Single-target scanning: nuclei, ffuf, nikto, gobuster, dirsearch</span>
+          </li>
+          <li class="check-g">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20,6 9,17 4,12"/></svg>
+            <span data-key="pf3">Proxy capture, repeater, site map</span>
+          </li>
+          <li class="check-g">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20,6 9,17 4,12"/></svg>
+            <span data-key="pf4">Single-target exploitation: sqlmap, dalfox, xsstrike, commix</span>
+          </li>
+          <li class="check-g">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20,6 9,17 4,12"/></svg>
+            <span data-key="pf5">Findings database, projects, methodology guide</span>
+          </li>
+          <li class="check-g">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20,6 9,17 4,12"/></svg>
+            <span data-key="pf6">Security tools: CORS, 403 bypass, cloud buckets, GitHub secret scanner</span>
+          </li>
         </ul>
-        <a class="btn btn-o" href="https://github.com/sentinelsec-org/nexhunt/releases/latest" target="_blank" data-i18n="pl1_cta">Download free</a>
+        <div class="pricing-cta">
+          <a href="https://github.com/sentinelsec-org/nexhunt/releases/latest" class="btn btn-green" data-key="pricing_dl">Download Free</a>
+        </div>
       </div>
-      <div class="plan pro">
-        <div class="plan-badge" data-i18n="pl2_badge">Beta pricing — price goes up at launch</div>
-        <div class="plan-name" data-i18n="pl2_name">★ PRO</div>
-        <div class="plan-price" style="color:var(--amber)">$15<span data-i18n="pl_onetime"> one-time</span></div>
-        <div class="plan-desc" data-i18n="pl2_desc">AI Copilot, full automation, bulk scanning. One payment — all future updates included during beta.</div>
-        <ul class="plan-feats">
-          <li class="yes"><span class="pf-check pro">✓</span><span data-i18n="plp1">Everything in Free</span></li>
-          <li class="yes"><span class="pf-check pro">✓</span><span data-i18n="plp2">AI Copilot — analysis, attack tips, report generation</span></li>
-          <li class="yes"><span class="pf-check pro">✓</span><span data-i18n="plp3">Automated pipelines (full XSS / SQLi / JS chain)</span></li>
-          <li class="yes"><span class="pf-check pro">✓</span><span data-i18n="plp4">Bulk scanning — nuclei, recon, takeover, CORS across all hosts</span></li>
-          <li class="yes"><span class="pf-check pro">✓</span><span data-i18n="plp5">Proxy Intruder (cluster bomb / pitchfork)</span></li>
-          <li class="yes"><span class="pf-check pro">✓</span><span data-i18n="plp6">JWT attack suite + business logic testing (IDOR, race conditions)</span></li>
-          <li class="yes"><span class="pf-check pro">✓</span><span data-i18n="plp7">All future updates during beta period</span></li>
+      <div class="pricing-col pro-col">
+        <div class="pricing-tier pro-tier" data-key="tier_pro">PRO</div>
+        <div class="pricing-price" data-key="price_pro" style="color:var(--amber)">Lifetime</div>
+        <div class="pricing-price-note" data-key="price_pro_note">One-time purchase. All future updates included.</div>
+        <hr class="pricing-divider">
+        <ul class="pricing-list">
+          <li class="check-g">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20,6 9,17 4,12"/></svg>
+            <span data-key="pp0"><strong>Everything in Free, plus:</strong></span>
+          </li>
+          <li class="check-a">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20,6 9,17 4,12"/></svg>
+            <span data-key="pp1"><strong>AI Copilot</strong> - attack surface analysis, report generation</span>
+          </li>
+          <li class="check-a">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20,6 9,17 4,12"/></svg>
+            <span data-key="pp2"><strong>Automated pipelines</strong> - full XSS, SQLi, and recon chains</span>
+          </li>
+          <li class="check-a">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20,6 9,17 4,12"/></svg>
+            <span data-key="pp3"><strong>Bulk scanning</strong> - nuclei, CORS, screenshots on all hosts</span>
+          </li>
+          <li class="check-a">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20,6 9,17 4,12"/></svg>
+            <span data-key="pp4"><strong>JWT attack suite</strong> - 10 techniques with step-by-step guidance</span>
+          </li>
+          <li class="check-a">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20,6 9,17 4,12"/></svg>
+            <span data-key="pp5"><strong>Proxy Intruder</strong> - cluster bomb, pitchfork, payload filtering</span>
+          </li>
+          <li class="check-a">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20,6 9,17 4,12"/></svg>
+            <span data-key="pp6">Priority support</span>
+          </li>
         </ul>
-        <!-- CHECKOUT: replace href with your LemonSqueezy checkout URL -->
-        <!-- Get it from: LemonSqueezy Dashboard → Products → NexHunt PRO → Share → Copy checkout link -->
-        <a class="btn btn-buy lemonsqueezy-button" href="https://sentinelsec.lemonsqueezy.com/checkout/buy/731bb5be-e615-4216-9896-d8d0661d37bf?discount=0" data-i18n="pl2_cta">Buy PRO — $15</a>
-        <p class="plan-note" data-i18n="pl2_note">Secure payment via LemonSqueezy. License key sent instantly by email.</p>
+        <div class="pricing-cta">
+          <a href="https://sentinelsec.online/pricing" class="btn btn-amber lemonsqueezy-button" data-key="pricing_buy">Get PRO</a>
+        </div>
       </div>
     </div>
   </div>
-</div>
+</section>
 
-<!-- INSTALL -->
-<div class="sec-wrap rv">
-  <div class="sec-wrap-inner">
-    <div class="eyebrow" data-i18n="in_ey">Installation</div>
-    <h2 class="sec-h" data-i18n="in_h">One command installs everything.</h2>
-    <p class="sec-sub" data-i18n="in_sub">Tested on Kali Linux 2024+, Debian, and Ubuntu. 20+ security tools configured automatically.</p>
-    <div class="install-block">
-      <div class="ib-header">
-        <span class="ib-lang">bash</span>
-        <button class="copy-btn" id="cbtn" onclick="doCopy()">
-          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
-          <span id="clbl" data-i18n="copy">Copy</span>
-        </button>
+<!-- INSTALL CTA -->
+<section class="section install-section reveal" id="install">
+  <div class="section-inner">
+    <div class="install-inner">
+      <h2 data-key="install_h">Up and running in under 5 minutes</h2>
+      <p data-key="install_sub">The installer sets up all 20+ tools, the Python backend, and the Electron app. No manual configuration.</p>
+      <div class="terminal-block">
+        <div class="terminal-bar">
+          <span class="tbar-dot" style="background:#ff5f57"></span>
+          <span class="tbar-dot" style="background:#febc2e"></span>
+          <span class="tbar-dot" style="background:#28c840"></span>
+        </div>
+        <div class="terminal-body">
+          <div class="terminal-line">
+            <span class="prompt">~$</span>
+            <span class="term-cmd" id="install-cmd-main">curl -fsSL https://github.com/sentinelsec-org/nexhunt/releases/download/v1.2.0/nexhunt-1.2.0.tar.gz | tar xz &amp;&amp; sudo bash install.sh</span>
+            <span class="cursor"></span>
+          </div>
+        </div>
+        <button class="terminal-copy" id="copy-main" onclick="copyCmd('install-cmd-main','copy-main')" data-key="btn_copy">Copy command</button>
       </div>
-      <div class="ib-cmd">curl -fsSL https://github.com/sentinelsec-org/nexhunt/releases/download/v1.1.0/nexhunt-1.1.0.tar.gz | tar xz &amp;&amp; sudo bash install.sh</div>
-      <div class="ib-steps">
-        <div class="ib-step"><span class="sn">01</span><div class="sb"><strong data-i18n="s1h">Download</strong><span data-i18n="s1b">Fetches the v1.1.0 release and extracts it to your current directory.</span></div></div>
-        <div class="ib-step"><span class="sn">02</span><div class="sb"><strong data-i18n="s2h">Install 20+ tools</strong><span data-i18n="s2b">nmap, nuclei, subfinder, ffuf, sqlmap, dalfox, gowitness, katana, gau, waybackurls and more — all configured.</span></div></div>
-        <div class="ib-step"><span class="sn">03</span><div class="sb"><strong data-i18n="s3h">Launch</strong><span data-i18n="s3b">Type <code style="font-family:var(--mono);color:var(--green);font-size:.7rem">nexhunt</code> or open from your app launcher. Desktop shortcut created automatically.</span></div></div>
-      </div>
+      <p class="install-note" data-key="install_note">Requires Linux (Kali, Debian, Ubuntu) &bull; Python 3.10+ &bull; ~2 GB disk &bull; Internet for initial install &bull; <a href="https://github.com/sentinelsec-org/nexhunt" target="_blank" rel="noreferrer">View on GitHub</a></p>
     </div>
   </div>
-</div>
+</section>
 
 <!-- FOOTER -->
 <footer>
-  <div class="foot-brand">Nex<em>Hunt</em></div>
-  <div class="foot-by"><span data-i18n="foot_by">by</span> <a href="https://sentinelsec.online" target="_blank">Sentinel Security</a></div>
-  <div class="foot-meta">sentinelsec.online &nbsp;·&nbsp; v1.1.0 beta &nbsp;·&nbsp; Linux</div>
+  <div class="footer-inner">
+    <div class="footer-left">
+      <div class="footer-logo">
+        <svg viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+      </div>
+      <span data-key="footer_by">by Sentinel Security &bull; <a href="https://sentinelsec.online" target="_blank" rel="noreferrer" style="color:inherit">sentinelsec.online</a></span>
+    </div>
+    <div class="footer-links">
+      <a href="https://github.com/sentinelsec-org/nexhunt" target="_blank" rel="noreferrer" data-key="footer_gh">GitHub</a>
+      <a href="#pricing" data-key="footer_pricing">Pricing</a>
+      <a href="https://github.com/sentinelsec-org/nexhunt/releases" target="_blank" rel="noreferrer" data-key="footer_releases">Releases</a>
+      <a href="https://github.com/sentinelsec-org/nexhunt/issues" target="_blank" rel="noreferrer" data-key="footer_issues">Issues</a>
+    </div>
+    <div class="footer-right">
+      <div class="footer-lang">
+        <button class="flbtn active" data-lang="en">EN</button>
+        <button class="flbtn" data-lang="es">ES</button>
+      </div>
+    </div>
+  </div>
 </footer>
 
 <script>
-// ── i18n ──────────────────────────────────────────────────────────────────────
-const T={
-en:{
-  nav_feat:'Features',nav_price:'Pricing',nav_dl:'Download free',
-  beta_tag:'Beta — actively developed, core features stable',
-  h1:'Bug Bounty,<br><em>Automated.</em>',
-  h_sub:'NexHunt runs <strong>20+ security tools</strong> for you — recon, scanning, exploitation and AI reporting in one Linux desktop app. Stop jumping between terminals. Start finding bugs.',
-  cta_dl:'⬇ Download — it\'s free',cta_pro:'★ Get PRO',
-  st1:'Security tools',st2:'Nuclei templates',st3:'Workflow phases',st4:'No time limit',
-  tab_recon:'Recon',tab_sitemap:'Proxy — Site Map',tab_jwt:'JWT Attacks',tab_scan:'Scanner',
-  sc_recon:'<strong>Real session on mcdonalds.com.ar.</strong> subfinder enumerated 13 subdomains, httpx probed all in parallel — status codes, titles, tech stacks. gowitness screenshotted every live host automatically. 282 endpoints discovered. One click, full coverage.',
-  sc_sitemap:'<strong>Burp-style site map, built automatically.</strong> Every request through the proxy is organized into a host/path tree. Click any node to inspect the full request and response. Send directly to Brute Force from here.',
-  sc_jwt:'<strong>10 JWT attack techniques, severity-rated.</strong> alg:none, Empty Signature, RS256→HS256 Confusion, Weak Secret Brute Force, kid Header Injection, jku/x5u SSRF, Privilege Escalation, and more. Step-by-step instructions per attack. Run All in one click.',
-  sc_scan:'<strong>14 findings, two tools.</strong> Nuclei detected WAF and Azure tenant ID. Nikto found 12 issues including missing security headers and Cloudflare fingerprints. Every finding stored per-project, tagged by tool and severity.',
-  wf_eyebrow:'How it works',wf_h:'Five phases. One app. Zero copy-paste.',
-  wf_sub:'Each phase feeds the next. Subdomains discovered in Stage 1 are probed in Stage 2, scanned in Stage 3, exploited in Stage 4, and reported in Stage 5. You point it at a target — it runs the chain.',
-  wf1_ph:'Recon',wf1_n:'Subdomain & surface discovery',wf2_ph:'Parameters',wf2_n:'Input & endpoint discovery',
-  wf3_ph:'Scanning',wf3_n:'Vulnerability detection',wf4_ph:'Exploitation',wf4_n:'Proof of impact',
-  wf5_ph:'AI Analysis',wf5_n:'Report & recommendations',
-  f1_ey:'Reconnaissance',f1_h:'Everything runs in parallel, automatically',
-  f1_p:'subfinder and amass enumerate subdomains simultaneously. httpx probes every host for status, title, and tech stack. gowitness screenshots them all. One button, full coverage.',
-  f1_l1:'<strong>CVE correlation</strong> — detected tech stacks matched to known CVEs automatically',
-  f1_l2:'<strong>URL history</strong> — gau + waybackurls surface years of archived endpoints',
-  f1_l3:'<strong>Visual triage</strong> — browse gowitness screenshots to find interesting targets fast',
-  f1_l4:'<strong>Full pipeline</strong> — chain all recon tools in one automated run',
-  f2_ey:'Scanning & Exploitation',f2_h:'From detection to proven impact',
-  f2_p:'Nuclei runs 8,000+ templates with OWASP presets. When you find a vulnerable endpoint, sqlmap, dalfox, xsstrike, and commix are one click away to prove it. Everything stored and organized per project.',
-  f2_l1:'<strong>8,000+ Nuclei templates</strong> — CVEs, misconfigs, exposures, default credentials',
-  f2_l2:'<strong>OWASP Top 10 presets</strong> — run the right templates in one click',
-  f2_l3:'<strong>SQLi + XSS + CMDi</strong> — validate findings with WAF evasion built in',
-  f2_l4:'<strong>Security tools</strong> — CORS, 403 bypass, cloud buckets, GitHub secrets, OOB',
-  sc_ey:'Security tools',sc_h:'Everything you run on a target, in one place',
-  sc_sub:'Specialized checks that most scanners miss. All integrated, all project-scoped.',
-  sc1n:'Proxy + Repeater',sc1b:'Intercept live traffic, edit and replay requests. Set global session headers and cookies for all tools.',
-  sc2n:'CORS Scanner',sc2b:'Tests origin reflection, credential exposure, and wildcard policies across all live hosts.',
-  sc3n:'403 Bypass',sc3b:'20+ bypass techniques — header injection, path normalization, verb tampering.',
-  sc4n:'Cloud Buckets',sc4b:'Discovers misconfigured S3, GCS, and Azure Blob storage associated with the target.',
-  sc5n:'GitHub Secrets',sc5b:'TruffleHog scans the target org\'s public repos for leaked API keys and credentials.',
-  sc6n:'Project Database',sc6b:'Every finding stored with severity, evidence, and status. Full project isolation.',
-  sc7n:'Proxy Intruder',sc7b:'Cluster bomb and pitchfork modes with payload wordlists.',
-  sc8n:'JWT Attacks',sc8b:'Algorithm confusion, key injection, claim forgery.',
-  ai_ey:'AI Copilot — PRO',ai_h:'A security analyst that knows your targets',
-  ai_p:'Not a generic chatbot. The AI Copilot has context from your actual project — your hosts, your findings, your tech stacks. It suggests what to try next and writes the report when you\'re done.',
-  ai_you:'You',ai_q1:'I found staging.acme.com running Apache 2.4.49. What should I try?',
-  ai_a1:'Apache 2.4.49 is vulnerable to <code>CVE-2021-41773</code> — path traversal and RCE if <code>mod_cgi</code> is enabled. Test: <code>curl "http://staging.acme.com/cgi-bin/.%2e/.%2e/etc/passwd"</code>. If you get file output, escalate to RCE. Document request/response — this is critical.',
-  ai_q2:'Generate a submission report for this finding.',
-  ai_a2:'Generated: <strong>Path Traversal + RCE — Critical (CVSS 9.8)</strong>. Report includes reproduction steps, evidence, CVSS, impact, and remediation. Ready to export. ✓',
-  ai_b1:'Analyzes hosts and suggests attack vectors based on detected technologies',
-  ai_b2:'Explains CVEs and exploitation paths in plain language',
-  ai_b3:'Generates professional vulnerability reports ready to submit',
-  ai_b4:'Hosted on Sentinel\'s infrastructure — no API key needed, just your license',
-  ai_cta:'★ Unlock AI Copilot with PRO',
-  pr_ey:'Pricing',pr_h:'Start free. Go PRO for $15.',
-  pr_sub:'One payment. Yours forever. Beta pricing — will increase when we exit beta. No subscription, no renewal.',
-  pl1_name:'Free',pl_forever:' forever',pl1_desc:'The complete bug bounty toolkit. Every tool, every phase, no time limits and no nag screens.',
-  plf1:'Full recon suite (subfinder, amass, httpx, nmap, katana, gau, waybackurls)',plf2:'Screenshot all hosts (gowitness)',
-  plf3:'Scanner single-target (nuclei, ffuf, nikto, gobuster, dirsearch)',plf4:'CVE correlation per technology',
-  plf5:'Exploit single-target (sqlmap, dalfox, xsstrike, commix)',plf6:'Security tools (CORS, 403 bypass, cloud buckets, GitHub secrets)',
-  plf7:'Proxy + repeater, findings DB, projects, methodology',plf8:'AI Copilot',plf9:'Automated pipelines & bulk scanning',
-  pl1_cta:'Download free',pl2_name:'★ PRO',pl2_badge:'Beta pricing — price goes up at launch',pl_onetime:' one-time',pl2_desc:'AI Copilot, full automation, bulk scanning. One payment — all future updates included during beta.',
-  plp1:'Everything in Free',plp2:'AI Copilot — analysis, attack tips, report generation',
-  plp3:'Automated pipelines (full XSS / SQLi / JS chain)',plp4:'Bulk scanning — nuclei, recon, takeover, CORS across all hosts',
-  plp5:'Proxy Intruder (cluster bomb / pitchfork)',plp6:'JWT attack suite + business logic testing (IDOR, race conditions)',plp7:'All future updates during beta period',
-  pl2_cta:'Buy PRO — $15',pl2_note:'Secure payment via LemonSqueezy. License key sent instantly by email.',
-  in_ey:'Installation',in_h:'One command installs everything.',
-  in_sub:'Tested on Kali Linux 2024+, Debian, and Ubuntu. 20+ security tools configured automatically.',
-  copy:'Copy',s1h:'Download',s1b:'Fetches the v1.1.0 release and extracts it.',
-  s2h:'Install 20+ tools',s2b:'nmap, nuclei, subfinder, ffuf, sqlmap, dalfox, gowitness, katana, gau, waybackurls and more.',
-  s3h:'Launch',s3b:'Type nexhunt or open from your app launcher. Desktop shortcut created automatically.',
-  foot_by:'by'
-},
-es:{
-  nav_feat:'Funciones',nav_price:'Precios',nav_dl:'Descargar gratis',
-  beta_tag:'Beta — en desarrollo activo, funciones principales estables',
-  h1:'Bug Bounty,<br><em>Automatizado.</em>',
-  h_sub:'NexHunt corre <strong>20+ herramientas de seguridad</strong> por vos — recon, escaneo, explotación y reportes con IA en una sola app de escritorio para Linux. Dejá de saltar entre terminales. Empezá a encontrar bugs.',
-  cta_dl:'⬇ Descargar — es gratis',cta_pro:'★ Obtener PRO',
-  st1:'Herramientas',st2:'Templates Nuclei',st3:'Fases de trabajo',st4:'Sin límite de tiempo',
-  tab_recon:'Recon',tab_sitemap:'Proxy — Site Map',tab_jwt:'Ataques JWT',tab_scan:'Scanner',
-  sc_sitemap:'<strong>Site map estilo Burp, generado automáticamente.</strong> Cada request que pasa por el proxy se organiza en un árbol host/path. Hacé clic en cualquier nodo para inspeccionar request y response. Enviá directo a Brute Force desde acá.',
-  sc_jwt:'<strong>10 técnicas de ataque JWT con severidad.</strong> alg:none, Firma vacía, Confusión RS256→HS256, Brute Force de secreto débil, Inyección kid, jku/x5u SSRF, Escalación de privilegios y más. Instrucciones paso a paso por ataque. Corré todos con un clic.',
-  sc_recon:'<strong>Sesión real en mcdonalds.com.ar.</strong> subfinder enumeró subdominios, httpx los sondeó en paralelo — códigos de estado, títulos, stacks (Cloudflare, Ghost 6.x, Node.js, Nuxt.js). Desde acá: escanear los 10 con Nuclei, capturar screenshots o correlacionar CVEs — todo con un clic.',
-  sc_scan:'<strong>14 hallazgos, dos herramientas.</strong> Nuclei detectó WAF e ID de tenant Azure. Nikto encontró 12 issues incluyendo headers de seguridad faltantes y fingerprints de Cloudflare. Cada hallazgo guardado por proyecto.',
-  wf_eyebrow:'Cómo funciona',wf_h:'Cinco fases. Una app. Sin copiar y pegar.',
-  wf_sub:'Cada fase alimenta a la siguiente. Los subdominios descubiertos en la Fase 1 se sondean en la 2, escanean en la 3, explotan en la 4 y se reportan en la 5. Apuntás al target — NexHunt corre la cadena.',
-  wf1_ph:'Recon',wf1_n:'Descubrimiento de subdominios',wf2_ph:'Parámetros',wf2_n:'Descubrimiento de inputs',
-  wf3_ph:'Escaneo',wf3_n:'Detección de vulnerabilidades',wf4_ph:'Explotación',wf4_n:'Prueba de impacto',
-  wf5_ph:'Análisis IA',wf5_n:'Reporte y recomendaciones',
-  f1_ey:'Reconocimiento',f1_h:'Todo corre en paralelo, automáticamente',
-  f1_p:'subfinder y amass enumeran subdominios simultáneamente. httpx sondea cada host en busca de estado, título y stack. gowitness los captura en pantalla. Un botón, cobertura completa.',
-  f1_l1:'<strong>Correlación de CVEs</strong> — stacks detectados se matchean a CVEs conocidos automáticamente',
-  f1_l2:'<strong>Historial de URLs</strong> — gau + waybackurls traen años de endpoints archivados',
-  f1_l3:'<strong>Triaje visual</strong> — explorá screenshots de gowitness para encontrar targets interesantes rápido',
-  f1_l4:'<strong>Pipeline completo</strong> — encadenás todas las tools de recon en un solo run automatizado',
-  f2_ey:'Escaneo y Explotación',f2_h:'De la detección al impacto probado',
-  f2_p:'Nuclei corre 8.000+ templates con presets OWASP. Cuando encontrás un endpoint vulnerable, sqlmap, dalfox, xsstrike y commix están a un clic para probarlo. Todo organizado y guardado por proyecto.',
-  f2_l1:'<strong>8.000+ templates Nuclei</strong> — CVEs, malas configuraciones, exposiciones, credenciales por defecto',
-  f2_l2:'<strong>Presets OWASP Top 10</strong> — corré los templates correctos con un clic',
-  f2_l3:'<strong>SQLi + XSS + CMDi</strong> — validá hallazgos con evasión de WAF integrada',
-  f2_l4:'<strong>Security tools</strong> — CORS, bypass 403, cloud buckets, secretos GitHub, OOB',
-  sc_ey:'Herramientas de seguridad',sc_h:'Todo lo que corrés contra un target, en un solo lugar',
-  sc_sub:'Chequeos especializados que la mayoría de los scanners pasan por alto. Todos integrados, todos con scope por proyecto.',
-  sc1n:'Proxy + Repeater',sc1b:'Interceptá tráfico en vivo, editá y reproducí requests. Configurá headers y cookies de sesión globales.',
-  sc2n:'CORS Scanner',sc2b:'Testea reflexión de origin, exposición de credenciales y políticas wildcard en todos los hosts activos.',
-  sc3n:'Bypass 403',sc3b:'20+ técnicas — inyección de headers, normalización de paths, verb tampering.',
-  sc4n:'Cloud Buckets',sc4b:'Descubre buckets S3, GCS y Azure Blob mal configurados asociados al target.',
-  sc5n:'Secretos GitHub',sc5b:'TruffleHog escanea repos públicos de la org objetivo buscando API keys y credenciales filtradas.',
-  sc6n:'Base de hallazgos',sc6b:'Cada hallazgo guardado con severidad, evidencia y estado. Aislamiento completo por proyecto.',
-  sc7n:'Proxy Intruder',sc7b:'Modos cluster bomb y pitchfork con wordlists de payloads.',
-  sc8n:'Ataques JWT',sc8b:'Confusión de algoritmos, inyección de keys, falsificación de claims.',
-  ai_ey:'AI Copilot — PRO',ai_h:'Un analista de seguridad que conoce tus targets',
-  ai_p:'No es un chatbot genérico. El AI Copilot tiene contexto de tu proyecto real — tus hosts, tus hallazgos, tus stacks. Sugiere qué probar a continuación y escribe el reporte cuando terminás.',
-  ai_you:'Vos',ai_q1:'Encontré staging.acme.com corriendo Apache 2.4.49. ¿Qué pruebo?',
-  ai_a1:'Apache 2.4.49 es vulnerable a <code>CVE-2021-41773</code> — path traversal y RCE si <code>mod_cgi</code> está habilitado. Probá: <code>curl "http://staging.acme.com/cgi-bin/.%2e/.%2e/etc/passwd"</code>. Si obtenés el archivo, escalá al vector RCE. Documentá el request/response — este es crítico.',
-  ai_q2:'Generá un reporte de entrega para este hallazgo.',
-  ai_a2:'Generado: <strong>Path Traversal + RCE — Crítico (CVSS 9.8)</strong>. El reporte incluye pasos de reproducción, evidencia, CVSS, impacto y remediación. Listo para exportar. ✓',
-  ai_b1:'Analiza hosts y sugiere vectores de ataque basados en las tecnologías detectadas',
-  ai_b2:'Explica CVEs y rutas de explotación en lenguaje claro',
-  ai_b3:'Genera reportes de vulnerabilidades profesionales listos para entregar',
-  ai_b4:'Corre en la infraestructura de Sentinel — sin API key propia, solo tu licencia',
-  ai_cta:'★ Desbloquear AI Copilot con PRO',
-  pr_ey:'Precios',pr_h:'Empezá gratis. Upgradeá cuando necesités más.',
-  pr_sub:'El tier gratuito no es un trial. Es la herramienta completa sin límite de tiempo. PRO agrega IA, automatización y escaneo masivo.',
-  pl1_name:'Gratis',pl_forever:' para siempre',pl1_desc:'El toolkit completo de bug bounty. Todas las herramientas, todas las fases, sin límites.',
-  plf1:'Suite recon completa (subfinder, amass, httpx, nmap, katana, gau, waybackurls)',plf2:'Screenshots de todos los hosts (gowitness)',
-  plf3:'Scanner objetivo único (nuclei, ffuf, nikto, gobuster, dirsearch)',plf4:'Correlación de CVEs por tecnología',
-  plf5:'Explotación objetivo único (sqlmap, dalfox, xsstrike, commix)',plf6:'Security tools (CORS, bypass 403, cloud buckets, secretos GitHub)',
-  plf7:'Proxy + repeater, BD hallazgos, proyectos, metodología',plf8:'AI Copilot',plf9:'Pipelines automatizados y escaneo masivo',
-  pl1_cta:'Descargar gratis',pl2_name:'★ PRO',pl2_badge:'Precio beta — sube al salir de beta',pl_onetime:' pago único',pl2_desc:'AI Copilot, automatización completa, escaneo masivo. Un pago — todas las actualizaciones futuras incluidas durante la beta.',
-  plp1:'Todo lo incluido en Gratis',plp2:'AI Copilot — análisis, sugerencias, generación de reportes',
-  plp3:'Pipelines automatizados (cadena completa XSS / SQLi / JS)',plp4:'Escaneo masivo — nuclei, recon, takeover, CORS en todos los hosts',
-  plp5:'Proxy Intruder (cluster bomb / pitchfork)',plp6:'Suite JWT + lógica de negocio (IDOR, race conditions)',plp7:'Todas las actualizaciones futuras durante la beta',
-  pl2_cta:'Comprar PRO — $15',pl2_note:'Pago seguro via LemonSqueezy. Clave de licencia enviada al instante por email.',
-  in_ey:'Instalación',in_h:'Un comando instala todo.',
-  in_sub:'Probado en Kali Linux 2024+, Debian y Ubuntu. 20+ herramientas de seguridad configuradas automáticamente.',
-  copy:'Copiar',s1h:'Descargar',s1b:'Descarga el release v1.1.0 y lo extrae.',
-  s2h:'Instalar 20+ tools',s2b:'nmap, nuclei, subfinder, ffuf, sqlmap, dalfox, gowitness, katana, gau, waybackurls y más.',
-  s3h:'Lanzar',s3b:'Escribí nexhunt o abrilo desde el launcher. Se crea un acceso directo automáticamente.',
-  foot_by:'por'
-}
-}
-
-const HTML_KEYS=new Set(['h1','h_sub','ai_a1','ai_a2','sc_recon','sc_scan','sc_sitemap','sc_jwt','f1_l1','f1_l2','f1_l3','f1_l4','f2_l1','f2_l2','f2_l3','f2_l4','s3b','pl2_note'])
-
-let lang='en'
-function setLang(l){
-  lang=l
-  document.documentElement.lang=l
-  document.getElementById('btn-en').classList.toggle('on',l==='en')
-  document.getElementById('btn-es').classList.toggle('on',l==='es')
-  const d=T[l]
-  document.querySelectorAll('[data-i18n]').forEach(el=>{
-    const k=el.getAttribute('data-i18n')
-    if(!d[k])return
-    if(HTML_KEYS.has(k)){el.innerHTML=d[k];return}
-    el.textContent=d[k]
-  })
-}
-
-// ── SHOT TABS ─────────────────────────────────────────────────────────────────
-function switchShot(id,btn){
-  document.querySelectorAll('.shot-tab').forEach(t=>t.classList.remove('on'))
-  document.querySelectorAll('.shot-img-wrap img').forEach(i=>i.style.display='none')
-  document.querySelectorAll('.shot-desc').forEach(d=>{d.classList.remove('on')})
-  btn.classList.add('on')
-  document.getElementById('si-'+id).style.display='block'
-  document.getElementById('sd-'+id).classList.add('on')
-}
-
-// ── COPY ──────────────────────────────────────────────────────────────────────
-const CMD='curl -fsSL https://github.com/sentinelsec-org/nexhunt/releases/download/v1.1.0/nexhunt-1.1.0.tar.gz | tar xz && sudo bash install.sh'
-function doCopy(){
-  navigator.clipboard.writeText(CMD).then(()=>{
-    const b=document.getElementById('cbtn'),l=document.getElementById('clbl')
-    b.classList.add('ok');l.textContent=lang==='es'?'Copiado!':'Copied!'
-    setTimeout(()=>{b.classList.remove('ok');l.textContent=T[lang].copy},2000)
-  })
-}
-
-// ── MINI TERMINALS ────────────────────────────────────────────────────────────
-function typeLines(el,lines,onDone){
-  let li=0,ci=0,html=''
-  function tick(){
-    if(li>=lines.length){if(onDone)onDone();return}
-    const ln=lines[li]
-    const full=ln.t
-    if(ci<full.length){
-      const ch=full[ci]
-      html+=`<span class="${ln.c}">${ch==='<'?'&lt;':ch==='>'?'&gt;':ch}</span>`
-      el.innerHTML=html+'<span class="cursor" style="display:inline-block;width:7px;height:13px;background:var(--green);vertical-align:text-bottom;animation:blink-g 1s step-end infinite"></span>'
-      ci++
-      setTimeout(tick,ch===' '?12:18)
-    } else {
-      html+='<br>'
-      li++;ci=0
-      setTimeout(tick,ln.pause||45)
-    }
+// ---- TRANSLATIONS ----
+const T = {
+  en: {
+    nav_features:'Features', nav_phases:'Workflow', nav_pricing:'Pricing', nav_install:'Install', nav_download:'Download',
+    hero_h1:'Bug Bounty,<br><em>Automated.</em>',
+    hero_sub:'The complete attack toolkit for bug bounty hunters. Recon to exploitation, chained and automated on your Linux machine.',
+    cta_dl:'Download Free', cta_pro:'Get PRO', btn_copy:'Copy',
+    bento_h:'The full attack surface, one app',
+    bento_sub:'Every tool runs where it belongs in the workflow. You set the target and press go.',
+    bento_r_label:'Reconnaissance', bento_r_h:'One button. Full recon chain.',
+    bento_r_p:'subfinder and amass run in parallel. httpx probes every host. katana crawls every live target. Results deduplicated and fed to the next phase automatically.',
+    bento_a_label:'Attack Automation', bento_a_h:'Complex attacks, simplified.',
+    bento_a_p:'JWT confusion, SQLi chains, XSS scanning, and business logic testing. Configured and launched from the UI. Results fed directly to your findings database.',
+    phases_h:'Recon to report, without switching tools',
+    phases_sub:'Five phases. Each one feeds the next. All running locally on your machine.',
+    ph1_h:'Reconnaissance', ph1_p:'Subdomain enumeration, live host probing, port scanning, web crawling, URL history, and parameter discovery. All parallel, all automatic.',
+    ph2_h:'Vulnerability Scanning', ph2_p:'8,000+ Nuclei templates, CVE correlation by detected tech stack, directory brute-force with smart wordlist selection, web server audits.',
+    ph3_h:'Exploitation', ph3_p:'SQLi, XSS, command injection, SSRF, JWT attacks. Validate findings and prove impact before writing the report.',
+    ph4_h:'Proxy and Reporting', ph4_p:'Capture and replay live traffic, use the Burp-style site map, fuzz with Intruder (PRO), and generate a full vulnerability report with the AI Copilot (PRO).',
+    proxy_h:'Proxy with a built-in site map',
+    proxy_p:'Every request flows through NexHunt\'s proxy and builds a Burp-style host/path tree automatically. Capture, inspect, replay, and fuzz without leaving the app.',
+    pro_h:'Go further with PRO', pro_sub:'Unlock automation, AI assistance, and advanced attack modules that would take hours to configure manually.',
+    pro1_h:'AI Copilot', pro1_p:'Paste any hostname and get a full attack surface breakdown. Feed in your findings and get a professional vulnerability report, ready to submit.',
+    pro2_h:'Automated Pipelines', pro2_p:'Full XSS chain, SQLi chain, and complete recon pipelines triggered in one click. Each tool\'s output feeds directly into the next.',
+    pro3_h:'Bulk Operations', pro3_p:'Run Nuclei, CORS scans, subdomain takeover checks, and screenshots across every discovered host in your project at once.',
+    pro4_h:'Advanced Attack Suite', pro4_p:'10 JWT attack techniques, Proxy Intruder with cluster bomb and pitchfork modes, brute force module with custom wordlists.',
+    pricing_h:'Two tiers. No tricks.', pricing_sub:'The free tier is genuinely useful. No time limits, no feature degradation, no nag screens.',
+    tier_free:'Free', price_free:'$0', price_free_note:'Forever. No card required.',
+    pf1:'Full recon suite (subfinder, amass, httpx, nmap, katana, gau, arjun)',
+    pf2:'Single-target scanning: nuclei, ffuf, nikto, gobuster, dirsearch',
+    pf3:'Proxy capture, repeater, site map',
+    pf4:'Single-target exploitation: sqlmap, dalfox, xsstrike, commix',
+    pf5:'Findings database, projects, methodology guide',
+    pf6:'Security tools: CORS, 403 bypass, cloud buckets, GitHub secret scanner',
+    pricing_dl:'Download Free',
+    tier_pro:'PRO', price_pro:'Lifetime', price_pro_note:'One-time purchase. All future updates included.',
+    pp0:'<strong>Everything in Free, plus:</strong>',
+    pp1:'<strong>AI Copilot</strong> - attack surface analysis, report generation',
+    pp2:'<strong>Automated pipelines</strong> - full XSS, SQLi, and recon chains',
+    pp3:'<strong>Bulk scanning</strong> - nuclei, CORS, screenshots on all hosts',
+    pp4:'<strong>JWT attack suite</strong> - 10 techniques with step-by-step guidance',
+    pp5:'<strong>Proxy Intruder</strong> - cluster bomb, pitchfork, payload filtering',
+    pp6:'Priority support',
+    pricing_buy:'Get PRO',
+    install_h:'Up and running in under 5 minutes',
+    install_sub:'The installer sets up all 20+ tools, the Python backend, and the Electron app. No manual configuration.',
+    btn_copy:'Copy command',
+    install_note:'Requires Linux (Kali, Debian, Ubuntu) &bull; Python 3.10+ &bull; ~2 GB disk &bull; Internet for initial install &bull; <a href="https://github.com/sentinelsec-org/nexhunt" target="_blank" rel="noreferrer">View on GitHub</a>',
+    footer_by:'by Sentinel Security &bull; <a href="https://sentinelsec.online" target="_blank" rel="noreferrer" style="color:inherit">sentinelsec.online</a>',
+    footer_gh:'GitHub', footer_pricing:'Pricing', footer_releases:'Releases', footer_issues:'Issues'
+  },
+  es: {
+    nav_features:'Funciones', nav_phases:'Flujo', nav_pricing:'Precios', nav_install:'Instalar', nav_download:'Descargar',
+    hero_h1:'Bug Bounty,<br><em>Automatizado.</em>',
+    hero_sub:'El kit completo para cazadores de bug bounty. Del reconocimiento a la explotación, encadenado y automatizado en tu máquina Linux.',
+    cta_dl:'Descargar Gratis', cta_pro:'Obtener PRO', btn_copy:'Copiar',
+    bento_h:'Toda la superficie de ataque, en una sola app',
+    bento_sub:'Cada herramienta corre donde le corresponde en el flujo. Defines el objetivo y presionas ejecutar.',
+    bento_r_label:'Reconocimiento', bento_r_h:'Un botón. Toda la cadena de recon.',
+    bento_r_p:'subfinder y amass corren en paralelo. httpx sondea cada host. katana rastrea cada objetivo activo. Resultados deduplicados y pasados a la siguiente fase de forma automática.',
+    bento_a_label:'Automatización de ataques', bento_a_h:'Ataques complejos, simplificados.',
+    bento_a_p:'Confusión JWT, cadenas SQLi, escaneo XSS y pruebas de lógica de negocio. Configurado y lanzado desde la UI. Resultados directo a tu base de hallazgos.',
+    phases_h:'De recon a reporte, sin cambiar de herramienta',
+    phases_sub:'Cinco fases. Cada una alimenta a la siguiente. Todo corriendo localmente en tu máquina.',
+    ph1_h:'Reconocimiento', ph1_p:'Enumeración de subdominios, sondeo de hosts activos, escaneo de puertos, rastreo web, historial de URLs y descubrimiento de parámetros. Todo en paralelo, todo automático.',
+    ph2_h:'Escaneo de vulnerabilidades', ph2_p:'8.000+ plantillas Nuclei, correlación de CVEs por tecnología detectada, fuerza bruta de directorios con selección inteligente de wordlists, auditoría de servidores web.',
+    ph3_h:'Explotación', ph3_p:'SQLi, XSS, inyección de comandos, SSRF, ataques JWT. Valida hallazgos y demuestra impacto antes de escribir el reporte.',
+    ph4_h:'Proxy y Reporte', ph4_p:'Captura y repite tráfico en vivo, usa el mapa de sitio estilo Burp, fuzzing con Intruder (PRO), y genera el reporte completo con el Copilot IA (PRO).',
+    proxy_h:'Proxy con mapa de sitio integrado',
+    proxy_p:'Cada solicitud pasa por el proxy de NexHunt y construye automáticamente un árbol de rutas estilo Burp. Captura, inspecciona, repite y fuzzea sin salir de la app.',
+    pro_h:'Llega más lejos con PRO', pro_sub:'Desbloquea automatización, asistencia de IA y módulos de ataque avanzados que llevarían horas configurar manualmente.',
+    pro1_h:'Copilot IA', pro1_p:'Pega cualquier hostname y obtén un análisis completo de superficie de ataque. Pasa tus hallazgos y genera un reporte de vulnerabilidades profesional, listo para enviar.',
+    pro2_h:'Pipelines Automatizados', pro2_p:'Cadena completa XSS, SQLi y pipelines de recon lanzados con un clic. El resultado de cada herramienta alimenta directamente a la siguiente.',
+    pro3_h:'Operaciones Masivas', pro3_p:'Corre Nuclei, escaneos CORS, verificaciones de takeover y capturas de pantalla en todos los hosts descubiertos de tu proyecto a la vez.',
+    pro4_h:'Suite de Ataque Avanzada', pro4_p:'10 técnicas de ataque JWT, Proxy Intruder con modos cluster bomb y pitchfork, módulo de fuerza bruta con wordlists personalizadas.',
+    pricing_h:'Dos planes. Sin trampas.', pricing_sub:'El plan gratuito es genuinamente útil. Sin límites de tiempo, sin degradación de funciones, sin pantallas de anuncio.',
+    tier_free:'Gratuito', price_free:'$0', price_free_note:'Para siempre. Sin tarjeta requerida.',
+    pf1:'Suite completa de recon (subfinder, amass, httpx, nmap, katana, gau, arjun)',
+    pf2:'Escaneo de un solo objetivo: nuclei, ffuf, nikto, gobuster, dirsearch',
+    pf3:'Captura proxy, repetidor, mapa de sitio',
+    pf4:'Explotación de un solo objetivo: sqlmap, dalfox, xsstrike, commix',
+    pf5:'Base de hallazgos, proyectos, guía de metodología',
+    pf6:'Herramientas de seguridad: CORS, bypass 403, buckets cloud, escaner de secretos GitHub',
+    pricing_dl:'Descargar Gratis',
+    tier_pro:'PRO', price_pro:'Lifetime', price_pro_note:'Compra única. Todas las actualizaciones incluidas.',
+    pp0:'<strong>Todo lo del plan gratuito, más:</strong>',
+    pp1:'<strong>Copilot IA</strong> - análisis de superficie de ataque, generación de reportes',
+    pp2:'<strong>Pipelines automatizados</strong> - cadenas completas XSS, SQLi y recon',
+    pp3:'<strong>Escaneo masivo</strong> - nuclei, CORS, capturas en todos los hosts',
+    pp4:'<strong>Suite JWT</strong> - 10 técnicas con guía paso a paso',
+    pp5:'<strong>Proxy Intruder</strong> - cluster bomb, pitchfork, filtrado de respuestas',
+    pp6:'Soporte prioritario',
+    pricing_buy:'Obtener PRO',
+    install_h:'En funcionamiento en menos de 5 minutos',
+    install_sub:'El instalador configura las 20+ herramientas, el backend Python y la app Electron. Sin configuración manual.',
+    btn_copy:'Copiar comando',
+    install_note:'Requiere Linux (Kali, Debian, Ubuntu) &bull; Python 3.10+ &bull; ~2 GB en disco &bull; Internet para la instalación inicial &bull; <a href="https://github.com/sentinelsec-org/nexhunt" target="_blank" rel="noreferrer">Ver en GitHub</a>',
+    footer_by:'por Sentinel Security &bull; <a href="https://sentinelsec.online" target="_blank" rel="noreferrer" style="color:inherit">sentinelsec.online</a>',
+    footer_gh:'GitHub', footer_pricing:'Precios', footer_releases:'Releases', footer_issues:'Issues'
   }
-  tick()
+};
+
+let currentLang = 'en';
+
+function applyLang(lang) {
+  currentLang = lang;
+  const map = T[lang];
+  document.querySelectorAll('[data-key]').forEach(el => {
+    const key = el.dataset.key;
+    if (map[key] !== undefined) el.innerHTML = map[key];
+  });
+  document.documentElement.lang = lang;
+  document.querySelectorAll('.lbtn, .flbtn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.lang === lang);
+  });
 }
 
-const T1=[
-  {t:'$ subfinder -d mcdonalds.com.ar -silent',c:'c-p',pause:80},
-  {t:'[INF] 5 subdomains found',c:'c-ok',pause:40},
-  {t:'api.mcdonalds.com.ar',c:'c-h',pause:20},
-  {t:'admin.mcdonalds.com.ar',c:'c-h',pause:20},
-  {t:'staging.mcdonalds.com.ar',c:'c-h',pause:20},
-  {t:'payments.mcdonalds.com.ar',c:'c-h',pause:20},
-  {t:'',c:'c-dim',pause:30},
-  {t:'$ httpx -l hosts.txt -tech-detect -silent',c:'c-p',pause:80},
-  {t:'200  admin.mcdonalds.com.ar   [Apache/2.4.49, PHP/8.0]',c:'c-h',pause:25},
-  {t:'200  api.mcdonalds.com.ar     [Spring Boot, nginx/1.18]',c:'c-h',pause:25},
-  {t:'403  staging.mcdonalds.com.ar [Cloudflare]',c:'c-dim',pause:25},
-  {t:'',c:'c-dim',pause:30},
-  {t:'[+] CVE correlation: Apache/2.4.49 → CVE-2021-41773',c:'c-crit',pause:60},
-]
+document.querySelectorAll('.lbtn, .flbtn').forEach(btn => {
+  btn.addEventListener('click', () => applyLang(btn.dataset.lang));
+});
 
-const T2=[
-  {t:'$ nuclei -l live.txt -t cves/ -silent',c:'c-p',pause:80},
-  {t:'[critical] CVE-2021-41773  path-traversal',c:'c-crit',pause:40},
-  {t:'            admin.mcdonalds.com.ar',c:'c-dim',pause:25},
-  {t:'[critical] CVE-2021-44228  log4shell-rce',c:'c-crit',pause:40},
-  {t:'            api.mcdonalds.com.ar',c:'c-dim',pause:25},
-  {t:'[high]     default-login  /admin exposed',c:'c-high',pause:40},
-  {t:'[medium]   .env-exposure  /api/.env',c:'c-med',pause:40},
-  {t:'',c:'c-dim',pause:30},
-  {t:'$ dalfox url "https://admin.mcdonalds.com.ar/search?q=1"',c:'c-p',pause:80},
-  {t:'[V] Reflected XSS found — /search?q=',c:'c-crit',pause:60},
-  {t:'[+] 5 findings. 3 critical, 1 high, 1 medium',c:'c-ok',pause:60},
-]
-
-// start terminals when visible
-function startTerminal(id,lines){
-  const el=document.getElementById(id)
-  if(!el)return
-  const ob=new IntersectionObserver(([e])=>{if(e.isIntersecting){ob.disconnect();typeLines(el,lines)}},{threshold:.3})
-  ob.observe(el)
+// ---- COPY COMMAND ----
+function copyCmd(srcId, btnId) {
+  const text = document.getElementById(srcId).textContent;
+  navigator.clipboard.writeText(text).then(() => {
+    const btn = document.getElementById(btnId);
+    const prev = btn.textContent;
+    btn.textContent = currentLang === 'es' ? 'Copiado!' : 'Copied!';
+    btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = prev; btn.classList.remove('copied'); }, 2000);
+  }).catch(() => {});
 }
-startTerminal('term1',T1)
-startTerminal('term2',T2)
 
-// ── SCROLL REVEAL ─────────────────────────────────────────────────────────────
-const rv=new IntersectionObserver(es=>{es.forEach(e=>{if(e.isIntersecting)e.target.classList.add('vis')})},{threshold:.1})
-document.querySelectorAll('.rv').forEach(el=>rv.observe(el))
+// ---- SCROLL REVEAL ----
+const reveals = document.querySelectorAll('.reveal');
+if ('IntersectionObserver' in window) {
+  const io = new IntersectionObserver(entries => {
+    entries.forEach(e => { if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); } });
+  }, { threshold: 0.1 });
+  reveals.forEach(el => io.observe(el));
+} else {
+  reveals.forEach(el => el.classList.add('in'));
+}
 </script>
 </body>
 </html>
