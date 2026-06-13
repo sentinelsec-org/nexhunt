@@ -36,3 +36,10 @@ screenshots/
 !docs/screenshots/
 !docs/screenshots/*.png
 kali/
+
+# Scan output files (never commit)
+backend/nikto_*.txt
+backend/*.txt
+backend/*.xml
+backend/*.json
+backend/*.out
