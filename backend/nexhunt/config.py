@@ -26,10 +26,23 @@ class Settings(BaseSettings):
     # proxy using the user's license key instead of a local AI key.
     sentinel_ai_proxy_url: str = "https://sentinel-ai-proxy.joaquinsilvagni.workers.dev"
 
-    # Licensing (Sentinel Security / LemonSqueezy)
+    # Licensing (Sentinel Security)
+    license_provider: str = "keygen"           # "lemonsqueezy" | "gumroad" | "keygen"
     license_recheck_hours: int = 24            # how often to re-validate online
     license_offline_grace_days: int = 7        # keep PRO this long without a successful check
     license_product_id: str = "1135593"        # LemonSqueezy product ID for NexHunt PRO
+
+    # Gumroad (set license_provider=gumroad to use)
+    gumroad_product_id: str = ""
+    gumroad_product_permalink: str = ""
+    gumroad_activation_limit: int = 2
+    gumroad_access_token: str = ""
+
+    # Keygen.sh (active provider)
+    keygen_account_id: str = "23e2d8ec-6bc5-40e2-937e-44ffe818b610"
+    keygen_policy_id: str = "b216c614-6942-42da-b044-a25fbceb2ed5"
+    keygen_product_token: str = ""             # set via NEXHUNT_KEYGEN_PRODUCT_TOKEN env var
+
     upgrade_url: str = "https://sentinelsec.online/pricing"
     update_repo: str = "sentinelsec-org/nexhunt"   # GitHub owner/repo for release updates
 

@@ -46,13 +46,21 @@ ok "Bundle assembled at $BUNDLE"
 if [ "$SKIP_OBF" != "--skip-obfuscate" ]; then
   step "Obfuscating licensing/ with PyArmor"
   if ! command -v pyarmor &>/dev/null; then
-    pip install -q pyarmor
+    pip install --break-system-packages -q pyarmor
   fi
-  LIC_SRC="$BUNDLE/backend/nexhunt/licensing"
-  LIC_OUT="$BUNDLE/backend/nexhunt/licensing_obf"
-  pyarmor gen --output "$LIC_OUT" "$LIC_SRC"
-  rm -rf "$LIC_SRC"
-  mv "$LIC_OUT" "$LIC_SRC"
+  # Run from backend/ — pyarmor outputs:
+  #   TMP_OBF/licensing/              ← obfuscated .py files
+  #   TMP_OBF/pyarmor_runtime_000000/ ← runtime (.so + __init__.py)
+  # Runtime must sit at backend/ root so Python finds it on sys.path.
+  TMP_OBF="$(mktemp -d)"
+  cd "$BUNDLE/backend"
+  pyarmor gen --output "$TMP_OBF" nexhunt/licensing
+  rm -rf nexhunt/licensing
+  cp -r "$TMP_OBF/licensing" nexhunt/licensing
+  # Runtime at backend root (same level as nexhunt/), importable as top-level package
+  cp -r "$TMP_OBF/pyarmor_runtime_000000" ./
+  rm -rf "$TMP_OBF"
+  cd "$ROOT"
   ok "licensing/ obfuscated"
 else
   ok "Obfuscation skipped (--skip-obfuscate)"

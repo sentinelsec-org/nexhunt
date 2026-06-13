@@ -9,7 +9,7 @@ import logging
 import time
 
 from nexhunt.config import settings
-from nexhunt.licensing import fingerprint, lemonsqueezy, store
+from nexhunt.licensing import fingerprint, provider, store
 
 logger = logging.getLogger(__name__)
 
@@ -69,18 +69,16 @@ class LicenseManager:
                 store.save(self._state)
             return self.status()
         async with self._lock:
-            payload = await lemonsqueezy.activate(key, fingerprint.get_machine_name())
-            self._guard_product(payload)
-            lic = payload.get("license_key", {})
-            inst = payload.get("instance", {})
-            meta = payload.get("meta", {})
+            res = await provider.activate(
+                key, fingerprint.get_machine_name(), fingerprint.get_machine_id()
+            )
             self._state = {
                 "key": key,
-                "instance_id": inst.get("id", ""),
-                "status": lic.get("status", "active"),
-                "expires_at": lic.get("expires_at"),
-                "customer_email": meta.get("customer_email"),
-                "product_id": meta.get("product_id"),
+                "instance_id": res["instance_id"],
+                "status": res["status"],
+                "expires_at": res["expires_at"],
+                "customer_email": res["customer_email"],
+                "product_id": res["product_id"],
                 "last_valid_check": int(time.time()),
             }
             store.save(self._state)
@@ -92,9 +90,9 @@ class LicenseManager:
             inst = self._state.get("instance_id", "")
             if key and inst:
                 try:
-                    await lemonsqueezy.deactivate(key, inst)
-                except lemonsqueezy.LemonError as e:
-                    logger.warning(f"Deactivate at LemonSqueezy failed (clearing locally anyway): {e}")
+                    await provider.deactivate(key, inst, fingerprint.get_machine_id())
+                except provider.LicenseError as e:
+                    logger.warning(f"Deactivate at provider failed (clearing locally anyway): {e}")
             self._state = {}
             store.clear()
         return self.status()
@@ -151,14 +149,6 @@ class LicenseManager:
         recheck = settings.license_recheck_hours * 3600
         return (time.time() - last) > recheck
 
-    def _guard_product(self, payload: dict) -> None:
-        want = settings.license_product_id
-        if not want:
-            return
-        got = str(payload.get("meta", {}).get("product_id", ""))
-        if got != str(want):
-            raise lemonsqueezy.LemonError("This license key is not valid for NexHunt")
-
     async def _recheck(self, force: bool) -> None:
         async with self._lock:
             key = self._state.get("key")
@@ -173,14 +163,15 @@ class LicenseManager:
             if not force and (time.time() - last) < interval:
                 return
             try:
-                payload = await lemonsqueezy.validate(key, self._state.get("instance_id"))
-                lic = payload.get("license_key", {})
-                self._state["status"] = lic.get("status", "active")
-                self._state["expires_at"] = lic.get("expires_at")
+                res = await provider.validate(
+                    key, self._state.get("instance_id"), fingerprint.get_machine_id()
+                )
+                self._state["status"] = res["status"]
+                self._state["expires_at"] = res["expires_at"]
                 self._state["last_valid_check"] = int(time.time())
                 store.save(self._state)
                 logger.info("License re-validated (status=%s)", self._state["status"])
-            except lemonsqueezy.LemonError as e:
+            except provider.LicenseError as e:
                 # Network/server problem: keep current state, grace window decides.
                 logger.warning(f"License recheck failed (offline grace applies): {e}")
 

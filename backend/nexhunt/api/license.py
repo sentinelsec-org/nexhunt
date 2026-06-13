@@ -3,7 +3,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from nexhunt.licensing.manager import license_manager
-from nexhunt.licensing.lemonsqueezy import LemonError
+from nexhunt.licensing.provider import LicenseError
 
 router = APIRouter(prefix="/api/license", tags=["license"])
 logger = logging.getLogger(__name__)
@@ -24,7 +24,7 @@ async def activate(req: ActivateRequest):
         return await license_manager.activate(req.key)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    except LemonError as e:
+    except LicenseError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 

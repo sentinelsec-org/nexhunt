@@ -6,12 +6,19 @@ compatibility_flags = ["nodejs_compat"]
 [vars]
 LLM_BASE_URL = "https://api.groq.com/openai/v1"
 LLM_MODEL = "llama-3.3-70b-versatile"
+LICENSE_PROVIDER = "keygen"
+KEYGEN_ACCOUNT_ID = "23e2d8ec-6bc5-40e2-937e-44ffe818b610"
+KEYGEN_POLICY_ID  = "b216c614-6942-42da-b044-a25fbceb2ed5"
+# LemonSqueezy (fallback)
 LEMON_STORE_ID = "7372172"
 
 [[kv_namespaces]]
 binding = "LICENSE_CACHE"
 id = "a9b46cc84be54429a77e3e8440c1756f"
 
-# Secrets (do NOT put values here — use: wrangler secret put <NAME>):
-#   LEMON_API_TOKEN
-#   LLM_API_KEY
+# Secrets — set with: wrangler secret put <NAME>
+#   KEYGEN_PRODUCT_TOKEN   prod-cd0e675aafbe326500939ef3340fc9a14f5da113284746149b9ab8eb9f53e5a3v3
+#   PADDLE_WEBHOOK_SECRET  (from Paddle dashboard after creating webhook)
+#   PADDLE_API_KEY         (from Paddle dashboard > Developer > Authentication)
+#   LLM_API_KEY            (Groq key)
+#   LEMON_API_TOKEN        (kept as fallback)
