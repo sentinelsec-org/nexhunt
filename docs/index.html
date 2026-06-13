@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>NexHunt — Semi-Automated Bug Bounty for Linux</title>
-<meta name="description" content="NexHunt runs your full bug bounty workflow automatically. Recon, scanning, exploitation and AI reporting in one Linux desktop app. Free to download.">
+<title>NexHunt — Bug Bounty, Automated.</title>
+<meta name="description" content="Bug Bounty, Automated. NexHunt runs 20+ security tools for you — recon, scanning, exploitation and AI reporting in one Linux desktop app. Free to download.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://app.lemonsqueezy.com/js/lemon.js" defer></script>
@@ -256,7 +256,7 @@ footer{border-top:1px solid var(--b1);padding:2.5rem clamp(1rem,4vw,3rem);displa
   </div>
   <div class="hero-inner">
     <div class="beta-tag"><span class="beta-dot"></span><span data-i18n="beta_tag">Beta — actively developed, core features stable</span></div>
-    <h1 data-i18n="h1">Your full <em>bug bounty</em><br>workflow, automated</h1>
+    <h1 data-i18n="h1">Bug Bounty,<br><em>Automated.</em></h1>
     <p class="hero-sub" data-i18n="h_sub">NexHunt runs <strong>20+ security tools</strong> for you — recon, scanning, exploitation and AI reporting in one Linux desktop app. Stop jumping between terminals. Start finding bugs.</p>
     <div class="hero-ctas">
       <a class="btn btn-g" href="https://github.com/sentinelsec-org/nexhunt/releases/latest" target="_blank" data-i18n="cta_dl">⬇ Download — it's free</a>
@@ -278,15 +278,21 @@ footer{border-top:1px solid var(--b1);padding:2.5rem clamp(1rem,4vw,3rem);displa
         <span class="app-title">NexHunt — McDonalds / mcdonalds.com.ar</span>
       </div>
       <div class="shot-tabs-nav">
-        <button class="shot-tab on" onclick="switchShot('recon',this)" data-i18n="tab_recon">Recon — Live Hosts</button>
-        <button class="shot-tab" onclick="switchShot('scanner',this)" data-i18n="tab_scan">Scanner — Findings</button>
+        <button class="shot-tab on" onclick="switchShot('recon',this)" data-i18n="tab_recon">Recon</button>
+        <button class="shot-tab" onclick="switchShot('sitemap',this)" data-i18n="tab_sitemap">Proxy — Site Map</button>
+        <button class="shot-tab" onclick="switchShot('jwt',this)" data-i18n="tab_jwt">JWT Attacks</button>
+        <button class="shot-tab" onclick="switchShot('scanner',this)" data-i18n="tab_scan">Scanner</button>
       </div>
       <div class="shot-img-wrap">
-        <img id="si-recon" src="screenshots/recon.png" alt="NexHunt Recon page — 10 live hosts discovered on mcdonalds.com.ar" style="display:block">
-        <img id="si-scanner" src="screenshots/scanner.png" alt="NexHunt Scanner page — 14 findings from nuclei and nikto" style="display:none">
+        <img id="si-recon" src="screenshots/recon-pipeline.png" alt="NexHunt Recon — subfinder, amass, httpx and gowitness pipeline on mcdonalds.com.ar. 13 subdomains, 10 live hosts, 282 endpoints, screenshots." style="display:block">
+        <img id="si-sitemap" src="screenshots/proxy-sitemap.png" alt="NexHunt Proxy Site Map — Burp-style host/path tree built from 44 captured requests" style="display:none">
+        <img id="si-jwt" src="screenshots/jwt-attacks.png" alt="NexHunt JWT Attacks — 10 attack techniques with CRITICAL/HIGH/MED severity ratings" style="display:none">
+        <img id="si-scanner" src="screenshots/scanner.png" alt="NexHunt Scanner — 14 vulnerability findings from nuclei and nikto" style="display:none">
       </div>
-      <div id="sd-recon" class="shot-desc on" data-i18n="sc_recon"><strong>Real session on mcdonalds.com.ar.</strong> subfinder enumerated subdomains, httpx probed all of them in parallel — returning status codes, page titles, and tech stacks (Cloudflare, Ghost 6.x, Node.js, Nuxt.js, Apple/Google Sign-in). From here: scan all 10 hosts with Nuclei, run gowitness screenshots, or correlate CVEs against detected technologies — all in one click.</div>
-      <div id="sd-scanner" class="shot-desc" data-i18n="sc_scan"><strong>14 findings, two tools.</strong> Nuclei detected WAF presence and Microsoft Azure tenant ID. Nikto found 12 issues including missing security headers (strict-transport-security, content-security-policy, permissions-policy) and Cloudflare infrastructure fingerprints. Every finding is stored in the project database, tagged by tool and severity.</div>
+      <div id="sd-recon" class="shot-desc on" data-i18n="sc_recon"><strong>Real session on mcdonalds.com.ar.</strong> subfinder enumerated 13 subdomains, httpx probed all in parallel — status codes, titles, tech stacks. gowitness screenshotted every live host automatically. 282 endpoints discovered. One click, full coverage.</div>
+      <div id="sd-sitemap" class="shot-desc" data-i18n="sc_sitemap"><strong>Burp-style site map, built automatically.</strong> Every request through the proxy is organized into a host/path tree. Click any node to inspect the request and response. Send directly to Brute Force from here.</div>
+      <div id="sd-jwt" class="shot-desc" data-i18n="sc_jwt"><strong>10 JWT attack techniques, severity-rated.</strong> alg:none, Empty Signature, RS256→HS256 Confusion, Weak Secret Brute Force, kid Header Injection, jku/x5u SSRF, Privilege Escalation, and more. Each attack shows how it works, prerequisites, and step-by-step instructions. Run All in one click.</div>
+      <div id="sd-scanner" class="shot-desc" data-i18n="sc_scan"><strong>14 findings, two tools.</strong> Nuclei detected WAF and Microsoft Azure tenant ID. Nikto found 12 issues including missing security headers and Cloudflare fingerprints. Every finding stored per-project, tagged by tool and severity.</div>
     </div>
   </div>
 </div>
@@ -530,12 +536,14 @@ const T={
 en:{
   nav_feat:'Features',nav_price:'Pricing',nav_dl:'Download free',
   beta_tag:'Beta — actively developed, core features stable',
-  h1:'Your full <em>bug bounty</em><br>workflow, automated',
+  h1:'Bug Bounty,<br><em>Automated.</em>',
   h_sub:'NexHunt runs <strong>20+ security tools</strong> for you — recon, scanning, exploitation and AI reporting in one Linux desktop app. Stop jumping between terminals. Start finding bugs.',
   cta_dl:'⬇ Download — it\'s free',cta_pro:'★ Get PRO',
   st1:'Security tools',st2:'Nuclei templates',st3:'Workflow phases',st4:'No time limit',
-  tab_recon:'Recon — Live Hosts',tab_scan:'Scanner — Findings',
-  sc_recon:'<strong>Real session on mcdonalds.com.ar.</strong> subfinder enumerated subdomains, httpx probed all of them in parallel — status codes, page titles, tech stacks (Cloudflare, Ghost 6.x, Node.js, Nuxt.js). From here: scan all 10 with Nuclei, run gowitness screenshots, or correlate CVEs — all one click.',
+  tab_recon:'Recon',tab_sitemap:'Proxy — Site Map',tab_jwt:'JWT Attacks',tab_scan:'Scanner',
+  sc_recon:'<strong>Real session on mcdonalds.com.ar.</strong> subfinder enumerated 13 subdomains, httpx probed all in parallel — status codes, titles, tech stacks. gowitness screenshotted every live host automatically. 282 endpoints discovered. One click, full coverage.',
+  sc_sitemap:'<strong>Burp-style site map, built automatically.</strong> Every request through the proxy is organized into a host/path tree. Click any node to inspect the full request and response. Send directly to Brute Force from here.',
+  sc_jwt:'<strong>10 JWT attack techniques, severity-rated.</strong> alg:none, Empty Signature, RS256→HS256 Confusion, Weak Secret Brute Force, kid Header Injection, jku/x5u SSRF, Privilege Escalation, and more. Step-by-step instructions per attack. Run All in one click.',
   sc_scan:'<strong>14 findings, two tools.</strong> Nuclei detected WAF and Azure tenant ID. Nikto found 12 issues including missing security headers and Cloudflare fingerprints. Every finding stored per-project, tagged by tool and severity.',
   wf_eyebrow:'How it works',wf_h:'Five phases. One app. Zero copy-paste.',
   wf_sub:'Each phase feeds the next. Subdomains discovered in Stage 1 are probed in Stage 2, scanned in Stage 3, exploited in Stage 4, and reported in Stage 5. You point it at a target — it runs the chain.',
@@ -597,11 +605,13 @@ en:{
 es:{
   nav_feat:'Funciones',nav_price:'Precios',nav_dl:'Descargar gratis',
   beta_tag:'Beta — en desarrollo activo, funciones principales estables',
-  h1:'Tu flujo completo de <em>bug bounty</em>,<br>automatizado',
+  h1:'Bug Bounty,<br><em>Automatizado.</em>',
   h_sub:'NexHunt corre <strong>20+ herramientas de seguridad</strong> por vos — recon, escaneo, explotación y reportes con IA en una sola app de escritorio para Linux. Dejá de saltar entre terminales. Empezá a encontrar bugs.',
   cta_dl:'⬇ Descargar — es gratis',cta_pro:'★ Obtener PRO',
   st1:'Herramientas',st2:'Templates Nuclei',st3:'Fases de trabajo',st4:'Sin límite de tiempo',
-  tab_recon:'Recon — Hosts activos',tab_scan:'Scanner — Hallazgos',
+  tab_recon:'Recon',tab_sitemap:'Proxy — Site Map',tab_jwt:'Ataques JWT',tab_scan:'Scanner',
+  sc_sitemap:'<strong>Site map estilo Burp, generado automáticamente.</strong> Cada request que pasa por el proxy se organiza en un árbol host/path. Hacé clic en cualquier nodo para inspeccionar request y response. Enviá directo a Brute Force desde acá.',
+  sc_jwt:'<strong>10 técnicas de ataque JWT con severidad.</strong> alg:none, Firma vacía, Confusión RS256→HS256, Brute Force de secreto débil, Inyección kid, jku/x5u SSRF, Escalación de privilegios y más. Instrucciones paso a paso por ataque. Corré todos con un clic.',
   sc_recon:'<strong>Sesión real en mcdonalds.com.ar.</strong> subfinder enumeró subdominios, httpx los sondeó en paralelo — códigos de estado, títulos, stacks (Cloudflare, Ghost 6.x, Node.js, Nuxt.js). Desde acá: escanear los 10 con Nuclei, capturar screenshots o correlacionar CVEs — todo con un clic.',
   sc_scan:'<strong>14 hallazgos, dos herramientas.</strong> Nuclei detectó WAF e ID de tenant Azure. Nikto encontró 12 issues incluyendo headers de seguridad faltantes y fingerprints de Cloudflare. Cada hallazgo guardado por proyecto.',
   wf_eyebrow:'Cómo funciona',wf_h:'Cinco fases. Una app. Sin copiar y pegar.',
@@ -663,7 +673,7 @@ es:{
 }
 }
 
-const HTML_KEYS=new Set(['h1','h_sub','ai_a1','ai_a2','sc_recon','sc_scan','f1_l1','f1_l2','f1_l3','f1_l4','f2_l1','f2_l2','f2_l3','f2_l4','s3b','pl2_note'])
+const HTML_KEYS=new Set(['h1','h_sub','ai_a1','ai_a2','sc_recon','sc_scan','sc_sitemap','sc_jwt','f1_l1','f1_l2','f1_l3','f1_l4','f2_l1','f2_l2','f2_l3','f2_l4','s3b','pl2_note'])
 
 let lang='en'
 function setLang(l){

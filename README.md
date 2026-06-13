@@ -24,16 +24,6 @@
 
 ---
 
-## Screenshots
-
-| Recon | Scanner |
-|---|---|
-| ![Recon page showing 10 live hosts discovered on mcdonalds.com.ar with status codes and tech stack](docs/screenshots/recon.png) | ![Scanner page showing 14 vulnerability findings from nuclei and nikto](docs/screenshots/scanner.png) |
-
-> Real session against mcdonalds.com.ar. subfinder discovered subdomains, httpx probed all of them in parallel, nuclei + nikto ran against all live hosts.
-
----
-
 ## What is NexHunt?
 
 NexHunt is a **desktop app for bug bounty hunters and penetration testers** that replaces your messy collection of terminal tabs, scripts, and notes with a single, integrated workflow.
@@ -47,6 +37,10 @@ It runs **locally on your Linux machine**. No cloud, no data sent anywhere (exce
 ## 🗺️ The full workflow, in one app
 
 ### 🔍 Reconnaissance
+
+![NexHunt Recon — subfinder, amass, httpx and gowitness pipeline running against mcdonalds.com.ar. 13 subdomains found, 10 live hosts probed, 282 endpoints discovered, screenshots captured automatically.](docs/screenshots/recon-pipeline.png)
+
+> Real session: subfinder enumerated subdomains on mcdonalds.com.ar, httpx probed all of them in parallel, gowitness screenshotted every live host automatically.
 
 The most complete recon pipeline you can run from a single button.
 
@@ -82,6 +76,9 @@ Validate findings. Prove impact. Write better reports.
 - **XSS** — dalfox (fast, accurate) and xsstrike (deep DOM analysis) on all collected endpoints
 - **Command injection** — commix on forms and parameters with command injection indicators
 - **SSRF / Open redirect** — interactsh-backed testing for out-of-band vulnerabilities
+- **JWT attack suite** — 10 attacks (alg:none, empty signature, RS256→HS256 confusion, weak secret brute force, kid header injection, jku/x5u SSRF, privilege escalation, and more) with step-by-step guidance per attack
+
+![NexHunt JWT Attacks — 10 JWT attack techniques with severity ratings (CRITICAL/HIGH/MED). Empty Signature attack selected, showing step-by-step instructions and a Run Attack button.](docs/screenshots/jwt-attacks.png)
 
 ---
 
@@ -104,7 +101,10 @@ Your HTTP Swiss knife, built into the workflow.
 - **Live traffic capture** — intercept and inspect every request from your browser through NexHunt's proxy
 - **Request editor** — modify and replay any captured request with full header and body control
 - **HTTP Repeater** — save interesting requests and replay with modifications
+- **Site Map** — Burp-style host/path tree built automatically from captured traffic
 - **Proxy Intruder** *(PRO)* — automated fuzzing with cluster bomb and pitchfork attack modes, payload wordlists, and response filtering
+
+![NexHunt Proxy Site Map — host/path tree built automatically from 44 captured requests across digitalproducts-test.mcdonalds.com.ar and www.mcdonalds.com.ar](docs/screenshots/proxy-sitemap.png)
 
 ---
 
