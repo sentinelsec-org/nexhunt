@@ -20,7 +20,7 @@ export function ScopeSelector({ onSelect, selectedTarget, className }: ScopeSele
     )
   }
 
-  if (activeProjectData.scope.length === 0) {
+  if (!activeProjectData.scope?.length) {
     return (
       <div className={cn("flex items-center gap-2 text-xs text-zinc-600", className)}>
         <AlertCircle size={12} />
@@ -47,7 +47,7 @@ export function ScopeSelector({ onSelect, selectedTarget, className }: ScopeSele
         <Target size={11} />
         <span className="text-zinc-600">{activeProjectData.name}:</span>
       </span>
-      {activeProjectData.scope.map((domain, i) => (
+      {(activeProjectData.scope ?? []).map((domain, i) => (
         <button
           key={i}
           onClick={() => handleClick(domain)}

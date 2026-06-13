@@ -12,6 +12,7 @@ backend/**/*.pyo
 token.txt
 .env
 *.key
+prokey.txt
 
 # Node
 node_modules/

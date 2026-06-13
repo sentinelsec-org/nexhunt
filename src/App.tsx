@@ -18,6 +18,7 @@ import { TerminalPage } from '@/pages/TerminalPage'
 import { MethodologyPage } from '@/pages/MethodologyPage'
 import { WorkspacePage } from '@/pages/WorkspacePage'
 import { SecurityToolsPage } from '@/pages/SecurityToolsPage'
+import { BruteForcePage } from '@/pages/BruteForcePage'
 import { useAppStore } from '@/stores/app-store'
 import { useProxyStore } from '@/stores/proxy-store'
 import { useScannerStore } from '@/stores/scanner-store'
@@ -218,6 +219,7 @@ function App() {
             <Route path="/scanner" element={<ProjectGate><ScannerPage /></ProjectGate>} />
             <Route path="/security-tools" element={<ProjectGate><SecurityToolsPage /></ProjectGate>} />
             <Route path="/exploit" element={<ProjectGate><ExploitPage /></ProjectGate>} />
+            <Route path="/brute-force" element={<ProjectGate><ProGate feature="Brute force"><BruteForcePage /></ProGate></ProjectGate>} />
             <Route path="/workspace" element={<ProjectGate><WorkspacePage /></ProjectGate>} />
             <Route path="/copilot" element={<ProGate feature="AI Copilot"><CopilotPage /></ProGate>} />
             <Route path="/terminal" element={<TerminalPage />} />

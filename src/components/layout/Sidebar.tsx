@@ -34,6 +34,7 @@ const navSections = [
       { path: '/scanner',        icon: ScanSearch,    label: 'Scanner',         requiresProject: true  },
       { path: '/security-tools', icon: ShieldCheck,   label: 'Security Tools',  requiresProject: true  },
       { path: '/exploit',        icon: Swords,        label: 'Exploit',         requiresProject: true  },
+      { path: '/brute-force',    icon: KeyRound,      label: 'Brute Force',     requiresProject: true, pro: true },
       { path: '/workspace',      icon: BookOpen,      label: 'Workspace',       requiresProject: true  },
     ],
   },

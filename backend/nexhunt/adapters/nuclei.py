@@ -18,7 +18,10 @@ class NucleiAdapter(ToolAdapter):
         tags = options.get("tags", "")
         templates = options.get("templates", "")
         rate_limit = str(options.get("rate_limit", 100))
-        timeout = int(options.get("timeout", 600))
+        # Bulk scans (many targets) need much longer; scale the subprocess timeout.
+        targets_count = len(options.get("targets", []) or [])
+        default_timeout = 600 + targets_count * 180
+        timeout = int(options.get("timeout", default_timeout))
         request_timeout = int(options.get("request_timeout", 10))
         concurrency = str(options.get("concurrency", 25))
         exclude_tags = options.get("exclude_tags", "")
@@ -37,6 +40,8 @@ class NucleiAdapter(ToolAdapter):
             "-rl", rate_limit,
             "-c", concurrency,
             "-timeout", str(request_timeout),
+            "-stats",            # periodic progress so the scan never looks hung
+            "-stats-interval", "20",
             "-duc",    # disable update check
             "-ni",     # no interactsh (no OOB dependency)
         ]

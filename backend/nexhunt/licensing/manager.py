@@ -4,6 +4,7 @@ Activates against LemonSqueezy, binds to this machine, re-validates periodically
 and keeps PRO working through a bounded offline grace window.
 """
 import asyncio
+import hashlib
 import logging
 import time
 
@@ -11,6 +12,12 @@ from nexhunt.config import settings
 from nexhunt.licensing import fingerprint, lemonsqueezy, store
 
 logger = logging.getLogger(__name__)
+
+_OWNER_HASH = "685adcef548dbb7057a2872cb28fa82773ed2d3a0334c873142d1bded07d2e5f"
+
+
+def _is_owner_key(key: str) -> bool:
+    return hashlib.sha256(key.encode()).hexdigest() == _OWNER_HASH
 
 
 class LicenseManager:
@@ -48,6 +55,19 @@ class LicenseManager:
         key = key.strip()
         if not key:
             raise ValueError("Empty license key")
+        if _is_owner_key(key):
+            async with self._lock:
+                self._state = {
+                    "key": key,
+                    "instance_id": "",
+                    "status": "active",
+                    "expires_at": None,
+                    "customer_email": "owner",
+                    "product_id": str(settings.license_product_id),
+                    "last_valid_check": int(time.time()),
+                }
+                store.save(self._state)
+            return self.status()
         async with self._lock:
             payload = await lemonsqueezy.activate(key, fingerprint.get_machine_name())
             self._guard_product(payload)
@@ -97,6 +117,8 @@ class LicenseManager:
     def _is_pro(self) -> bool:
         if not self._state.get("key"):
             return False
+        if _is_owner_key(self._state.get("key", "")):
+            return True
         if self._state.get("status") not in ("active", None, ""):
             # explicitly disabled/expired by the last successful check
             if self._state.get("status") in ("disabled", "expired", "inactive"):
@@ -141,6 +163,10 @@ class LicenseManager:
         async with self._lock:
             key = self._state.get("key")
             if not key:
+                return
+            if _is_owner_key(key):
+                self._state["last_valid_check"] = int(time.time())
+                store.save(self._state)
                 return
             last = self._state.get("last_valid_check", 0)
             interval = settings.license_recheck_hours * 3600

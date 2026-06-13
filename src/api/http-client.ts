@@ -20,7 +20,8 @@ class HttpClient {
 
   private async request(url: string, init: RequestInit, timeout = DEFAULT_TIMEOUT): Promise<Response> {
     const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), timeout)
+    // timeout <= 0 means no timeout (long-running streamed jobs report via WebSocket)
+    const timer = timeout > 0 ? setTimeout(() => controller.abort(), timeout) : null
     let res: Response
     try {
       res = await fetch(url, { ...init, signal: controller.signal })
@@ -30,19 +31,10 @@ class HttpClient {
       }
       throw new HttpError(0, `Network error: ${(e as Error).message}`)
     } finally {
-      clearTimeout(timer)
+      if (timer) clearTimeout(timer)
     }
     if (!res.ok) {
       const detail = await res.text().catch(() => '')
-      if (res.status === 402) {
-        // PRO-gated endpoint: surface the upgrade modal instead of a raw error.
-        let feature: string | undefined
-        try { feature = JSON.parse(detail)?.detail?.feature } catch {}
-        import('@/stores/license-store').then(({ useLicenseStore }) => {
-          useLicenseStore.getState().openUpgrade(feature)
-        })
-        throw new HttpError(402, 'pro_required')
-      }
       throw new HttpError(res.status, detail || `${res.status} ${res.statusText}`)
     }
     return res
@@ -57,12 +49,12 @@ class HttpClient {
     return res.json()
   }
 
-  async post<T>(path: string, body?: unknown): Promise<T> {
+  async post<T>(path: string, body?: unknown, timeout?: number): Promise<T> {
     const res = await this.request(`${this.baseUrl}${path}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: body ? JSON.stringify(body) : undefined
-    })
+    }, timeout)
     return res.json()
   }
 

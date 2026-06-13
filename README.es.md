@@ -11,7 +11,7 @@
 
 **Plataforma de Automatización para Bug Bounty en Linux**
 
-[![Version](https://img.shields.io/badge/version-1.1.0--beta-amber?style=flat-square)](https://github.com/sentinelsec-org/nexhunt/releases)
+[![Version](https://img.shields.io/badge/version-1.2.0--beta-amber?style=flat-square)](https://github.com/sentinelsec-org/nexhunt/releases)
 [![Platform](https://img.shields.io/badge/plataforma-Linux-green?style=flat-square)]()
 [![License](https://img.shields.io/badge/licencia-Free%20%2F%20PRO-blue?style=flat-square)](https://sentinelsec-org.github.io/nexhunt/#pricing)
 [![Made by](https://img.shields.io/badge/by-Sentinel%20Security-green?style=flat-square)](https://sentinelsec.online)
@@ -169,7 +169,7 @@ El tier gratuito es genuinamente útil. Sin límites de tiempo, sin degradación
 ### One-liner
 
 ```bash
-curl -fsSL https://github.com/sentinelsec-org/nexhunt/releases/download/v1.1.0/nexhunt-1.1.0.tar.gz | tar xz && sudo bash install.sh
+curl -fsSL https://github.com/sentinelsec-org/nexhunt/releases/download/v1.2.0/nexhunt-1.2.0.tar.gz | tar xz && sudo bash install.sh
 ```
 
 El instalador:
@@ -244,6 +244,6 @@ NexHunt es software propietario. El **tier gratuito** es libre de usar indefinid
 
 Hecho con 🖤 por **[Sentinel Security](https://sentinelsec.online)**
 
-*NexHunt v1.1.0 beta — Linux*
+*NexHunt v1.2.0 beta — Linux*
 
 </div>

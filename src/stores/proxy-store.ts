@@ -1,5 +1,28 @@
 import { create } from 'zustand'
 import type { HttpFlow } from '@/types'
+import { useBruteForceStore, emptyConfig } from '@/stores/bruteforce-store'
+
+function buildBruteForceConfig(flow: HttpFlow) {
+  const https = flow.request_url.startsWith('https')
+  const cfg = emptyConfig()
+  cfg.target = flow.request_host
+  cfg.service = https ? 'https-post-form' : 'http-post-form'
+  cfg.port = flow.request_port || (https ? 443 : 80)
+  cfg.form_path = flow.request_path || '/'
+  // Rewrite the captured body: replace the value of the likely user/pass fields
+  // with hydra placeholders, keep everything else as-is.
+  const body = flow.request_body || ''
+  const parts = body.split('&').map(p => {
+    const eq = p.indexOf('=')
+    const key = eq === -1 ? p : p.slice(0, eq)
+    const lk = key.toLowerCase()
+    if (/user|email|login|uname|^id$/.test(lk)) return `${key}=^USER^`
+    if (/pass|pwd|passwd/.test(lk)) return `${key}=^PASS^`
+    return p
+  })
+  cfg.form_body = parts.join('&')
+  return cfg
+}
 
 export interface RepeaterTab {
   id: string
@@ -87,6 +110,9 @@ interface ProxyState {
   sendToJwt: (flow: HttpFlow) => void
   clearJwtFlow: () => void
 
+  // Brute force
+  sendToBruteForce: (flow: HttpFlow) => void
+
   // Intruder actions
   sendToIntruder: (flow: HttpFlow) => void
   setIntruderRequest: (raw: string) => void
@@ -122,6 +148,10 @@ export const useProxyStore = create<ProxyState>((set) => ({
   jwtFlow: null,
   sendToJwt: (flow) => set({ jwtFlow: flow }),
   clearJwtFlow: () => set({ jwtFlow: null }),
+
+  sendToBruteForce: (flow) => {
+    useBruteForceStore.getState().setPrefill(buildBruteForceConfig(flow))
+  },
 
   addFlow: (flow) => set((s) => ({ flows: [flow, ...s.flows].slice(0, 10000) })),
   setFlows: (flows) => set({ flows }),

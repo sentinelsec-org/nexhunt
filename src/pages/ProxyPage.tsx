@@ -18,10 +18,10 @@ import {
   Play, Square, Shield, ShieldOff, Trash2, Search, Send,
   Plus, X, Repeat2, Crosshair, Filter, ChevronDown, ChevronRight,
   AlertTriangle, CheckCircle, Loader2, RotateCcw, BookOpen, Sparkles, Globe,
-  Key, Copy, Check, ChevronUp, ExternalLink,
+  Key, Copy, Check, ChevronUp, ExternalLink, Network, KeyRound, Folder,
 } from 'lucide-react'
 
-type Tab = 'history' | 'repeater' | 'intruder' | 'jwt'
+type Tab = 'history' | 'sitemap' | 'repeater' | 'intruder' | 'jwt'
 
 // ── helpers ────────────────────────────────────────────────────────────────────
 function statusBg(code: number) {
@@ -40,9 +40,10 @@ export function ProxyPage() {
     interceptEnabled, setInterceptEnabled,
     proxyRunning, setProxyRunning,
     filter, setFilter, clearFlows,
-    sendToRepeater, sendToIntruder, sendToJwt,
+    sendToRepeater, sendToIntruder, sendToJwt, sendToBruteForce,
   } = useProxyStore()
   const { activeProjectData } = useAppStore()
+  const navigate = useNavigate()
 
   const selectedFlow = flows.find(f => f.id === selectedFlowId)
 
@@ -137,6 +138,7 @@ export function ProxyPage() {
           <div className="flex gap-1 bg-zinc-900 rounded-lg p-1">
             {([
               { id: 'history', label: 'HTTP History', icon: Search },
+              { id: 'sitemap', label: 'Site Map', icon: Network },
               { id: 'repeater', label: 'Repeater', icon: Repeat2 },
               { id: 'intruder', label: 'Intruder', icon: Crosshair },
               { id: 'jwt', label: 'JWT Attacks', icon: Key },
@@ -169,6 +171,16 @@ export function ProxyPage() {
             sendToRepeater={(f) => { sendToRepeater(f); setActiveTab('repeater') }}
             sendToIntruder={(f) => { sendToIntruder(f); setActiveTab('intruder') }}
             sendToJwt={(f) => { sendToJwt(f); setActiveTab('jwt') }}
+            sendToBruteForce={(f) => { sendToBruteForce(f); navigate('/brute-force') }}
+          />
+        )}
+        {activeTab === 'sitemap' && (
+          <SiteMapTab
+            flows={flows}
+            selectedFlowId={selectedFlowId}
+            selectFlow={selectFlow}
+            scopeDomains={scopeDomains}
+            sendToBruteForce={(f) => { sendToBruteForce(f); navigate('/brute-force') }}
           />
         )}
         {activeTab === 'repeater' && <RepeaterTab />}
@@ -180,7 +192,7 @@ export function ProxyPage() {
 }
 
 // ── History tab ───────────────────────────────────────────────────────────────
-function HistoryTab({ filteredFlows, selectedFlow, filter, setFilter, selectFlow, selectedFlowId, proxyRunning, scopeDomains, sendToRepeater, sendToIntruder, sendToJwt }: {
+function HistoryTab({ filteredFlows, selectedFlow, filter, setFilter, selectFlow, selectedFlowId, proxyRunning, scopeDomains, sendToRepeater, sendToIntruder, sendToJwt, sendToBruteForce }: {
   filteredFlows: HttpFlow[]
   selectedFlow: HttpFlow | undefined
   filter: any
@@ -192,6 +204,7 @@ function HistoryTab({ filteredFlows, selectedFlow, filter, setFilter, selectFlow
   sendToRepeater: (f: HttpFlow) => void
   sendToIntruder: (f: HttpFlow) => void
   sendToJwt: (f: HttpFlow) => void
+  sendToBruteForce: (f: HttpFlow) => void
 }) {
   const [ctxMenu, setCtxMenu] = useState<ContextMenuState>({ visible: false, x: 0, y: 0 })
   const [ctxFlow, setCtxFlow] = useState<HttpFlow | null>(null)
@@ -294,6 +307,10 @@ function HistoryTab({ filteredFlows, selectedFlow, filter, setFilter, selectFlow
                 onClick={() => sendToJwt(selectedFlow)}>
                 <Key size={12} className="mr-1" /> JWT Attacks
               </Button>
+              <Button size="sm" variant="outline" className="text-xs border-amber-800/60 text-amber-400 hover:bg-amber-950/20 flex-1"
+                onClick={() => sendToBruteForce(selectedFlow)}>
+                <KeyRound size={12} className="mr-1" /> Brute Force
+              </Button>
             </div>
             <div className="rounded-lg border border-zinc-800 bg-zinc-900/60 p-3 flex-1 overflow-auto">
               <p className="text-[10px] text-zinc-500 font-semibold uppercase mb-2">Request</p>
@@ -354,8 +371,163 @@ function HistoryTab({ filteredFlows, selectedFlow, filter, setFilter, selectFlow
             icon: <Key size={12} />,
             onClick: () => { if (ctxFlow) sendToJwt(ctxFlow) },
           },
+          {
+            label: 'Send to Brute Force',
+            icon: <KeyRound size={12} />,
+            onClick: () => { if (ctxFlow) sendToBruteForce(ctxFlow) },
+          },
         ]}
       />
+    </div>
+  )
+}
+
+// ── Site Map tab ────────────────────────────────────────────────────────────────
+interface TreeNode {
+  name: string
+  fullPath: string
+  children: Map<string, TreeNode>
+  flows: HttpFlow[]
+}
+
+function buildSiteTree(flows: HttpFlow[]): Map<string, TreeNode> {
+  const hosts = new Map<string, TreeNode>()
+  for (const f of flows) {
+    if (!hosts.has(f.request_host)) {
+      hosts.set(f.request_host, { name: f.request_host, fullPath: f.request_host, children: new Map(), flows: [] })
+    }
+    let node = hosts.get(f.request_host)!
+    const path = (f.request_path || '/').split('?')[0]
+    const segs = path.split('/').filter(Boolean)
+    let acc = f.request_host
+    for (const seg of segs) {
+      acc += '/' + seg
+      if (!node.children.has(seg)) {
+        node.children.set(seg, { name: seg, fullPath: acc, children: new Map(), flows: [] })
+      }
+      node = node.children.get(seg)!
+    }
+    node.flows.push(f)
+  }
+  return hosts
+}
+
+function SiteMapTab({ flows, selectedFlowId, selectFlow, scopeDomains, sendToBruteForce }: {
+  flows: HttpFlow[]
+  selectedFlowId: string | null
+  selectFlow: (id: string | null) => void
+  scopeDomains: string[]
+  sendToBruteForce: (f: HttpFlow) => void
+}) {
+  const hasScope = scopeDomains.length > 0
+  const [scopeOnly, setScopeOnly] = useState(hasScope)
+
+  const inScope = (host: string) => {
+    if (!scopeOnly || !hasScope) return true
+    return scopeDomains.some(d => host === d || host.endsWith(`.${d}`))
+  }
+
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const visibleFlows = flows.filter(f => inScope(f.request_host))
+  const tree = buildSiteTree(visibleFlows)
+  const selectedFlow = flows.find(f => f.id === selectedFlowId)
+
+  const toggle = (key: string) => setExpanded(s => {
+    const next = new Set(s)
+    next.has(key) ? next.delete(key) : next.add(key)
+    return next
+  })
+
+  const renderNode = (node: TreeNode, depth: number): React.ReactNode => {
+    const hasChildren = node.children.size > 0
+    const isOpen = expanded.has(node.fullPath)
+    const leafFlow = node.flows[0]
+    return (
+      <div key={node.fullPath}>
+        <div
+          className="flex items-center gap-1 py-1 pr-2 hover:bg-zinc-800/40 cursor-pointer text-xs"
+          style={{ paddingLeft: depth * 14 + 6 }}
+          onClick={() => { if (hasChildren) toggle(node.fullPath); if (leafFlow) selectFlow(leafFlow.id) }}>
+          {hasChildren
+            ? (isOpen ? <ChevronDown size={12} className="text-zinc-500 shrink-0" /> : <ChevronRight size={12} className="text-zinc-500 shrink-0" />)
+            : <span className="w-3 shrink-0" />}
+          {depth === 0
+            ? <Globe size={12} className="text-blue-400 shrink-0" />
+            : <Folder size={12} className="text-zinc-500 shrink-0" />}
+          <span className={cn('truncate font-mono', depth === 0 ? 'text-zinc-200' : 'text-zinc-300')}>
+            {depth === 0 ? node.name : `/${node.name}`}
+          </span>
+          {node.flows.length > 0 && (
+            <span className={cn('ml-auto font-mono font-semibold text-[10px]', getStatusColor(leafFlow.response_status))}>
+              {leafFlow.request_method} {leafFlow.response_status || ''}
+            </span>
+          )}
+        </div>
+        {hasChildren && isOpen && (
+          <div>
+            {Array.from(node.children.values())
+              .sort((a, b) => a.name.localeCompare(b.name))
+              .map(c => renderNode(c, depth + 1))}
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex-1 flex gap-3 min-h-0">
+      <div className="w-[420px] shrink-0 flex flex-col rounded-lg border border-zinc-800 min-h-0">
+        <div className="flex items-center justify-between px-3 py-1.5 border-b border-zinc-800 shrink-0">
+          <span className="text-[10px] text-zinc-500 uppercase tracking-widest">
+            {visibleFlows.length} request{visibleFlows.length !== 1 ? 's' : ''}
+          </span>
+          <button
+            onClick={() => setScopeOnly(v => !v)}
+            disabled={!hasScope}
+            title={hasScope ? `Scope: ${scopeDomains.join(', ')}` : 'No scope configured in project'}
+            className={cn(
+              'text-[10px] px-2 py-0.5 rounded border transition-colors',
+              scopeOnly && hasScope
+                ? 'border-green-700 bg-green-950/40 text-green-400'
+                : 'border-zinc-700 text-zinc-500 hover:text-zinc-300 disabled:opacity-40 disabled:cursor-not-allowed'
+            )}>
+            Scope{hasScope ? ` (${scopeDomains.length})` : ''}
+          </button>
+        </div>
+        <div className="flex-1 overflow-auto">
+        {tree.size === 0
+          ? <p className="px-3 py-10 text-center text-zinc-600 text-xs">{scopeOnly && hasScope ? 'No in-scope traffic yet.' : 'No traffic captured yet.'}</p>
+          : Array.from(tree.values()).sort((a, b) => a.name.localeCompare(b.name)).map(h => renderNode(h, 0))}
+        </div>
+      </div>
+
+      <div className="flex-1 flex flex-col gap-2 min-h-0 overflow-auto">
+        {selectedFlow ? (
+          <>
+            <div className="flex items-center gap-2 shrink-0">
+              <Badge className={cn('font-mono', getMethodColor(selectedFlow.request_method))}>{selectedFlow.request_method}</Badge>
+              <span className="text-xs text-zinc-400 font-mono truncate flex-1">{selectedFlow.request_host}{selectedFlow.request_path}</span>
+              <span className={cn('font-mono font-semibold text-xs', statusBg(selectedFlow.response_status))}>{selectedFlow.response_status || '—'}</span>
+              <Button size="sm" variant="outline" className="text-xs border-amber-800/60 text-amber-400 hover:bg-amber-950/20"
+                onClick={() => sendToBruteForce(selectedFlow)}>
+                <KeyRound size={12} className="mr-1" /> Brute Force
+              </Button>
+            </div>
+            <div className="rounded-lg border border-zinc-800 bg-zinc-900/60 p-3 flex-1 overflow-auto">
+              <p className="text-[10px] text-zinc-500 font-semibold uppercase mb-2">Request</p>
+              <pre className="text-[11px] text-zinc-300 font-mono whitespace-pre-wrap break-all">
+                {`${selectedFlow.request_method} ${selectedFlow.request_path} HTTP/1.1\nHost: ${selectedFlow.request_host}\n`}
+                {selectedFlow.request_headers && Object.entries(selectedFlow.request_headers)
+                  .filter(([k]) => k.toLowerCase() !== 'host')
+                  .map(([k, v]) => `${k}: ${v}\n`).join('')}
+                {selectedFlow.request_body && `\n${selectedFlow.request_body}`}
+              </pre>
+            </div>
+          </>
+        ) : (
+          <div className="h-full grid place-items-center text-zinc-600 text-sm">Select an endpoint in the tree</div>
+        )}
+      </div>
     </div>
   )
 }

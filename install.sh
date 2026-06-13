@@ -97,11 +97,16 @@ step "System dependencies (apt)"
 apt-get update -qq 2>/dev/null
 DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
     curl wget git build-essential coreutils \
-    nmap nikto sqlmap gobuster dirsearch commix \
+    nmap nikto sqlmap gobuster dirsearch commix hydra cewl crunch \
     python3 python3-pip python3-venv python3-full \
-    nodejs npm \
+    nodejs npm xterm \
     libgtk-3-0 libnotify4 libnss3 libasound2 libxtst6 xdg-utils \
     2>/dev/null || true
+
+# Unpack rockyou if it ships gzipped (Kali default)
+if [ ! -f /usr/share/wordlists/rockyou.txt ] && [ -f /usr/share/wordlists/rockyou.txt.gz ]; then
+    gunzip -k /usr/share/wordlists/rockyou.txt.gz 2>/dev/null || true
+fi
 
 # Node.js v18+ required
 NODE_VER=$(node --version 2>/dev/null | cut -d. -f1 | tr -d 'v' || echo "0")
@@ -270,7 +275,7 @@ echo ""
 echo -e "  ${BOLD}Update:${NC} sudo bash $NEXHUNT_DIR/install.sh --update"
 echo ""
 echo -e "  ${BOLD}Tools status:${NC}"
-TOOLS="nmap nikto sqlmap gobuster ffuf dirsearch amass httpx subfinder nuclei katana dalfox gau waybackurls gowitness arjun xsstrike"
+TOOLS="nmap nikto sqlmap gobuster ffuf dirsearch amass httpx subfinder nuclei katana dalfox gau waybackurls gowitness arjun xsstrike hydra"
 for tool in $TOOLS; do
     if command -v "$tool" &>/dev/null; then
         echo -e "    ${GREEN}+${NC} $tool"
