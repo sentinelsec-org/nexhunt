@@ -13,10 +13,10 @@
 
 [![Version](https://img.shields.io/badge/version-1.2.0--beta-amber?style=flat-square)](https://github.com/sentinelsec-org/nexhunt/releases)
 [![Platform](https://img.shields.io/badge/platform-Linux-green?style=flat-square)]()
-[![License](https://img.shields.io/badge/license-Free%20%2F%20PRO-blue?style=flat-square)](https://sentinelsec-org.github.io/nexhunt/#pricing)
+[![License](https://img.shields.io/badge/license-Free%20%2F%20PRO-blue?style=flat-square)](https://sentinelsec.online/#pricing)
 [![Made by](https://img.shields.io/badge/by-Sentinel%20Security-green?style=flat-square)](https://sentinelsec.online)
 
-**[Download Free](https://github.com/sentinelsec-org/nexhunt/releases/latest)** · **[Get PRO](https://sentinelsec-org.github.io/nexhunt/#pricing)** · **[sentinelsec.online](https://sentinelsec.online)**
+**[Download Free](https://github.com/sentinelsec-org/nexhunt/releases/latest)** · **[Get PRO](https://sentinelsec.online/#pricing)** · **[sentinelsec.online](https://sentinelsec.online)**
 
 > ⚠️ **Beta release** — actively developed. Core features are stable. New tools and improvements drop regularly.
 
@@ -160,7 +160,7 @@ The free tier is genuinely useful. No time limits, no feature degradation, no na
 | **Business logic testing** (IDOR, race conditions, param fuzzing) | ❌ | ✅ |
 | Priority support | ❌ | ✅ |
 
-**[→ Get PRO at sentinelsec.online](https://sentinelsec-org.github.io/nexhunt/#pricing)**
+**[→ Get PRO at sentinelsec.online](https://sentinelsec.online/#pricing)**
 
 ---
 
@@ -202,7 +202,7 @@ Or from inside the app: **Settings → Updates → Check for updates**.
 
 ## 🔑 PRO License
 
-1. Purchase at **[sentinelsec.online/pricing](https://sentinelsec-org.github.io/nexhunt/#pricing)**
+1. Purchase at **[sentinelsec.online](https://sentinelsec.online/#pricing)**
 2. Open NexHunt → **Settings → License**
 3. Paste your key → **Activate**
 
