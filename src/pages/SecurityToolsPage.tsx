@@ -181,6 +181,7 @@ export function SecurityToolsPage() {
     cors: '', bypass_403: '', cloud_buckets: '', exposed_files: '', graphql_audit: '', github_scanner: '', interactsh: '',
   })
   const [graphqlSampleIds, setGraphqlSampleIds] = useState('')
+  const [graphqlExtraQueries, setGraphqlExtraQueries] = useState('')
   const [view, setView] = useState<ViewMode>('findings')
   const [selected, setSelected] = useState<Finding | null>(null)
   const [copied, setCopied] = useState(false)
@@ -235,7 +236,7 @@ export function SecurityToolsPage() {
     if (id === 'cloud_buckets')
       return { ...getSessionOpts(), seed_urls: urls.map(u => u.url).filter(Boolean).slice(0, 800) }
     if (id === 'graphql_audit')
-      return { ...getSessionOpts(), sample_ids: graphqlSampleIds }
+      return { ...getSessionOpts(), sample_ids: graphqlSampleIds, extra_queries: graphqlExtraQueries }
     return getSessionOpts()
   }
 
@@ -388,6 +389,15 @@ export function SecurityToolsPage() {
               </div>
             )}
 
+            {activeTab === 'graphql_audit' && (
+              <button
+                onClick={() => setGuideOpen(true)}
+                className="flex items-center gap-1.5 text-[10px] text-fuchsia-400/80 hover:text-fuchsia-300 transition-colors"
+              >
+                <Info size={11} /> New to GraphQL? Open the Guide for a plain-English primer
+              </button>
+            )}
+
             {/* Host picker for URL-based tools */}
             {HOST_TOOLS.includes(activeTab) && (
               <LiveHostPicker
@@ -466,6 +476,15 @@ export function SecurityToolsPage() {
                 />
                 <p className="text-[9px] text-zinc-600 leading-relaxed">
                   Paste a known ID/UUID (e.g. your own account's) to auto-test object-by-ID queries for IDOR. Separate multiple with spaces or commas.
+                </p>
+                <Input
+                  value={graphqlExtraQueries}
+                  onChange={e => setGraphqlExtraQueries(e.target.value)}
+                  placeholder="Extra query names (optional): loyaltyServiceAnonymousOffers, me, orders..."
+                  className="bg-zinc-900/80 text-xs"
+                />
+                <p className="text-[9px] text-zinc-600 leading-relaxed">
+                  If introspection is disabled, the auditor probes a built-in name wordlist + server field suggestions. Add any query names you already know here to test them too.
                 </p>
               </div>
             )}
@@ -907,15 +926,53 @@ function LiveHostPicker({ selected, onSelect, color }: {
 function GraphqlGuide() {
   return (
     <>
-      <GuideSection title="What it does, step by step">
-        <div className="space-y-1 text-[10px] text-zinc-500 leading-relaxed">
-          <p><span className="text-fuchsia-400 font-semibold">1. Introspection</span> — asks the API for its own schema (every query, mutation, type). If it answers, that is already a finding (production APIs should disable it).</p>
-          <p><span className="text-fuchsia-400 font-semibold">2. No-auth access check</span> — re-runs each simple query <span className="text-zinc-300">with your token removed</span>. Anything that still returns data is broken access control (e.g. user/order/loyalty data readable while logged out).</p>
-          <p><span className="text-fuchsia-400 font-semibold">3. Error leaks</span> — sends a deliberately broken query; verbose errors often leak internal microservice URLs to pivot to.</p>
-          <p><span className="text-fuchsia-400 font-semibold">4. Mutation inventory</span> — lists mutations, flagging auth/payment/OTP ones for manual review.</p>
+      <GuideSection title="New to GraphQL? Read this first">
+        <div className="space-y-1.5 text-[10px] text-zinc-500 leading-relaxed">
+          <p>
+            A normal (REST) API has one URL per thing: <code className="text-zinc-400">/user/123</code>, <code className="text-zinc-400">/menu</code>...
+            GraphQL is different: there is <span className="text-zinc-300">one single URL</span> (usually <code className="text-fuchsia-400">/graphql</code>),
+            always hit with <span className="text-zinc-300">POST</span>, and you send a query describing exactly what you want:
+          </p>
+          <pre className="text-[10px] bg-zinc-950 rounded p-2 text-fuchsia-300 overflow-x-auto">{`POST /graphql
+{ me { name email orders { id total } } }`}</pre>
+          <p>That one request returns your name, email and orders together. Modern apps (Burger King, GitHub, Instagram) use it.</p>
         </div>
       </GuideSection>
-      <GuideSection title="Which URL do I put">
+      <GuideSection title="4 words you need">
+        <div className="space-y-1 text-[10px] text-zinc-500 leading-relaxed">
+          <p><span className="text-fuchsia-400 font-semibold">Schema</span> — the full catalog of everything the API can do (its "menu").</p>
+          <p><span className="text-fuchsia-400 font-semibold">Query</span> — a read operation (ask for data): <code className="text-zinc-400">me</code>, <code className="text-zinc-400">order</code>.</p>
+          <p><span className="text-fuchsia-400 font-semibold">Mutation</span> — a write/action: <code className="text-zinc-400">login</code>, <code className="text-zinc-400">pay</code>, <code className="text-zinc-400">updateProfile</code>.</p>
+          <p><span className="text-fuchsia-400 font-semibold">Introspection</span> — a built-in feature that asks the API for its own schema. Meant for developers; if left on in production, <span className="text-zinc-300">anyone gets the full map.</span></p>
+        </div>
+      </GuideSection>
+      <GuideSection title="Why GraphQL leaks (the bug classes)">
+        <div className="space-y-1 text-[10px] text-zinc-500 leading-relaxed">
+          <p><span className="text-amber-400">1. Introspection left on</span> — hands attackers the whole API map.</p>
+          <p><span className="text-amber-400">2. Missing per-operation auth</span> — with one endpoint and many operations, devs forget the lock on some. Queries that should need login return data while logged out.</p>
+          <p><span className="text-amber-400">3. IDOR</span> — a query like <code className="text-zinc-400">user(id: X)</code> that does not check the id is yours: swap the id, read someone else's data.</p>
+          <p className="text-zinc-600">This tool hunts all three. In short: GraphQL bugs are almost always "they forgot the lock."</p>
+        </div>
+      </GuideSection>
+      <GuideSection title="What this tool does, step by step">
+        <div className="space-y-1 text-[10px] text-zinc-500 leading-relaxed">
+          <p><span className="text-fuchsia-400 font-semibold">1. Introspection</span> — asks the API for its schema. If it answers, that is already a finding.</p>
+          <p><span className="text-fuchsia-400 font-semibold">2. No-auth access check</span> — re-runs each simple query <span className="text-zinc-300">with your token removed</span>. Anything that still returns data is broken access control.</p>
+          <p><span className="text-fuchsia-400 font-semibold">3. IDOR test</span> — fills object-by-ID queries with the Sample IDs you provide and probes them without auth.</p>
+          <p><span className="text-fuchsia-400 font-semibold">4. Error leaks</span> — sends a broken query; verbose errors often leak internal microservice URLs to pivot to.</p>
+          <p><span className="text-fuchsia-400 font-semibold">5. Mutation inventory</span> — lists mutations, flagging auth/payment/OTP ones for manual review.</p>
+        </div>
+      </GuideSection>
+      <GuideSection title="If introspection is disabled">
+        <p className="text-[10px] text-zinc-500 leading-relaxed">
+          Good targets turn introspection off, so there is no schema to read. The auditor then falls back to
+          <span className="text-zinc-300"> name discovery</span>: it probes a built-in wordlist of common query names,
+          harvests real names from the server's own <code className="text-fuchsia-400">"Did you mean ..."</code> error hints,
+          and tests anything you typed in <span className="text-zinc-300">Extra query names</span> — all without auth.
+          If you already know an operation exists (from the app's JS or prior recon), paste it there.
+        </p>
+      </GuideSection>
+      <GuideSection title="Which URL goes here">
         <p className="text-[10px] text-zinc-500 leading-relaxed">
           The <span className="text-zinc-300">GraphQL endpoint</span>, not the website. It is the URL that receives
           POST requests with a JSON <code className="text-fuchsia-400">{'{ "query": ... }'}</code> body. Typical paths:
@@ -936,6 +993,29 @@ function GraphqlGuide() {
           <code className="text-fuchsia-400"> x-ui-region</code>) in the <span className="text-zinc-300">Session</span> panel.
           The auditor uses it for introspection, then strips it for the no-auth check — so it compares what an
           authenticated user sees vs an anonymous one. It still runs without a token, just with less coverage.
+        </p>
+      </GuideSection>
+      <GuideSection title="What each finding means">
+        <div className="space-y-1 text-[10px]">
+          {[
+            ['Introspection enabled', 'text-yellow-400', 'The schema is public. Low/medium on its own, but it powers everything else.'],
+            ['Returns data without authentication', 'text-red-400', 'A sensitive query answers with no token = broken access control. Usually high impact.'],
+            ['IDOR — reads object by ID', 'text-red-400', 'An object is readable by id with no auth. Swap the id to read other users (BOLA).'],
+            ['Internal endpoint leaked', 'text-orange-400', 'A response/error exposed an internal microservice URL. Probe it directly.'],
+            ['Mutations exposed', 'text-blue-400', 'Inventory of write operations (info). Review payment/OTP/auth ones by hand.'],
+          ].map(([t, color, desc]) => (
+            <div key={t} className="flex gap-2 items-start">
+              <span className={`font-semibold shrink-0 ${color}`}>{t}:</span>
+              <span className="text-zinc-500 leading-relaxed">{desc}</span>
+            </div>
+          ))}
+        </div>
+      </GuideSection>
+      <GuideSection title="Is it safe to run?">
+        <p className="text-[10px] text-zinc-500 leading-relaxed">
+          Yes — it is <span className="text-green-300">read-only</span>. It only sends queries (reads) and introspection; it never
+          executes mutations, so it does not change, delete or buy anything. The IDOR test only uses IDs <span className="text-zinc-300">you</span> paste —
+          it does not enumerate other users' IDs. Still, only run it against targets you are authorized to test.
         </p>
       </GuideSection>
       <Tip>A "returns data without authentication" hit on a query like <code className="text-fuchsia-400">me</code>, <code className="text-fuchsia-400">order</code> or <code className="text-fuchsia-400">loyaltyUser</code> is usually a high-impact broken-access-control bug. Verify with the curl in the finding, then build the full query by hand to pull the actual data.</Tip>

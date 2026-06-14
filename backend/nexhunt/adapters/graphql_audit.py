@@ -27,6 +27,30 @@ _AUTH_ERR = re.compile(r"(?i)(unautheniticated|unauthenticated|unauthorized|not 
                        r"authentication required|UNAUTHENTICATED|FORBIDDEN)")
 _URL_RE = re.compile(r"https?://[a-zA-Z0-9.\-]+(?::\d+)?(?:/[^\s\"'<>)]*)?")
 
+# Common root-query names to try when introspection is disabled.
+_COMMON_QUERIES = [
+    "me", "viewer", "currentUser", "user", "users", "account", "accounts",
+    "profile", "myProfile", "customer", "node", "search", "settings",
+    "order", "orders", "myOrders", "cart", "checkout", "payment", "payments",
+    "paymentMethods", "card", "cards", "address", "addresses", "wallet",
+    "transaction", "transactions", "invoice", "invoices", "subscription",
+    "product", "products", "menu", "catalog", "offer", "offers", "promotion",
+    "promotions", "coupon", "coupons", "loyalty", "loyaltyUser", "rewards",
+    "points", "store", "stores", "location", "locations", "notification",
+    "notifications", "message", "messages", "config", "configuration",
+    "feed", "posts", "comments", "favorites", "history",
+]
+# graphql-js style "Did you mean ..." suggestions in errors reveal real field names.
+_SCALAR_ERR = re.compile(r"(?i)(must not have a selection|has no subfields)")
+_MISS_ERR = re.compile(r"(?i)(cannot query field|unknown field|undefined field)")
+
+
+def _harvest_suggestions(text: str) -> set[str]:
+    out: set[str] = set()
+    for m in re.finditer(r"[Dd]id you mean ([^?.\n]+)", text):
+        out.update(re.findall(r'[\'"]([A-Za-z_][A-Za-z0-9_]*)[\'"]', m.group(1)))
+    return out
+
 
 def _unwrap(t: dict) -> tuple[str, str]:
     """Follow ofType to the base (kind, name)."""
@@ -209,6 +233,104 @@ class GraphqlAuditAdapter(ToolAdapter):
                                            f"unauthenticated clients (broken access control / excessive data exposure).",
                             "tool": "graphql_audit", "template_id": f"graphql-unauth-{fname.lower()}", "status": "new",
                         }
+
+            # 3a) Introspection disabled -> discover query names by wordlist + field suggestions
+            if not queries:
+                raw_extra = options.get("extra_queries") or ""
+                if isinstance(raw_extra, (list, tuple)):
+                    extra_names = [str(x).strip() for x in raw_extra if str(x).strip()]
+                else:
+                    extra_names = [s.strip() for s in re.split(r"[,\s]+", str(raw_extra)) if s.strip()]
+                candidates = list(dict.fromkeys(extra_names + _COMMON_QUERIES))[:120]
+
+                async def _probe_name(name: str):
+                    """Returns (kind, status_code, suggestions). kind in hit/auth/miss/err."""
+                    try:
+                        r = await _post("query{%s{__typename}}" % name, ctx_headers)
+                        j = r.json()
+                    except Exception:
+                        return ("err", 0, set())
+                    _collect_urls(r.text)
+                    errs = j.get("errors") or []
+                    etext = json.dumps(errs)
+                    sugg = _harvest_suggestions(etext)
+                    if _SCALAR_ERR.search(etext):  # scalar field -> retry without selection
+                        try:
+                            r = await _post("query{%s}" % name, ctx_headers)
+                            j = r.json()
+                            errs = j.get("errors") or []
+                            etext = json.dumps(errs)
+                            sugg |= _harvest_suggestions(etext)
+                        except Exception:
+                            return ("err", 0, sugg)
+                    if any(_AUTH_ERR.search(json.dumps(e)) for e in errs):
+                        return ("auth", r.status_code, sugg)
+                    if _MISS_ERR.search(etext):
+                        return ("miss", r.status_code, sugg)
+                    d = j.get("data") or {}
+                    if name in d and d[name] is not None:
+                        return ("hit", r.status_code, sugg)
+                    return ("miss", r.status_code, sugg)
+
+                yield {"_raw": True, "line": f"  Introspection off — discovering names ({len(candidates)} candidates + suggestions)..."}
+                suggestions: set[str] = set()
+                tried: set[str] = set()
+
+                def _name_finding(name: str, code: int):
+                    return {
+                        "_raw": False, "id": None,
+                        "title": f"[GraphQL] '{name}' returns data without authentication — {url}",
+                        "severity": "high", "vuln_type": "broken-access-control",
+                        "url": url, "parameter": name,
+                        "evidence": (f"Query '{name}' (found without introspection) returned data with no "
+                                     f"Authorization header (HTTP {code}).\n"
+                                     f"Reproduce:\n  curl -ks -X POST '{url}' -H 'content-type: application/json' "
+                                     f"-d '{{\"query\":\"query{{{name}{{__typename}}}}\"}}'"),
+                        "description": f"The query '{name}' is accessible to unauthenticated clients. Introspection is "
+                                       f"off, so it was found via name discovery — build the full selection by hand to pull data.",
+                        "tool": "graphql_audit", "template_id": f"graphql-unauth-{name.lower()}", "status": "new",
+                    }
+
+                async def _run_names(names: list[str]):
+                    out_hits = []
+                    for i in range(0, len(names), 10):
+                        batch = [n for n in names[i:i + 10] if n not in tried]
+                        if not batch:
+                            continue
+                        tried.update(batch)
+                        results = await asyncio.gather(*[_probe_name(n) for n in batch])
+                        for n, (kind, code, sugg) in zip(batch, results):
+                            suggestions.update(sugg)
+                            if kind == "hit":
+                                out_hits.append((n, code))
+                    return out_hits
+
+                hits = await _run_names(candidates)
+                # second pass on names the server itself suggested
+                new_sugg = [s for s in suggestions if s not in tried][:60]
+                if new_sugg:
+                    yield {"_raw": True, "line": f"  Server suggested {len(new_sugg)} field name(s) — probing them..."}
+                    hits += await _run_names(new_sugg)
+
+                for n, code in hits:
+                    sens = bool(_SENSITIVE.search(n))
+                    yield {"_raw": True, "line": f"  [unauth-ok] {n}{' (SENSITIVE)' if sens else ''}"}
+                    if sens:
+                        yield _name_finding(n, code)
+
+                if hits:
+                    yield {
+                        "_raw": False, "id": None,
+                        "title": f"[GraphQL] {len(hits)} queries reachable without auth (no introspection) — {url}",
+                        "severity": "info", "vuln_type": "broken-access-control",
+                        "url": url, "parameter": None,
+                        "evidence": "Accessible without a token: " + ", ".join(n for n, _ in hits[:40]),
+                        "description": "Introspection is disabled, but these query names (from the built-in wordlist, "
+                                       "your extra names, and server field suggestions) answered without authentication.",
+                        "tool": "graphql_audit", "template_id": "graphql-nointrospect-unauth", "status": "new",
+                    }
+                else:
+                    yield {"_raw": True, "line": "  No queries discovered. Add known names in 'Extra query names' and retry."}
 
             # 3b) IDOR / BOLA: object-by-ID queries reachable without auth
             raw_ids = options.get("sample_ids") or ""
