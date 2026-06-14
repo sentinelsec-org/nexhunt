@@ -11,6 +11,7 @@ import { DashboardPage } from '@/pages/DashboardPage'
 import { ProxyPage } from '@/pages/ProxyPage'
 import { ReconPage } from '@/pages/ReconPage'
 import { ScannerPage } from '@/pages/ScannerPage'
+import { PipelinesPage } from '@/pages/PipelinesPage'
 import { ExploitPage } from '@/pages/ExploitPage'
 import { CopilotPage } from '@/pages/CopilotPage'
 import { ProjectsPage } from '@/pages/ProjectsPage'
@@ -221,6 +222,7 @@ function App() {
             <Route path="/scanner" element={<ProjectGate><ScannerPage /></ProjectGate>} />
             <Route path="/security-tools" element={<ProjectGate><SecurityToolsPage /></ProjectGate>} />
             <Route path="/exploit" element={<ProjectGate><ExploitPage /></ProjectGate>} />
+            <Route path="/pipelines" element={<ProjectGate><PipelinesPage /></ProjectGate>} />
             <Route path="/brute-force" element={<ProjectGate><ProGate feature="Brute force"><BruteForcePage /></ProGate></ProjectGate>} />
             <Route path="/workspace" element={<ProjectGate><WorkspacePage /></ProjectGate>} />
             <Route path="/copilot" element={<ProGate feature="AI Copilot"><CopilotPage /></ProGate>} />
