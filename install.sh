@@ -157,6 +157,7 @@ go_install waybackurls  "github.com/tomnomnom/waybackurls@latest"
 go_install gowitness    "github.com/sensepost/gowitness@latest"
 go_install ffuf         "github.com/ffuf/ffuf/v2@latest"
 go_install interactsh-client "github.com/projectdiscovery/interactsh/cmd/interactsh-client@latest"
+go_install trufflehog   "github.com/trufflesecurity/trufflehog/v3@latest"
 
 # httpx (PD) — symlink to /usr/local/bin/httpx (overrides httpx-toolkit if present)
 if ! /usr/local/bin/httpx --version &>/dev/null 2>&1; then
@@ -166,7 +167,7 @@ if ! /usr/local/bin/httpx --version &>/dev/null 2>&1; then
         && echo -e "${GREEN}ok${NC}" || echo -e "${YELLOW}failed${NC}"
 fi
 
-for bin in subfinder nuclei katana dalfox gau waybackurls gowitness ffuf interactsh-client; do
+for bin in subfinder nuclei katana dalfox gau waybackurls gowitness ffuf interactsh-client trufflehog; do
     [ -f "$GO_BIN/$bin" ] && ln -sf "$GO_BIN/$bin" /usr/local/bin/$bin 2>/dev/null || true
 done
 ok "Go tools symlinked to /usr/local/bin"
@@ -275,7 +276,7 @@ echo ""
 echo -e "  ${BOLD}Update:${NC} sudo bash $NEXHUNT_DIR/install.sh --update"
 echo ""
 echo -e "  ${BOLD}Tools status:${NC}"
-TOOLS="nmap nikto sqlmap gobuster ffuf dirsearch amass httpx subfinder nuclei katana dalfox gau waybackurls gowitness arjun xsstrike hydra"
+TOOLS="nmap nikto sqlmap gobuster ffuf dirsearch amass httpx subfinder nuclei katana dalfox gau waybackurls gowitness arjun xsstrike hydra trufflehog"
 for tool in $TOOLS; do
     if command -v "$tool" &>/dev/null; then
         echo -e "    ${GREEN}+${NC} $tool"

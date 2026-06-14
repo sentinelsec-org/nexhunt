@@ -28,18 +28,26 @@ _AUTH_ERR = re.compile(r"(?i)(unautheniticated|unauthenticated|unauthorized|not 
 _URL_RE = re.compile(r"https?://[a-zA-Z0-9.\-]+(?::\d+)?(?:/[^\s\"'<>)]*)?")
 
 # Common root-query names to try when introspection is disabled.
-_COMMON_QUERIES = [
-    "me", "viewer", "currentUser", "user", "users", "account", "accounts",
-    "profile", "myProfile", "customer", "node", "search", "settings",
-    "order", "orders", "myOrders", "cart", "checkout", "payment", "payments",
-    "paymentMethods", "card", "cards", "address", "addresses", "wallet",
-    "transaction", "transactions", "invoice", "invoices", "subscription",
-    "product", "products", "menu", "catalog", "offer", "offers", "promotion",
-    "promotions", "coupon", "coupons", "loyalty", "loyaltyUser", "rewards",
-    "points", "store", "stores", "location", "locations", "notification",
-    "notifications", "message", "messages", "config", "configuration",
-    "feed", "posts", "comments", "favorites", "history",
-]
+# Loaded from backend/nexhunt/data/graphql-queries.txt so it can be edited
+# without touching code; a minimal list is used if that file is missing.
+def _load_common_queries() -> list[str]:
+    from pathlib import Path
+    path = Path(__file__).resolve().parent.parent / "data" / "graphql-queries.txt"
+    try:
+        names = []
+        for line in path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if line and not line.startswith("#"):
+                names.append(line)
+        if names:
+            return list(dict.fromkeys(names))
+    except Exception:
+        pass
+    return ["me", "viewer", "user", "users", "account", "orders", "offers",
+            "products", "menu", "search", "loyaltyUser", "payments"]
+
+
+_COMMON_QUERIES = _load_common_queries()
 # graphql-js style "Did you mean ..." suggestions in errors reveal real field names.
 _SCALAR_ERR = re.compile(r"(?i)(must not have a selection|has no subfields)")
 _MISS_ERR = re.compile(r"(?i)(cannot query field|unknown field|undefined field)")

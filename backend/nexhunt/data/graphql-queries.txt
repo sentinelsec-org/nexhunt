@@ -1,0 +1,76 @@
+# GraphQL root-query name wordlist for the GraphQL Auditor.
+# Used when introspection is disabled to discover queries by name.
+# One name per line. Lines starting with # and blank lines are ignored.
+# Edit freely — no code change needed.
+
+# identity / account
+me
+viewer
+currentUser
+user
+users
+account
+accounts
+profile
+myProfile
+customer
+node
+settings
+config
+configuration
+
+# commerce / orders / payments
+order
+orders
+myOrders
+cart
+checkout
+payment
+payments
+paymentMethods
+card
+cards
+address
+addresses
+wallet
+transaction
+transactions
+invoice
+invoices
+subscription
+
+# catalog
+product
+products
+menu
+catalog
+offer
+offers
+promotion
+promotions
+coupon
+coupons
+
+# loyalty
+loyalty
+loyaltyUser
+rewards
+points
+
+# stores / locations
+store
+stores
+location
+locations
+
+# misc / social
+search
+notification
+notifications
+message
+messages
+feed
+posts
+comments
+favorites
+history
