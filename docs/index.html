@@ -69,8 +69,10 @@ nav{position:sticky;top:0;z-index:500;height:62px;display:flex;align-items:cente
 .beta-pill{display:inline-flex;align-items:center;gap:.5rem;font-family:var(--mono);font-size:.5875rem;font-weight:500;color:var(--text-3);border:1px solid var(--border);border-radius:100px;padding:4px 11px;margin-bottom:1.75rem;letter-spacing:.04em}
 .beta-dot{width:5px;height:5px;background:var(--green);border-radius:50%;animation:pulse-g 2s ease-in-out infinite}
 @keyframes pulse-g{0%,100%{opacity:1}50%{opacity:.35}}
-.hero-h1{font-size:clamp(2.75rem,5.5vw,5rem);font-weight:800;letter-spacing:-.04em;line-height:1.06;margin-bottom:1.25rem}
-.hero-h1 em{font-style:normal;color:var(--green)}
+.hero-h1{font-weight:800;line-height:1;margin-bottom:1.25rem}
+.hero-name{display:block;font-size:clamp(4rem,8vw,7rem);letter-spacing:-.06em;line-height:.9;color:var(--text);margin-bottom:.4rem}
+.hero-tagline{display:block;font-size:clamp(1.375rem,2.8vw,2.25rem);font-weight:700;letter-spacing:-.03em;line-height:1.15;color:var(--text-2)}
+.hero-tagline em{font-style:normal;color:var(--green)}
 .hero-sub{font-size:clamp(.9375rem,1.5vw,1.0625rem);color:var(--text-2);line-height:1.7;max-width:44ch;margin-bottom:2rem}
 .hero-ctas{display:flex;gap:.75rem;flex-wrap:wrap;margin-bottom:2rem}
 .hero-ctas .btn{padding:11px 24px;font-size:.9375rem}
@@ -107,6 +109,19 @@ nav{position:sticky;top:0;z-index:500;height:62px;display:flex;align-items:cente
 .section-header{margin-bottom:3rem}
 .section-header h2{font-size:clamp(1.75rem,3.5vw,2.5rem);font-weight:800;letter-spacing:-.04em;line-height:1.15;margin-bottom:.625rem}
 .section-header p{font-size:.9375rem;color:var(--text-2);max-width:52ch;line-height:1.7}
+
+/* ---- SCREENSHOT VIEWER ---- */
+.screenshots-section{border-top:1px solid var(--border)}
+.shot-tabs-bar{display:flex;gap:0;border-bottom:1px solid var(--border);margin-bottom:1.5rem;overflow-x:auto;scrollbar-width:none}
+.shot-tab-btn{background:none;border:none;border-bottom:2px solid transparent;color:var(--text-3);font-family:var(--font);font-size:.875rem;font-weight:500;padding:10px 22px 11px;cursor:pointer;transition:all .15s;white-space:nowrap;margin-bottom:-1px}
+.shot-tab-btn:hover{color:var(--text-2)}
+.shot-tab-btn.active{color:var(--green);border-bottom-color:var(--green)}
+.shot-viewer-frame{background:var(--s1);border:1px solid var(--border-2);border-radius:var(--r);overflow:hidden;box-shadow:0 20px 80px rgba(0,0,0,.55)}
+.shot-viewer-img{line-height:0;position:relative}
+.shot-viewer-img img{width:100%;height:auto;display:block;transition:opacity .2s}
+.shot-viewer-img img.fading{opacity:0}
+.shot-desc-bar{padding:.875rem 0;font-size:.875rem;color:var(--text-2);line-height:1.6;border-top:1px solid var(--border);margin-top:0;background:none}
+.shot-desc-bar strong{color:var(--text);font-weight:600}
 
 /* ---- BENTO ---- */
 .bento-section{background:var(--bg);border-top:1px solid var(--border)}
@@ -266,7 +281,10 @@ footer{border-top:1px solid var(--border);padding:2rem clamp(1rem,4vw,2.5rem)}
         <span class="beta-dot"></span>
         <span>v1.2.0 beta · Linux</span>
       </div>
-      <h1 class="hero-h1" data-key="hero_h1">Bug Bounty,<br><em>Automated.</em></h1>
+      <h1 class="hero-h1">
+        <span class="hero-name">NexHunt</span>
+        <span class="hero-tagline" data-key="hero_tagline">Bug Bounty, <em>Automated.</em></span>
+      </h1>
       <p class="hero-sub" data-key="hero_sub">The complete attack toolkit for bug bounty hunters. Recon to exploitation, chained and automated on your Linux machine.</p>
       <div class="hero-ctas">
         <a href="https://github.com/sentinelsec-org/nexhunt/releases/latest" class="btn btn-green">
@@ -345,65 +363,31 @@ footer{border-top:1px solid var(--border);padding:2rem clamp(1rem,4vw,2.5rem)}
   </div>
 </div>
 
-<!-- FEATURES BENTO -->
-<section class="section bento-section reveal" id="features">
+<!-- SCREENSHOT VIEWER -->
+<section class="section screenshots-section reveal" id="features">
   <div class="section-inner">
     <div class="section-header">
-      <h2 data-key="bento_h">The full attack surface, one app</h2>
-      <p data-key="bento_sub">Every tool runs where it belongs in the workflow. You set the target and press go.</p>
+      <h2 data-key="shots_h">See it in action</h2>
+      <p data-key="shots_sub">Real sessions. Real targets. Full automation.</p>
     </div>
-    <div class="bento-grid">
-      <!-- Cell A: recon screenshot, large -->
-      <div class="bento-cell bento-a">
-        <div class="bento-inner-bar">
-          <span class="bento-inner-dot" style="background:#ff5f57"></span>
-          <span class="bento-inner-dot" style="background:#febc2e"></span>
-          <span class="bento-inner-dot" style="background:#28c840"></span>
-          <span class="bento-inner-label">Recon - mcdonalds.com.ar</span>
-        </div>
-        <div class="bento-img-wrap">
-          <img src="screenshots/recon-pipeline.png" alt="Subdomain enumeration and live host probing pipeline running in NexHunt, showing 13 discovered subdomains and 282 endpoints" loading="lazy">
-        </div>
+    <div class="shot-tabs-bar">
+      <button class="shot-tab-btn active" data-shot="recon" data-key="tab_recon">Reconnaissance</button>
+      <button class="shot-tab-btn" data-shot="proxy" data-key="tab_proxy">Proxy &amp; Site Map</button>
+      <button class="shot-tab-btn" data-shot="jwt" data-key="tab_jwt">JWT Attacks</button>
+    </div>
+    <div class="shot-viewer-frame">
+      <div class="shot-titlebar">
+        <span class="tbar-dot tbar-dot-r"></span>
+        <span class="tbar-dot tbar-dot-y"></span>
+        <span class="tbar-dot tbar-dot-g"></span>
+        <span class="tbar-title" id="shot-title">NexHunt - Reconnaissance</span>
       </div>
-      <!-- Cell B: recon text -->
-      <div class="bento-cell bento-b">
-        <div class="bento-label" data-key="bento_r_label">Reconnaissance</div>
-        <h3 data-key="bento_r_h">One button. Full recon chain.</h3>
-        <p data-key="bento_r_p">subfinder and amass run in parallel. httpx probes every host. katana crawls every live target. Results deduplicated and fed to the next phase automatically.</p>
-        <div class="bento-tags">
-          <span class="bento-tag">subfinder</span>
-          <span class="bento-tag">amass</span>
-          <span class="bento-tag">httpx</span>
-          <span class="bento-tag">katana</span>
-          <span class="bento-tag">gau</span>
-          <span class="bento-tag">nmap</span>
-        </div>
+      <div class="shot-viewer-img">
+        <img id="shot-main" src="screenshots/recon-pipeline.png" alt="NexHunt recon pipeline showing subfinder, amass, and httpx running in parallel, 13 subdomains discovered, 282 endpoints found" loading="eager">
       </div>
-      <!-- Cell C: attack text -->
-      <div class="bento-cell bento-c">
-        <div class="bento-label" data-key="bento_a_label">Attack Automation</div>
-        <h3 data-key="bento_a_h">Complex attacks, simplified.</h3>
-        <p data-key="bento_a_p">JWT confusion, SQLi chains, XSS scanning, and business logic testing. Configured and launched from the UI. Results fed directly to your findings database.</p>
-        <div class="bento-tags">
-          <span class="bento-tag">sqlmap</span>
-          <span class="bento-tag">dalfox</span>
-          <span class="bento-tag">commix</span>
-          <span class="bento-tag">hydra</span>
-          <span class="bento-tag" style="color:var(--amber);border-color:rgba(245,158,11,.3)">PRO</span>
-        </div>
-      </div>
-      <!-- Cell D: JWT screenshot -->
-      <div class="bento-cell bento-d">
-        <div class="bento-inner-bar">
-          <span class="bento-inner-dot" style="background:#ff5f57"></span>
-          <span class="bento-inner-dot" style="background:#febc2e"></span>
-          <span class="bento-inner-dot" style="background:#28c840"></span>
-          <span class="bento-inner-label">Exploitation - JWT Attacks</span>
-        </div>
-        <div class="bento-img-wrap">
-          <img src="screenshots/jwt-attacks.png" alt="JWT attack suite in NexHunt showing 10 attack techniques including algorithm confusion, empty signature, and key injection with severity ratings" loading="lazy">
-        </div>
-      </div>
+    </div>
+    <div class="shot-desc-bar" id="shot-desc">
+      <strong>Full Recon Pipeline.</strong> subfinder and amass ran in parallel on mcdonalds.com.ar, httpx probed every host automatically, katana crawled live targets, gowitness screenshotted them all.
     </div>
   </div>
 </section>
@@ -474,33 +458,6 @@ footer{border-top:1px solid var(--border);padding:2rem clamp(1rem,4vw,2.5rem)}
           <span class="phase-pro">Intruder PRO</span>
           <span class="phase-pro">AI Report PRO</span>
         </div>
-      </div>
-    </div>
-  </div>
-</section>
-
-<!-- PROXY SCREENSHOT: standalone feature highlight -->
-<section class="section reveal" style="padding-top:0;border-top:1px solid var(--border)">
-  <div class="section-inner">
-    <div style="display:grid;grid-template-columns:1fr 1.6fr;gap:3rem;align-items:center">
-      <div>
-        <h2 style="font-size:clamp(1.5rem,3vw,2.25rem);font-weight:800;letter-spacing:-.04em;line-height:1.15;margin-bottom:.75rem" data-key="proxy_h">Proxy with a built-in site map</h2>
-        <p style="font-size:.9375rem;color:var(--text-2);line-height:1.7;margin-bottom:1.25rem" data-key="proxy_p">Every request flows through NexHunt's proxy and builds a Burp-style host/path tree automatically. Capture, inspect, replay, and fuzz without leaving the app.</p>
-        <div class="phase-tools" style="gap:5px">
-          <span class="phase-tool">traffic capture</span>
-          <span class="phase-tool">site map</span>
-          <span class="phase-tool">repeater</span>
-          <span class="phase-pro">Intruder PRO</span>
-        </div>
-      </div>
-      <div class="shot-frame">
-        <div class="shot-titlebar">
-          <span class="tbar-dot tbar-dot-r"></span>
-          <span class="tbar-dot tbar-dot-y"></span>
-          <span class="tbar-dot tbar-dot-g"></span>
-          <span class="tbar-title">NexHunt - Proxy / Site Map</span>
-        </div>
-        <img src="screenshots/proxy-sitemap.png" alt="NexHunt proxy site map showing host/path tree built automatically from 44 captured requests across two target domains" loading="lazy">
       </div>
     </div>
   </div>
@@ -688,27 +645,67 @@ footer{border-top:1px solid var(--border);padding:2rem clamp(1rem,4vw,2.5rem)}
 </footer>
 
 <script>
+// ---- SCREENSHOT VIEWER DATA ----
+const SHOTS = {
+  recon: {
+    img: 'screenshots/recon-pipeline.png',
+    title: { en: 'NexHunt - Reconnaissance', es: 'NexHunt - Reconocimiento' },
+    alt: { en: 'NexHunt recon pipeline: subfinder, amass and httpx running in parallel, 13 subdomains found, 282 endpoints discovered', es: 'Pipeline de recon de NexHunt' },
+    desc: { en: '<strong>Full Recon Pipeline.</strong> subfinder and amass ran in parallel on mcdonalds.com.ar, httpx probed every host automatically, katana crawled live targets, gowitness screenshotted them all.', es: '<strong>Pipeline completo de recon.</strong> subfinder y amass corrieron en paralelo en mcdonalds.com.ar, httpx sondeó cada host automáticamente, katana rastreó los objetivos activos, gowitness los fotografió a todos.' }
+  },
+  proxy: {
+    img: 'screenshots/proxy-sitemap.png',
+    title: { en: 'NexHunt - Proxy / Site Map', es: 'NexHunt - Proxy / Mapa de Sitio' },
+    alt: { en: 'NexHunt proxy site map showing host/path tree built from 44 captured requests across two domains', es: 'Mapa de sitio del proxy de NexHunt' },
+    desc: { en: '<strong>Proxy Site Map.</strong> Every request captured through the proxy builds a Burp-style host and path tree automatically. 44 requests across two domains organized in seconds.', es: '<strong>Mapa de Sitio Proxy.</strong> Cada solicitud capturada por el proxy construye automáticamente un árbol de rutas estilo Burp. 44 solicitudes en dos dominios organizadas en segundos.' }
+  },
+  jwt: {
+    img: 'screenshots/jwt-attacks.png',
+    title: { en: 'NexHunt - JWT Attacks', es: 'NexHunt - Ataques JWT' },
+    alt: { en: 'JWT attack suite in NexHunt: 10 attack techniques with severity ratings and step-by-step instructions', es: 'Suite de ataques JWT en NexHunt' },
+    desc: { en: '<strong>JWT Attack Suite.</strong> 10 attack techniques: algorithm confusion, empty signature, RS256 to HS256, weak secret brute force, kid header injection, jku/x5u SSRF, privilege escalation and more. Step-by-step guidance per attack.', es: '<strong>Suite de Ataques JWT.</strong> 10 técnicas: confusión de algoritmo, firma vacía, RS256 a HS256, fuerza bruta de secreto débil, inyección de header kid, jku/x5u SSRF, escalada de privilegios y más. Guía paso a paso por ataque.' }
+  }
+};
+
+let currentShot = 'recon';
+
+function switchShot(name) {
+  if (name === currentShot) return;
+  const shot = SHOTS[name];
+  const img = document.getElementById('shot-main');
+  const title = document.getElementById('shot-title');
+  const desc = document.getElementById('shot-desc');
+  img.classList.add('fading');
+  setTimeout(() => {
+    img.src = shot.img;
+    img.alt = shot.alt[currentLang];
+    title.textContent = shot.title[currentLang];
+    desc.innerHTML = shot.desc[currentLang];
+    img.classList.remove('fading');
+  }, 180);
+  document.querySelectorAll('.shot-tab-btn').forEach(b => b.classList.toggle('active', b.dataset.shot === name));
+  currentShot = name;
+}
+
+document.querySelectorAll('.shot-tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => switchShot(btn.dataset.shot));
+});
+
 // ---- TRANSLATIONS ----
 const T = {
   en: {
     nav_features:'Features', nav_phases:'Workflow', nav_pricing:'Pricing', nav_install:'Install', nav_download:'Download',
-    hero_h1:'Bug Bounty,<br><em>Automated.</em>',
+    hero_tagline:'Bug Bounty, <em>Automated.</em>',
     hero_sub:'The complete attack toolkit for bug bounty hunters. Recon to exploitation, chained and automated on your Linux machine.',
     cta_dl:'Download Free', cta_pro:'Get PRO', btn_copy:'Copy',
-    bento_h:'The full attack surface, one app',
-    bento_sub:'Every tool runs where it belongs in the workflow. You set the target and press go.',
-    bento_r_label:'Reconnaissance', bento_r_h:'One button. Full recon chain.',
-    bento_r_p:'subfinder and amass run in parallel. httpx probes every host. katana crawls every live target. Results deduplicated and fed to the next phase automatically.',
-    bento_a_label:'Attack Automation', bento_a_h:'Complex attacks, simplified.',
-    bento_a_p:'JWT confusion, SQLi chains, XSS scanning, and business logic testing. Configured and launched from the UI. Results fed directly to your findings database.',
+    shots_h:'See it in action', shots_sub:'Real sessions. Real targets. Full automation.',
+    tab_recon:'Reconnaissance', tab_proxy:'Proxy &amp; Site Map', tab_jwt:'JWT Attacks',
     phases_h:'Recon to report, without switching tools',
     phases_sub:'Five phases. Each one feeds the next. All running locally on your machine.',
     ph1_h:'Reconnaissance', ph1_p:'Subdomain enumeration, live host probing, port scanning, web crawling, URL history, and parameter discovery. All parallel, all automatic.',
     ph2_h:'Vulnerability Scanning', ph2_p:'8,000+ Nuclei templates, CVE correlation by detected tech stack, directory brute-force with smart wordlist selection, web server audits.',
     ph3_h:'Exploitation', ph3_p:'SQLi, XSS, command injection, SSRF, JWT attacks. Validate findings and prove impact before writing the report.',
     ph4_h:'Proxy and Reporting', ph4_p:'Capture and replay live traffic, use the Burp-style site map, fuzz with Intruder (PRO), and generate a full vulnerability report with the AI Copilot (PRO).',
-    proxy_h:'Proxy with a built-in site map',
-    proxy_p:'Every request flows through NexHunt\'s proxy and builds a Burp-style host/path tree automatically. Capture, inspect, replay, and fuzz without leaving the app.',
     pro_h:'Go further with PRO', pro_sub:'Unlock automation, AI assistance, and advanced attack modules that would take hours to configure manually.',
     pro1_h:'AI Copilot', pro1_p:'Paste any hostname and get a full attack surface breakdown. Feed in your findings and get a professional vulnerability report, ready to submit.',
     pro2_h:'Automated Pipelines', pro2_p:'Full XSS chain, SQLi chain, and complete recon pipelines triggered in one click. Each tool\'s output feeds directly into the next.',
@@ -741,50 +738,44 @@ const T = {
   },
   es: {
     nav_features:'Funciones', nav_phases:'Flujo', nav_pricing:'Precios', nav_install:'Instalar', nav_download:'Descargar',
-    hero_h1:'Bug Bounty,<br><em>Automatizado.</em>',
+    hero_tagline:'Bug Bounty, <em>Automatizado.</em>',
     hero_sub:'El kit completo para cazadores de bug bounty. Del reconocimiento a la explotación, encadenado y automatizado en tu máquina Linux.',
     cta_dl:'Descargar Gratis', cta_pro:'Obtener PRO', btn_copy:'Copiar',
-    bento_h:'Toda la superficie de ataque, en una sola app',
-    bento_sub:'Cada herramienta corre donde le corresponde en el flujo. Defines el objetivo y presionas ejecutar.',
-    bento_r_label:'Reconocimiento', bento_r_h:'Un botón. Toda la cadena de recon.',
-    bento_r_p:'subfinder y amass corren en paralelo. httpx sondea cada host. katana rastrea cada objetivo activo. Resultados deduplicados y pasados a la siguiente fase de forma automática.',
-    bento_a_label:'Automatización de ataques', bento_a_h:'Ataques complejos, simplificados.',
-    bento_a_p:'Confusión JWT, cadenas SQLi, escaneo XSS y pruebas de lógica de negocio. Configurado y lanzado desde la UI. Resultados directo a tu base de hallazgos.',
+    shots_h:'Miralo en accion', shots_sub:'Sesiones reales. Objetivos reales. Automatizacion completa.',
+    tab_recon:'Reconocimiento', tab_proxy:'Proxy y Mapa de Sitio', tab_jwt:'Ataques JWT',
     phases_h:'De recon a reporte, sin cambiar de herramienta',
-    phases_sub:'Cinco fases. Cada una alimenta a la siguiente. Todo corriendo localmente en tu máquina.',
-    ph1_h:'Reconocimiento', ph1_p:'Enumeración de subdominios, sondeo de hosts activos, escaneo de puertos, rastreo web, historial de URLs y descubrimiento de parámetros. Todo en paralelo, todo automático.',
-    ph2_h:'Escaneo de vulnerabilidades', ph2_p:'8.000+ plantillas Nuclei, correlación de CVEs por tecnología detectada, fuerza bruta de directorios con selección inteligente de wordlists, auditoría de servidores web.',
-    ph3_h:'Explotación', ph3_p:'SQLi, XSS, inyección de comandos, SSRF, ataques JWT. Valida hallazgos y demuestra impacto antes de escribir el reporte.',
-    ph4_h:'Proxy y Reporte', ph4_p:'Captura y repite tráfico en vivo, usa el mapa de sitio estilo Burp, fuzzing con Intruder (PRO), y genera el reporte completo con el Copilot IA (PRO).',
-    proxy_h:'Proxy con mapa de sitio integrado',
-    proxy_p:'Cada solicitud pasa por el proxy de NexHunt y construye automáticamente un árbol de rutas estilo Burp. Captura, inspecciona, repite y fuzzea sin salir de la app.',
-    pro_h:'Llega más lejos con PRO', pro_sub:'Desbloquea automatización, asistencia de IA y módulos de ataque avanzados que llevarían horas configurar manualmente.',
-    pro1_h:'Copilot IA', pro1_p:'Pega cualquier hostname y obtén un análisis completo de superficie de ataque. Pasa tus hallazgos y genera un reporte de vulnerabilidades profesional, listo para enviar.',
+    phases_sub:'Cinco fases. Cada una alimenta a la siguiente. Todo corriendo localmente en tu maquina.',
+    ph1_h:'Reconocimiento', ph1_p:'Enumeracion de subdominios, sondeo de hosts activos, escaneo de puertos, rastreo web, historial de URLs y descubrimiento de parametros. Todo en paralelo, todo automatico.',
+    ph2_h:'Escaneo de vulnerabilidades', ph2_p:'8.000+ plantillas Nuclei, correlacion de CVEs por tecnologia detectada, fuerza bruta de directorios con seleccion inteligente de wordlists, auditoria de servidores web.',
+    ph3_h:'Explotacion', ph3_p:'SQLi, XSS, inyeccion de comandos, SSRF, ataques JWT. Valida hallazgos y demuestra impacto antes de escribir el reporte.',
+    ph4_h:'Proxy y Reporte', ph4_p:'Captura y repite trafico en vivo, usa el mapa de sitio estilo Burp, fuzzing con Intruder (PRO), y genera el reporte completo con el Copilot IA (PRO).',
+    pro_h:'Llega mas lejos con PRO', pro_sub:'Desbloquea automatizacion, asistencia de IA y modulos de ataque avanzados que llevarian horas configurar manualmente.',
+    pro1_h:'Copilot IA', pro1_p:'Pega cualquier hostname y obtene un analisis completo de superficie de ataque. Pasa tus hallazgos y genera un reporte de vulnerabilidades profesional, listo para enviar.',
     pro2_h:'Pipelines Automatizados', pro2_p:'Cadena completa XSS, SQLi y pipelines de recon lanzados con un clic. El resultado de cada herramienta alimenta directamente a la siguiente.',
     pro3_h:'Operaciones Masivas', pro3_p:'Corre Nuclei, escaneos CORS, verificaciones de takeover y capturas de pantalla en todos los hosts descubiertos de tu proyecto a la vez.',
-    pro4_h:'Suite de Ataque Avanzada', pro4_p:'10 técnicas de ataque JWT, Proxy Intruder con modos cluster bomb y pitchfork, módulo de fuerza bruta con wordlists personalizadas.',
-    pricing_h:'Dos planes. Sin trampas.', pricing_sub:'El plan gratuito es genuinamente útil. Sin límites de tiempo, sin degradación de funciones, sin pantallas de anuncio.',
+    pro4_h:'Suite de Ataque Avanzada', pro4_p:'10 tecnicas de ataque JWT, Proxy Intruder con modos cluster bomb y pitchfork, modulo de fuerza bruta con wordlists personalizadas.',
+    pricing_h:'Dos planes. Sin trampas.', pricing_sub:'El plan gratuito es genuinamente util. Sin limites de tiempo, sin degradacion de funciones, sin pantallas de anuncio.',
     tier_free:'Gratuito', price_free:'$0', price_free_note:'Para siempre. Sin tarjeta requerida.',
     pf1:'Suite completa de recon (subfinder, amass, httpx, nmap, katana, gau, arjun)',
     pf2:'Escaneo de un solo objetivo: nuclei, ffuf, nikto, gobuster, dirsearch',
     pf3:'Captura proxy, repetidor, mapa de sitio',
-    pf4:'Explotación de un solo objetivo: sqlmap, dalfox, xsstrike, commix',
-    pf5:'Base de hallazgos, proyectos, guía de metodología',
+    pf4:'Explotacion de un solo objetivo: sqlmap, dalfox, xsstrike, commix',
+    pf5:'Base de hallazgos, proyectos, guia de metodologia',
     pf6:'Herramientas de seguridad: CORS, bypass 403, buckets cloud, escaner de secretos GitHub',
     pricing_dl:'Descargar Gratis',
-    tier_pro:'PRO', price_pro:'Lifetime', price_pro_note:'Compra única. Todas las actualizaciones incluidas.',
-    pp0:'<strong>Todo lo del plan gratuito, más:</strong>',
-    pp1:'<strong>Copilot IA</strong> - análisis de superficie de ataque, generación de reportes',
+    tier_pro:'PRO', price_pro:'Lifetime', price_pro_note:'Compra unica. Todas las actualizaciones incluidas.',
+    pp0:'<strong>Todo lo del plan gratuito, mas:</strong>',
+    pp1:'<strong>Copilot IA</strong> - analisis de superficie de ataque, generacion de reportes',
     pp2:'<strong>Pipelines automatizados</strong> - cadenas completas XSS, SQLi y recon',
     pp3:'<strong>Escaneo masivo</strong> - nuclei, CORS, capturas en todos los hosts',
-    pp4:'<strong>Suite JWT</strong> - 10 técnicas con guía paso a paso',
+    pp4:'<strong>Suite JWT</strong> - 10 tecnicas con guia paso a paso',
     pp5:'<strong>Proxy Intruder</strong> - cluster bomb, pitchfork, filtrado de respuestas',
     pp6:'Soporte prioritario',
     pricing_buy:'Obtener PRO',
     install_h:'En funcionamiento en menos de 5 minutos',
-    install_sub:'El instalador configura las 20+ herramientas, el backend Python y la app Electron. Sin configuración manual.',
+    install_sub:'El instalador configura las 20+ herramientas, el backend Python y la app Electron. Sin configuracion manual.',
     btn_copy:'Copiar comando',
-    install_note:'Requiere Linux (Kali, Debian, Ubuntu) &bull; Python 3.10+ &bull; ~2 GB en disco &bull; Internet para la instalación inicial &bull; <a href="https://github.com/sentinelsec-org/nexhunt" target="_blank" rel="noreferrer">Ver en GitHub</a>',
+    install_note:'Requiere Linux (Kali, Debian, Ubuntu) &bull; Python 3.10+ &bull; ~2 GB en disco &bull; Internet para la instalacion inicial &bull; <a href="https://github.com/sentinelsec-org/nexhunt" target="_blank" rel="noreferrer">Ver en GitHub</a>',
     footer_by:'por Sentinel Security &bull; <a href="https://sentinelsec.online" target="_blank" rel="noreferrer" style="color:inherit">sentinelsec.online</a>',
     footer_gh:'GitHub', footer_pricing:'Precios', footer_releases:'Releases', footer_issues:'Issues'
   }
@@ -803,6 +794,10 @@ function applyLang(lang) {
   document.querySelectorAll('.lbtn, .flbtn').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.lang === lang);
   });
+  const shot = SHOTS[currentShot];
+  document.getElementById('shot-title').textContent = shot.title[lang];
+  document.getElementById('shot-main').alt = shot.alt[lang];
+  document.getElementById('shot-desc').innerHTML = shot.desc[lang];
 }
 
 document.querySelectorAll('.lbtn, .flbtn').forEach(btn => {
