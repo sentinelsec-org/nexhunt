@@ -83,13 +83,29 @@ nav{position:sticky;top:0;z-index:500;height:62px;display:flex;align-items:cente
 .copy-btn:hover{color:var(--text-2)}
 .copy-btn.copied{color:var(--green)}
 .hero-visual{position:relative}
-.shot-frame{background:var(--s1);border:1px solid var(--border-2);border-radius:10px;overflow:hidden;box-shadow:0 24px 80px rgba(0,0,0,.6),0 0 0 1px rgba(255,255,255,.04);animation:fadein .7s ease .15s both}
 @keyframes fadein{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}
 .shot-titlebar{display:flex;align-items:center;gap:6px;padding:10px 14px;background:var(--s2);border-bottom:1px solid var(--border)}
 .tbar-dot{width:10px;height:10px;border-radius:50%}
 .tbar-dot-r{background:#ff5f57}.tbar-dot-y{background:#febc2e}.tbar-dot-g{background:#28c840}
 .tbar-title{margin-left:6px;font-family:var(--mono);font-size:.5875rem;color:var(--text-3);letter-spacing:.04em}
-.shot-frame img{width:100%;height:auto;object-fit:cover}
+/* hero terminal animation */
+.hero-term{background:#0d0d0f;border:1px solid var(--border-2);border-radius:12px;overflow:hidden;box-shadow:0 28px 90px rgba(0,0,0,.7),0 0 0 1px rgba(255,255,255,.04),0 0 60px rgba(34,197,94,.06);animation:fadein .7s ease .15s both;font-family:var(--mono);font-size:.78rem;line-height:1.65}
+.ht-bar{display:flex;align-items:center;gap:7px;padding:11px 16px;background:#141416;border-bottom:1px solid #1e1e22}
+.ht-dot{width:12px;height:12px;border-radius:50%}
+.ht-dot-r{background:#ff5f57}.ht-dot-y{background:#febc2e}.ht-dot-g{background:#28c840}
+.ht-bar-title{margin-left:8px;font-size:.6875rem;color:#3f3f46;letter-spacing:.04em}
+.ht-body{padding:18px 20px;min-height:300px;display:flex;flex-direction:column;gap:0}
+.ht-row{display:flex;gap:.6ch;white-space:pre}
+.ht-ps{color:var(--green);user-select:none}
+.ht-cmd-text{color:#f4f4f5}
+.ht-cursor{display:inline-block;width:.55ch;background:var(--green);vertical-align:text-bottom;animation:termcursor 1s step-end infinite}
+@keyframes termcursor{0%,100%{opacity:1}50%{opacity:0}}
+.ht-out{color:#71717a;display:flex;align-items:baseline;gap:.6ch}
+.ht-out .g{color:var(--green)}
+.ht-out .a{color:var(--amber)}
+.ht-out .w{color:#f4f4f5}
+.ht-out .d{color:#3f3f46}
+.ht-out .tag{font-size:.7rem;border:1px solid currentColor;border-radius:3px;padding:0 4px;line-height:1.4;opacity:.8}
 @media(max-width:840px){
   .hero-inner{grid-template-columns:1fr;gap:2.5rem;padding:4rem 0 3rem;text-align:left}
   .hero-visual{order:2}
@@ -300,14 +316,17 @@ footer{border-top:1px solid var(--border);padding:2rem clamp(1rem,4vw,2.5rem)}
       </div>
     </div>
     <div class="hero-visual">
-      <div class="shot-frame">
-        <div class="shot-titlebar">
-          <span class="tbar-dot tbar-dot-r"></span>
-          <span class="tbar-dot tbar-dot-y"></span>
-          <span class="tbar-dot tbar-dot-g"></span>
-          <span class="tbar-title">NexHunt - Reconnaissance</span>
+      <div class="hero-term" id="hero-term">
+        <div class="ht-bar">
+          <span class="ht-dot ht-dot-r"></span>
+          <span class="ht-dot ht-dot-y"></span>
+          <span class="ht-dot ht-dot-g"></span>
+          <span class="ht-bar-title">nexhunt -- bash</span>
         </div>
-        <img src="screenshots/recon-pipeline.png" alt="NexHunt recon pipeline: subfinder, amass, and httpx running in parallel against a target, showing 13 subdomains discovered and 10 live hosts probed automatically" loading="eager">
+        <div class="ht-body" id="ht-body">
+          <div class="ht-row"><span class="ht-ps">$</span><span class="ht-cmd-text" id="ht-cmd"></span><span class="ht-cursor" id="ht-cursor"></span></div>
+          <div id="ht-lines"></div>
+        </div>
       </div>
     </div>
   </div>
@@ -826,6 +845,71 @@ if ('IntersectionObserver' in window) {
 } else {
   reveals.forEach(el => el.classList.add('in'));
 }
+
+// ---- HERO TERMINAL ANIMATION ----
+(function() {
+  const CMD = 'nexhunt recon mcdonalds.com.ar';
+  const LINES = [
+    { d:120,  h:'<span class="g">[+]</span> <span class="w">Initializing recon pipeline</span>' },
+    { d:320,  h:'<span class="g">[+]</span> Running <span class="a">subfinder</span> + <span class="a">amass</span> in parallel...' },
+    { d:900,  h:'<span class="d">    admin.mcdonalds.com.ar</span>' },
+    { d:180,  h:'<span class="d">    api.mcdonalds.com.ar</span>' },
+    { d:160,  h:'<span class="d">    static.mcdonalds.com.ar</span>' },
+    { d:150,  h:'<span class="d">    portal.mcdonalds.com.ar</span>' },
+    { d:170,  h:'<span class="d">    cdn.mcdonalds.com.ar</span>' },
+    { d:200,  h:'<span class="g">[+]</span> <span class="w">13 subdomains discovered</span>' },
+    { d:280,  h:'<span class="g">[+]</span> Probing live hosts with <span class="a">httpx</span>...' },
+    { d:700,  h:'<span class="g">[+]</span> <span class="w">8 live hosts</span> <span class="d">|</span> <span class="w">5 filtered</span>' },
+    { d:300,  h:'<span class="g">[+]</span> Crawling with <span class="a">katana</span>...' },
+    { d:1100, h:'<span class="g">[+]</span> <span class="w">282 endpoints found</span>' },
+    { d:300,  h:'<span class="g">[+]</span> Screenshotting with <span class="a">gowitness</span>...' },
+    { d:950,  h:'<span class="g">[+]</span> Running <span class="a">nuclei</span> <span class="d">(8127 templates)</span>...' },
+    { d:1400, h:'<span class="a">[!]</span> <span class="w">CVE-2023-44487</span> <span class="d">api.mcdonalds.com.ar:443</span> <span class="g tag">HIGH</span>' },
+    { d:280,  h:'<span class="a">[!]</span> <span class="w">cors-misconfiguration</span> <span class="d">portal.mcdonalds.com.ar</span> <span class="a tag">MED</span>' },
+    { d:350,  h:'<span class="g">[+]</span> <span class="w">Recon complete.</span> <span class="d">Results saved to project.</span>' },
+  ];
+
+  const cmdEl  = document.getElementById('ht-cmd');
+  const cursor = document.getElementById('ht-cursor');
+  const lines  = document.getElementById('ht-lines');
+
+  function run() {
+    cmdEl.textContent = '';
+    lines.innerHTML = '';
+    cursor.style.display = 'inline-block';
+
+    let i = 0;
+    function typeChar() {
+      if (i < CMD.length) {
+        cmdEl.textContent += CMD[i++];
+        setTimeout(typeChar, 38 + Math.random() * 28);
+      } else {
+        cursor.style.display = 'none';
+        showLines(0);
+      }
+    }
+
+    let acc = 200;
+    function showLines(idx) {
+      if (idx >= LINES.length) {
+        setTimeout(run, 3200);
+        return;
+      }
+      acc += LINES[idx].d;
+      setTimeout(() => {
+        const row = document.createElement('div');
+        row.className = 'ht-out';
+        row.innerHTML = LINES[idx].h;
+        lines.appendChild(row);
+        showLines(idx + 1);
+      }, acc);
+    }
+
+    typeChar();
+  }
+
+  run();
+})();
 </script>
 </body>
 </html>
