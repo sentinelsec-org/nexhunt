@@ -53,6 +53,24 @@ def _build_query(field: dict) -> str | None:
     return "query{%s{__typename}}" % name  # object/interface/union
 
 
+_ID_ARG = re.compile(r"(?i)(^id$|id$|uuid|guid)")
+
+
+def _build_idor_query(field: dict, sample_id: str) -> str | None:
+    """Query for a field whose required args are all ID-like scalars, filled with sample_id."""
+    req = [a for a in (field.get("args") or []) if _arg_required(a)]
+    if not req:
+        return None
+    for a in req:
+        kind, name = _unwrap(a.get("type") or {})
+        if kind != "SCALAR" or not (_ID_ARG.search(a["name"]) or name in ("ID", "UUID", "String")):
+            return None
+    args = ", ".join(f'{a["name"]}: "{sample_id}"' for a in req)
+    base_kind, _ = _unwrap(field.get("type") or {})
+    sel = "" if base_kind in ("SCALAR", "ENUM") else "{__typename}"
+    return "query{%s(%s)%s}" % (field["name"], args, sel)
+
+
 class GraphqlAuditAdapter(ToolAdapter):
     name = "graphql_audit"
     binary_name = ""
@@ -190,6 +208,60 @@ class GraphqlAuditAdapter(ToolAdapter):
                             "description": f"The query '{fname}' looks auth-sensitive but is accessible to "
                                            f"unauthenticated clients (broken access control / excessive data exposure).",
                             "tool": "graphql_audit", "template_id": f"graphql-unauth-{fname.lower()}", "status": "new",
+                        }
+
+            # 3b) IDOR / BOLA: object-by-ID queries reachable without auth
+            raw_ids = options.get("sample_ids") or ""
+            if isinstance(raw_ids, (list, tuple)):
+                sample_ids = [str(x).strip() for x in raw_ids if str(x).strip()]
+            else:
+                sample_ids = [s.strip() for s in re.split(r"[,\s]+", str(raw_ids)) if s.strip()]
+            sample_ids = sample_ids[:5]
+
+            id_fields = [f for f in queries
+                         if any(_arg_required(a) for a in (f.get("args") or []))
+                         and _SENSITIVE.search(f["name"])]
+
+            if id_fields and not sample_ids:
+                names = ", ".join(f["name"] for f in id_fields[:20])
+                yield {
+                    "_raw": False, "id": None,
+                    "title": f"[GraphQL] {len(id_fields)} object-by-ID queries (potential IDOR) — {url}",
+                    "severity": "info", "vuln_type": "broken-access-control",
+                    "url": url, "parameter": None,
+                    "evidence": (f"Sensitive queries that take an ID/UUID argument: {names}\n"
+                                 "Paste a known ID (e.g. your own loyaltyId/userId) in 'Sample IDs' to auto-test "
+                                 "whether the object is readable without authentication."),
+                    "description": "These queries fetch an object by ID. If they lack per-object authorization, "
+                                   "any ID can be read (IDOR/BOLA). Provide a sample ID to test automatically.",
+                    "tool": "graphql_audit", "template_id": "graphql-idor-candidates", "status": "new",
+                }
+
+            for sid in sample_ids:
+                idor_probes = [(f["name"], _build_idor_query(f, sid)) for f in id_fields]
+                idor_probes = [(n, q) for n, q in idor_probes if q][:40]
+                if idor_probes:
+                    yield {"_raw": True, "line": f"  Testing {len(idor_probes)} ID queries with '{sid}' WITHOUT auth..."}
+                for i in range(0, len(idor_probes), 10):
+                    batch = idor_probes[i:i + 10]
+                    results = await asyncio.gather(*[_probe_unauth(n, q) for n, q in batch])
+                    for res in results:
+                        if not res:
+                            continue
+                        fname, code = res
+                        yield {"_raw": True, "line": f"  [IDOR] {fname}(id={sid}) -> data without auth"}
+                        yield {
+                            "_raw": False, "id": None,
+                            "title": f"[GraphQL] IDOR — '{fname}' reads object by ID without auth — {url}",
+                            "severity": "high", "vuln_type": "broken-access-control",
+                            "url": url, "parameter": fname,
+                            "evidence": (f"'{fname}' returned data for ID '{sid}' with no Authorization header (HTTP {code}).\n"
+                                         f"Swap the ID to read other users' objects.\n"
+                                         f"Reproduce:\n  curl -ks -X POST '{url}' -H 'content-type: application/json' "
+                                         f"-d '{{\"query\":\"{_build_idor_query(next(f for f in id_fields if f['name']==fname), sid)}\"}}'"),
+                            "description": f"Query '{fname}' fetches an object by ID and is readable unauthenticated "
+                                           f"(IDOR/BOLA). With a valid ID anyone can read arbitrary objects.",
+                            "tool": "graphql_audit", "template_id": f"graphql-idor-{fname.lower()}", "status": "new",
                         }
 
             # 4) Leaked internal endpoints

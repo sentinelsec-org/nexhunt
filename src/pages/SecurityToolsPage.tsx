@@ -6,11 +6,12 @@ import { toast } from '@/stores/toast-store'
 import { useScannerStore } from '@/stores/scanner-store'
 import { useReconStore } from '@/stores/recon-store'
 import { useAppStore } from '@/stores/app-store'
+import { useLicenseStore } from '@/stores/license-store'
 import { cn } from '@/lib/utils'
 import {
   Play, Square, Loader2, Terminal, Copy, Check,
   Globe, Lock, Cloud, GitBranch, Radio, Info, X, BookOpen, Sparkles,
-  FolderGit2, Server, ChevronDown, Share2,
+  FolderGit2, Server, ChevronDown, Share2, Crown,
 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useWorkspaceStore } from '@/stores/workspace-store'
@@ -179,6 +180,7 @@ export function SecurityToolsPage() {
   const [targets, setTargets] = useState<Record<ToolId, string>>({
     cors: '', bypass_403: '', cloud_buckets: '', exposed_files: '', graphql_audit: '', github_scanner: '', interactsh: '',
   })
+  const [graphqlSampleIds, setGraphqlSampleIds] = useState('')
   const [view, setView] = useState<ViewMode>('findings')
   const [selected, setSelected] = useState<Finding | null>(null)
   const [copied, setCopied] = useState(false)
@@ -190,6 +192,7 @@ export function SecurityToolsPage() {
   const { activeProject, globalTarget, getSessionOpts } = useAppStore()
   const { findings, rawOutput, activeScans, activeJobIds } = useScannerStore()
   const { liveHosts, urls } = useReconStore()
+  const { isPro } = useLicenseStore()
   const { addFinding: addToWorkspace } = useWorkspaceStore()
 
   // Check which tools are installed once on mount
@@ -225,12 +228,16 @@ export function SecurityToolsPage() {
   const oobHost = findings.find(f => f.tool === 'interactsh' && f.template_id === 'interactsh-host')?.url?.replace('http://', '') ?? ''
 
   const tool = TOOLS.find(t => t.id === activeTab)!
+  const gqlGated = activeTab === 'graphql_audit' && !isPro()  // PRO-only in prod
 
-  // Cloud buckets mines real bucket refs from already-discovered Recon URLs (+ their .js).
-  const optsFor = (id: ToolId) =>
-    id === 'cloud_buckets'
-      ? { ...getSessionOpts(), seed_urls: urls.map(u => u.url).filter(Boolean).slice(0, 800) }
-      : getSessionOpts()
+  // Per-tool extra options on top of the session (cookies/headers).
+  const optsFor = (id: ToolId) => {
+    if (id === 'cloud_buckets')
+      return { ...getSessionOpts(), seed_urls: urls.map(u => u.url).filter(Boolean).slice(0, 800) }
+    if (id === 'graphql_audit')
+      return { ...getSessionOpts(), sample_ids: graphqlSampleIds }
+    return getSessionOpts()
+  }
 
   const handleRun = async () => {
     const target = targets[activeTab].trim()
@@ -315,6 +322,7 @@ export function SecurityToolsPage() {
                   <span className={cn('text-xs font-medium flex-1', active ? t.color : 'text-zinc-400')}>
                     {t.label}
                   </span>
+                  {t.id === 'graphql_audit' && !isPro() && <Crown size={11} className="text-amber-400 shrink-0" />}
                   {running && <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse shrink-0" />}
                   {count > 0 && !running && (
                     <span className="text-[9px] px-1 rounded bg-zinc-800 text-zinc-500">{count}</span>
@@ -369,6 +377,17 @@ export function SecurityToolsPage() {
             </div>
             <p className="text-[10px] text-zinc-600 leading-relaxed">{tool.desc}</p>
 
+            {gqlGated && (
+              <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-950/20 px-3 py-2">
+                <Crown size={14} className="text-amber-400 shrink-0 mt-0.5" />
+                <div className="text-[11px] leading-relaxed">
+                  <span className="text-amber-300 font-semibold">GraphQL Auditor is a PRO feature.</span>
+                  <span className="text-zinc-400"> Upgrade to run schema introspection, no-auth access checks and IDOR testing. </span>
+                  <a href="https://sentinelsec.online/pricing" target="_blank" rel="noreferrer" className="text-amber-400 underline">Get PRO</a>
+                </div>
+              </div>
+            )}
+
             {/* Host picker for URL-based tools */}
             {HOST_TOOLS.includes(activeTab) && (
               <LiveHostPicker
@@ -397,10 +416,10 @@ export function SecurityToolsPage() {
               ) : (
                 <button
                   onClick={handleRun}
-                  disabled={!targets[activeTab].trim() && activeTab !== 'interactsh'}
+                  disabled={(!targets[activeTab].trim() && activeTab !== 'interactsh') || gqlGated}
                   className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border border-green-700/70 text-green-400 hover:bg-green-950/30 disabled:opacity-40 disabled:cursor-not-allowed transition-colors shrink-0"
                 >
-                  <Play size={11} /> Run
+                  {gqlGated ? <Crown size={11} /> : <Play size={11} />} {gqlGated ? 'PRO' : 'Run'}
                 </button>
               )}
             </div>
@@ -433,6 +452,21 @@ export function SecurityToolsPage() {
                   {copied ? <Check size={11} /> : <Copy size={11} />}
                   {copied ? 'Copied' : 'Copy'}
                 </button>
+              </div>
+            )}
+
+            {/* GraphQL: optional sample IDs for IDOR auto-test */}
+            {activeTab === 'graphql_audit' && (
+              <div className="space-y-1">
+                <Input
+                  value={graphqlSampleIds}
+                  onChange={e => setGraphqlSampleIds(e.target.value)}
+                  placeholder="Sample IDs for IDOR test (optional): your loyaltyId, userId..."
+                  className="bg-zinc-900/80 text-xs"
+                />
+                <p className="text-[9px] text-zinc-600 leading-relaxed">
+                  Paste a known ID/UUID (e.g. your own account's) to auto-test object-by-ID queries for IDOR. Separate multiple with spaces or commas.
+                </p>
               </div>
             )}
 

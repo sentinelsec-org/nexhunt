@@ -3,8 +3,9 @@ import os
 import glob
 import logging
 import uuid
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
+from nexhunt.licensing.guard import require_pro
 from nexhunt.adapters.base import get_adapter
 from nexhunt.ws.manager import ws_manager
 from nexhunt.database import DefaultSession
@@ -140,7 +141,7 @@ async def run_exposed_files(req: ToolRequest):
     return _start_tool("exposed_files", req.target, req.options, req.project_id or None)
 
 
-@router.post("/graphql")
+@router.post("/graphql", dependencies=[Depends(require_pro("GraphQL Auditor"))])
 async def run_graphql_audit(req: ToolRequest):
     return _start_tool("graphql_audit", req.target, req.options, req.project_id or None)
 
