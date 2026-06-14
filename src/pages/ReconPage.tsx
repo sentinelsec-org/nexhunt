@@ -136,6 +136,7 @@ export function ReconPage() {
   const [liveHostPickerOpen, setLiveHostPickerOpen] = useState(false)
   const [liveHostFilter, setLiveHostFilter] = useState('')
   const liveHostPickerRef = useRef<HTMLDivElement>(null)
+  const [endpointStatusFilter, setEndpointStatusFilter] = useState<string>('all')
 
   // Close live host picker on outside click
   useEffect(() => {
@@ -1155,36 +1156,57 @@ export function ReconPage() {
                     Go to Live Hosts and click <span className="text-cyan-400 font-semibold">Check Endpoints</span> to scan for known paths.
                   </div>
                 )}
-                {endpoints.length > 0 && (
-                  <div className="text-[10px] text-zinc-600 px-2 pb-1">{endpoints.length} endpoints found</div>
-                )}
-                {endpoints.map((ep, i) => (
-                  <div key={i} className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-zinc-800/50 transition-colors group">
-                    <span className={cn(
-                      'text-[10px] font-mono font-bold shrink-0 w-8 text-center rounded px-1',
-                      ep.status_code === 200 || ep.status_code === 201 ? 'bg-green-900/50 text-green-400' :
-                      ep.status_code === 401 || ep.status_code === 403 ? 'bg-orange-900/50 text-orange-400' :
-                      ep.status_code === 301 || ep.status_code === 302 ? 'bg-blue-900/50 text-blue-400' :
-                      ep.status_code === 500 ? 'bg-red-900/50 text-red-400' :
-                      'bg-zinc-800 text-zinc-500'
-                    )}>{ep.status_code ?? '?'}</span>
-                    <span className="text-xs text-zinc-200 font-mono flex-1 truncate">{ep.url}</span>
-                    {ep.title && <span className="text-[10px] text-zinc-500 truncate max-w-32 shrink-0">{ep.title}</span>}
-                    {ep.content_type && (
-                      <span className="text-[9px] text-zinc-700 shrink-0 hidden group-hover:block">
-                        {ep.content_type.split(';')[0]}
-                      </span>
-                    )}
-                    <a
-                      href={ep.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-zinc-700 hover:text-zinc-400 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
-                    >
-                      <ExternalLink size={10} />
-                    </a>
-                  </div>
-                ))}
+                {endpoints.length > 0 && (() => {
+                  const statusClass = (code: number | null | undefined) =>
+                    code === 200 || code === 201 ? 'bg-green-900/50 text-green-400' :
+                    code === 401 || code === 403 ? 'bg-orange-900/50 text-orange-400' :
+                    code === 301 || code === 302 ? 'bg-blue-900/50 text-blue-400' :
+                    code === 500 ? 'bg-red-900/50 text-red-400' :
+                    'bg-zinc-800 text-zinc-500'
+                  const bucket = (code: number | null | undefined) =>
+                    code == null ? 'other' :
+                    code < 300 ? '2xx' : code < 400 ? '3xx' : code < 500 ? '4xx' : code < 600 ? '5xx' : 'other'
+                  const buckets = ['2xx', '3xx', '4xx', '5xx']
+                  const counts = endpoints.reduce<Record<string, number>>((acc, ep) => {
+                    const b = bucket(ep.status_code); acc[b] = (acc[b] || 0) + 1; return acc
+                  }, {})
+                  const filtered = endpointStatusFilter === 'all'
+                    ? endpoints
+                    : endpoints.filter(ep => bucket(ep.status_code) === endpointStatusFilter)
+                  return (
+                    <>
+                      <div className="flex items-center gap-1.5 px-2 pb-1.5 flex-wrap">
+                        <span className="text-[10px] text-zinc-600 mr-1">{filtered.length} / {endpoints.length}</span>
+                        <button
+                          onClick={() => setEndpointStatusFilter('all')}
+                          className={cn('text-[10px] font-mono px-1.5 py-0.5 rounded border transition-colors',
+                            endpointStatusFilter === 'all' ? 'border-cyan-500/60 bg-cyan-950/40 text-cyan-400' : 'border-zinc-800 text-zinc-500 hover:border-zinc-600')}
+                        >all</button>
+                        {buckets.filter(b => counts[b]).map(b => (
+                          <button
+                            key={b}
+                            onClick={() => setEndpointStatusFilter(b)}
+                            className={cn('text-[10px] font-mono px-1.5 py-0.5 rounded border transition-colors',
+                              endpointStatusFilter === b ? 'border-cyan-500/60 bg-cyan-950/40 text-cyan-400' : 'border-zinc-800 text-zinc-500 hover:border-zinc-600')}
+                          >{b} <span className="text-zinc-600">{counts[b]}</span></button>
+                        ))}
+                      </div>
+                      {filtered.map((ep, i) => (
+                        <div key={i} className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-zinc-800/50 transition-colors group">
+                          <span className={cn('text-[10px] font-mono font-bold shrink-0 w-8 text-center rounded px-1', statusClass(ep.status_code))}>{ep.status_code ?? '?'}</span>
+                          <span className="text-xs text-zinc-200 font-mono flex-1 truncate">{ep.url}</span>
+                          {ep.title && <span className="text-[10px] text-zinc-500 truncate max-w-32 shrink-0">{ep.title}</span>}
+                          {ep.content_type && (
+                            <span className="text-[9px] text-zinc-700 shrink-0 hidden group-hover:block">{ep.content_type.split(';')[0]}</span>
+                          )}
+                          <a href={ep.url} target="_blank" rel="noopener noreferrer" className="text-zinc-700 hover:text-zinc-400 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <ExternalLink size={10} />
+                          </a>
+                        </div>
+                      ))}
+                    </>
+                  )
+                })()}
               </div>
             )}
 

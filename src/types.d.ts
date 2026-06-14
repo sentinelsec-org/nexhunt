@@ -139,7 +139,7 @@ export interface EndpointResult {
 }
 
 export interface PipelineEvent {
-  phase: 'katana' | 'dalfox' | 'sqli_probe' | 'js_scan'
+  phase: 'katana' | 'dalfox' | 'sqli_probe' | 'js_scan' | 'js_parse'
   pipeline?: 'xss' | 'sqli' | 'js_scan'
   event: 'started' | 'url_found' | 'completed' | 'failed' | 'finding' | 'js_file'
   message?: string
@@ -156,4 +156,5 @@ export interface PipelineEvent {
   targets?: number
   fetched?: boolean
   js_files?: number
+  js_endpoints?: number
 }

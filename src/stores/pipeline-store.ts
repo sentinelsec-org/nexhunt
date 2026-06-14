@@ -114,16 +114,31 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
           }
         }
 
+        // ── JS endpoint parsing phase (SQLi pipeline) ──
+        if (event.phase === 'js_parse') {
+          updated.phase = 'js_parse'
+          if (event.event === 'started') {
+            updated.log.push(`[JS] Parsing ${event.targets ?? 0} JS files for hidden endpoints...`)
+          } else if (event.event === 'completed') {
+            const n = event.js_endpoints ?? 0
+            updated.log.push(`[JS] Added ${n} new parameterized endpoint(s) from JS`)
+            if (n > 0) updated.candidates = [...updated.candidates]
+          }
+        }
+
         // ── SQLi probe phase ──
         if (event.phase === 'sqli_probe') {
           updated.phase = 'sqli_probe'
           if (event.event === 'started') {
-            updated.log.push(`[SQLi] Probing ${event.targets ?? 0} URLs with ' payload...`)
+            updated.log.push(`[SQLi] Probing ${event.targets ?? 0} URLs (error + boolean + time-based)...`)
           } else if (event.event === 'finding' && event.finding) {
             updated.findingsCount += 1
             const f = event.finding
+            const tag = f.method === 'boolean-based' ? 'BOOLEAN'
+              : f.method === 'time-based' ? 'TIME-BASED'
+              : 'SQL ERROR'
             updated.log.push(
-              `  [SQL ERROR] ${f.original_url ?? f.url} — param: ${f.parameter} — ${f.evidence?.slice(0, 80)}`
+              `  [${tag}] ${f.original_url ?? f.url} — param: ${f.parameter} — ${f.evidence?.slice(0, 80)}`
             )
           } else if (event.event === 'completed') {
             updated.phase = 'completed'
