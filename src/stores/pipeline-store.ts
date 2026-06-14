@@ -174,6 +174,20 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
           }
         }
 
+        // ── Cloud bucket check (buckets referenced in scanned JS) ──
+        if (event.phase === 'bucket_check') {
+          updated.phase = 'bucket_check'
+          if (event.event === 'started') {
+            updated.log.push(`[Buckets] Testing ${event.targets ?? 0} bucket(s) referenced in JS...`)
+          } else if (event.event === 'finding' && event.finding) {
+            updated.findingsCount += 1
+            const f = event.finding
+            updated.log.push(`  [${f.severity?.toUpperCase()}] ${f.title} — ${f.url}`)
+          } else if (event.event === 'completed') {
+            updated.log.push(`[Buckets] ${event.message ?? 'done'}`)
+          }
+        }
+
         return updated
       }),
     })

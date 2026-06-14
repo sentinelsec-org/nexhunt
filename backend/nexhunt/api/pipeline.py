@@ -791,9 +791,12 @@ async def run_js_scan_pipeline(req: PipelineRequest):
         "message": f"Fetching and analyzing {len(js_urls)} JS files...",
     })
 
+    from nexhunt.adapters.cloud_buckets import _buckets_from_text
+
     cookie = opts.get("cookie", "") or None
     sess_headers = _parse_session_headers(opts.get("session_headers", ""))
     all_findings = []
+    bucket_refs: set[tuple] = set()
     workers = int(opts.get("workers", 5))
 
     for i in range(0, len(js_urls), workers):
@@ -809,6 +812,7 @@ async def run_js_scan_pipeline(req: PipelineRequest):
             })
 
             if content:
+                bucket_refs |= _buckets_from_text(content)
                 findings = _grep_js(url, content)
                 for f in findings:
                     all_findings.append(f)
@@ -842,6 +846,7 @@ async def run_js_scan_pipeline(req: PipelineRequest):
                 inline = _extract_inline_scripts(content)
                 if not inline:
                     continue
+                bucket_refs |= _buckets_from_text(inline)
                 for f in _grep_js(page_url, inline):
                     all_findings.append(f)
                     await ws_manager.broadcast("pipeline", {
@@ -850,6 +855,35 @@ async def run_js_scan_pipeline(req: PipelineRequest):
                         "finding": f,
                         "total_findings": len(all_findings),
                     })
+
+    # Phase 2c: test any cloud bucket referenced in the scanned JS/HTML for public access
+    if bucket_refs:
+        import httpx as _httpx
+        from nexhunt.adapters.cloud_buckets import probe_bucket
+        refs_list = sorted(bucket_refs)
+        await ws_manager.broadcast("pipeline", {
+            "phase": "bucket_check", "event": "started", "pipeline": "js_scan",
+            "targets": len(refs_list),
+            "message": f"Testing {len(refs_list)} cloud bucket(s) referenced in JS for public access...",
+        })
+        async with _httpx.AsyncClient(verify=False, follow_redirects=False, timeout=8) as bclient:
+            for i in range(0, len(refs_list), workers):
+                chunk = refs_list[i:i + workers]
+                results = await asyncio.gather(*[probe_bucket(bclient, p, b, "referenced") for p, b in chunk])
+                for items in results:
+                    for it in items:
+                        if it.get("_raw"):
+                            continue
+                        all_findings.append(it)
+                        await ws_manager.broadcast("findings", it)
+                        await ws_manager.broadcast("pipeline", {
+                            "phase": "bucket_check", "event": "finding", "pipeline": "js_scan",
+                            "finding": it, "total_findings": len(all_findings),
+                        })
+        await ws_manager.broadcast("pipeline", {
+            "phase": "bucket_check", "event": "completed", "pipeline": "js_scan",
+            "message": f"Bucket check done — tested {len(refs_list)} referenced bucket(s)",
+        })
 
     await ws_manager.broadcast("pipeline", {
         "phase": "js_scan", "event": "completed",

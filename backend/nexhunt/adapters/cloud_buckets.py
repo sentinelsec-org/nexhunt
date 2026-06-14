@@ -51,6 +51,72 @@ def _buckets_from_text(text: str) -> set[tuple]:
     return found
 
 
+def bucket_test_url(provider: str, bucket: str) -> str | None:
+    if provider == "s3":
+        return f"https://{bucket}.s3.amazonaws.com/"
+    if provider == "gcs":
+        return f"https://storage.googleapis.com/{bucket}/"
+    if provider == "azure":
+        return f"https://{bucket}.blob.core.windows.net/{bucket}?restype=container&comp=list"
+    if provider == "do":
+        return f"https://{bucket}.nyc3.digitaloceanspaces.com/"
+    return None
+
+
+def _list_cmd(provider: str, bucket: str, url: str) -> str:
+    if provider == "s3":
+        return f"aws s3 ls s3://{bucket} --no-sign-request"
+    if provider == "gcs":
+        return f"gsutil ls gs://{bucket}"
+    return f"curl -ks '{url}'"
+
+
+async def probe_bucket(client, provider: str, bucket: str, source: str = "referenced") -> list[dict]:
+    """GET a bucket and return [raw line, finding?] if it is public (200) or exists (403)."""
+    url = bucket_test_url(provider, bucket)
+    if not url:
+        return []
+    try:
+        resp = await client.get(url)
+    except Exception:
+        return []  # DNS NXDOMAIN = bucket doesn't exist
+    code = resp.status_code
+    if code in (404, 400, 410):
+        return []
+    ref = source == "referenced"
+    tag = " (referenced in app)" if ref else ""
+    out = [{"_raw": True, "line": f"  [{provider.upper()}] {bucket} -> {code}{tag}"}]
+    if code == 200:
+        sev, title = "high", f"[Cloud] Public {provider.upper()} bucket: {bucket}"
+        desc = (f"Bucket '{bucket}' on {provider.upper()} is publicly readable — "
+                f"anyone can list and download its objects."
+                + (" This bucket is referenced directly in the target's pages/JS." if ref else ""))
+        keys = re.findall(r"<Key>([^<]+)</Key>", resp.text)
+        listing = (f"\nObjects listed ({len(keys)}): " + ", ".join(keys[:8])
+                   + (" ..." if len(keys) > 8 else "")) if keys else ""
+    elif code == 403:
+        sev = "low" if ref else "info"
+        title = f"[Cloud] {provider.upper()} bucket exists (private): {bucket}"
+        desc = (f"Bucket '{bucket}' exists but is private (403)."
+                + (" Referenced in the app, so it is in use — worth probing object-level ACLs."
+                   if ref else " Confirm ownership; try authenticated/region tricks."))
+        listing = ""
+    else:
+        return out
+    out.append({
+        "_raw": False, "id": None,
+        "title": title, "severity": sev, "vuln_type": "cloud-misconfiguration",
+        "url": url, "parameter": None,
+        "evidence": (
+            f"Provider: {provider.upper()}\nBucket: {bucket}\nSource: {source}\nURL: {url}\nStatus: {code}"
+            f"{listing}\nList contents:\n  {_list_cmd(provider, bucket, url)}"
+        ),
+        "description": desc,
+        "tool": "cloud_buckets", "template_id": f"cloud-{provider}-{code}", "status": "new",
+    })
+    return out
+
+
 class CloudBucketsAdapter(ToolAdapter):
     name = "cloud_buckets"
     binary_name = ""
@@ -65,68 +131,9 @@ class CloudBucketsAdapter(ToolAdapter):
         providers = options.get("providers", ["s3", "gcs", "azure", "do"])
         names = _bucket_names(target)
 
-        def _url(provider: str, bucket: str) -> str | None:
-            if provider == "s3":
-                return f"https://{bucket}.s3.amazonaws.com/"
-            if provider == "gcs":
-                return f"https://storage.googleapis.com/{bucket}/"
-            if provider == "azure":
-                return f"https://{bucket}.blob.core.windows.net/{bucket}?restype=container&comp=list"
-            if provider == "do":
-                return f"https://{bucket}.nyc3.digitaloceanspaces.com/"
-            return None
-
-        def _list_cmd(provider: str, bucket: str, url: str) -> str:
-            if provider == "s3":
-                return f"aws s3 ls s3://{bucket} --no-sign-request"
-            if provider == "gcs":
-                return f"gsutil ls gs://{bucket}"
-            return f"curl -ks '{url}'"
-
         # source: "guessed" (name permutations) or "referenced" (found in the app's HTML/JS)
-        tasks: list[tuple] = [(p, b, _url(p, b), "guessed") for b in names for p in providers if _url(p, b)]
-
-        async def _probe(client, provider: str, bucket: str, url: str, source: str) -> list[dict]:
-            try:
-                resp = await client.get(url)
-            except Exception:
-                return []  # DNS NXDOMAIN = bucket doesn't exist
-            code = resp.status_code
-            if code in (404, 400, 410):
-                return []
-            ref = source == "referenced"
-            tag = " (referenced in app)" if ref else ""
-            out = [{"_raw": True, "line": f"  [{provider.upper()}] {bucket} -> {code}{tag}"}]
-            if code == 200:
-                sev, title = "high", f"[Cloud] Public {provider.upper()} bucket: {bucket}"
-                desc = (f"Bucket '{bucket}' on {provider.upper()} is publicly readable — "
-                        f"anyone can list and download its objects."
-                        + (" This bucket is referenced directly in the target's pages/JS." if ref else ""))
-                keys = re.findall(r"<Key>([^<]+)</Key>", resp.text)
-                listing = (f"\nObjects listed ({len(keys)}): " + ", ".join(keys[:8])
-                           + (" ..." if len(keys) > 8 else "")) if keys else ""
-            elif code == 403:
-                # A bucket the app actually uses but is locked down is more interesting than a guess.
-                sev = "low" if ref else "info"
-                title = f"[Cloud] {provider.upper()} bucket exists (private): {bucket}"
-                desc = (f"Bucket '{bucket}' exists but is private (403)."
-                        + (" Referenced in the app, so it is in use — worth probing object-level ACLs."
-                           if ref else " Confirm ownership; try authenticated/region tricks."))
-                listing = ""
-            else:
-                return out
-            out.append({
-                "_raw": False, "id": None,
-                "title": title, "severity": sev, "vuln_type": "cloud-misconfiguration",
-                "url": url, "parameter": None,
-                "evidence": (
-                    f"Provider: {provider.upper()}\nBucket: {bucket}\nSource: {source}\nURL: {url}\nStatus: {code}"
-                    f"{listing}\nList contents:\n  {_list_cmd(provider, bucket, url)}"
-                ),
-                "description": desc,
-                "tool": "cloud_buckets", "template_id": f"cloud-{provider}-{code}", "status": "new",
-            })
-            return out
+        tasks: list[tuple] = [(p, b, bucket_test_url(p, b), "guessed")
+                              for b in names for p in providers if bucket_test_url(p, b)]
 
         # URLs already discovered by Recon/crawler (passed from the frontend).
         seed_urls = [u for u in (options.get("seed_urls") or []) if isinstance(u, str) and u]
@@ -173,7 +180,7 @@ class CloudBucketsAdapter(ToolAdapter):
             for provider, bucket in mined:
                 if provider not in providers:
                     continue
-                u = _url(provider, bucket)
+                u = bucket_test_url(provider, bucket)
                 if u and u not in seen_urls:
                     tasks.insert(0, (provider, bucket, u, "referenced"))  # probe referenced first
                     seen_urls.add(u)
@@ -182,7 +189,7 @@ class CloudBucketsAdapter(ToolAdapter):
 
             for i in range(0, len(tasks), concurrency):
                 batch = tasks[i:i + concurrency]
-                results = await asyncio.gather(*[_probe(client, p, b, u, s) for p, b, u, s in batch])
+                results = await asyncio.gather(*[probe_bucket(client, p, b, s) for p, b, u, s in batch])
                 for chunk in results:
                     for item in chunk:
                         yield item
