@@ -80,9 +80,9 @@ const TOOLS: ToolDef[] = [
     label: 'Cloud Buckets',
     icon: Cloud,
     tagline: '~66 name variants across S3, GCS, Azure, DO',
-    what: 'Guesses cloud storage bucket names from the company/domain and checks whether they are publicly readable.',
-    impact: 'A public bucket exposes whatever the company stored there — backups, source, customer data, credentials. The finding includes the command to list and download its contents.',
-    desc: 'Derives ~66 bucket names from the name/domain (acme, acme-prod, acme-backup, acme-data...) and checks AWS S3, Google Cloud Storage, Azure Blob and DigitalOcean Spaces. A 200 means public; the listing is parsed and an "aws s3 ls / gsutil ls" repro is attached. 403 means the bucket exists but is private (confirm ownership).',
+    what: 'Finds the target\'s cloud storage buckets two ways — reading real references out of its HTML/JS, and guessing names from the company/domain — then checks each across S3, GCS, Azure and DigitalOcean for public access.',
+    impact: 'A public-read bucket exposes whatever the company stored there — backups, source, customer data, credentials. A public-write bucket is worse: you can overwrite assets the site serves (defacement / supply-chain). The finding includes the command to list and pull it.',
+    desc: 'If you give it a domain/URL it first fetches the homepage and its linked JS and extracts buckets referenced directly in the code (s3.amazonaws.com, storage.googleapis.com, *.blob.core.windows.net, *.digitaloceanspaces.com) — these are real, in-use buckets. Then it also derives ~66 likely names (acme-prod, acme-backup, acme-data...). All are checked in parallel; 200 = public (listing parsed in + "aws s3 ls" repro), 403 = private. Use "Derive buckets from N domains" to sweep every host from Recon.',
     inputLabel: 'Company name or domain',
     placeholder: 'acme-corp or acme.com',
     color: 'text-blue-400',
@@ -693,12 +693,35 @@ function Bypass403Guide() {
 function CloudGuide() {
   return (
     <>
+      <GuideSection title="What is a bucket">
+        <p className="text-[10px] text-zinc-500 leading-relaxed">
+          A bucket is a top-level container in cloud object storage (AWS S3, Google Cloud Storage,
+          Azure Blob, DigitalOcean Spaces). Companies dump assets, backups, logs and exports there.
+          Names are globally unique, and a single misconfigured ACL makes the whole bucket
+          world-readable — or world-writable.
+        </p>
+      </GuideSection>
+      <GuideSection title="How it finds buckets">
+        <div className="space-y-1.5 text-[10px] text-zinc-500 leading-relaxed">
+          <p>
+            <span className="text-green-400 font-semibold">Referenced (real):</span> if the target is a
+            domain/URL it fetches the homepage + linked JS and pulls out buckets the app actually uses
+            (s3.amazonaws.com, storage.googleapis.com, *.blob.core.windows.net, *.digitaloceanspaces.com).
+            These are probed first and flagged as referenced.
+          </p>
+          <p>
+            <span className="text-blue-400 font-semibold">Guessed:</span> derives ~66 candidate names by
+            appending common suffixes (<code className="text-blue-400">-backup -prod -dev -data -assets -uploads -logs</code> ...).
+          </p>
+          <p>Everything is checked against the 4 providers in parallel. The bulk button repeats this for every unique domain from Recon.</p>
+        </div>
+      </GuideSection>
       <GuideSection title="Status codes">
         <div className="space-y-1 text-[10px]">
           {[
-            ['200', 'text-green-400', 'Public read. High severity. List the bucket contents and check for sensitive files.'],
-            ['403', 'text-orange-400', 'Bucket exists but private. Info severity. Check if you own it — if not, document for completeness.'],
-            ['404 / DNS fail', 'text-zinc-500', 'Bucket does not exist. Skip.'],
+            ['200', 'text-green-400', 'Public read. High severity. The object listing is parsed into the finding; download and triage.'],
+            ['403', 'text-orange-400', 'Bucket exists but private. Info severity. Confirm ownership; try region/auth tricks.'],
+            ['404 / DNS fail', 'text-zinc-500', 'Bucket does not exist. Skipped.'],
           ].map(([code, color, desc]) => (
             <div key={code} className="flex gap-2 items-start">
               <span className={`font-mono font-bold shrink-0 ${color}`}>{code}</span>
@@ -707,7 +730,14 @@ function CloudGuide() {
           ))}
         </div>
       </GuideSection>
-      <Tip>A public S3 bucket with sensitive data (backups, keys, user data) is a P1 in most programs. Use <code className="text-green-400">aws s3 ls s3://BUCKET --no-sign-request</code> to list contents without credentials.</Tip>
+      <GuideSection title="When you find a public bucket">
+        <div className="space-y-1 text-[10px] text-zinc-500 leading-relaxed">
+          <p>1. List it: <code className="text-green-400">aws s3 ls s3://BUCKET --no-sign-request</code> (GCS: <code className="text-green-400">gsutil ls gs://BUCKET</code>).</p>
+          <p>2. Pull it: <code className="text-green-400">aws s3 sync s3://BUCKET . --no-sign-request</code> and grep for keys, .env, dumps, PII.</p>
+          <p>3. Test write: <code className="text-green-400">aws s3 cp poc.txt s3://BUCKET --no-sign-request</code> — a writable bucket can mean defacement or supply-chain (overwriting served JS).</p>
+        </div>
+      </GuideSection>
+      <Tip>A public bucket with backups, keys or user data is usually a P1. A world-writable bucket that serves the site's assets can be even worse — you control what visitors load.</Tip>
     </>
   )
 }
