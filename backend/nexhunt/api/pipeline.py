@@ -256,30 +256,76 @@ def _classify_params(params: dict) -> list[str]:
     return sorted(params.keys(), key=rank)
 
 
-# Endpoint extraction patterns for JS bodies
+# Endpoint extraction patterns for JS bodies. Each captures the full URL
+# *argument expression* (which may be a "str"+var+"str" concatenation), so we
+# can recover params whose values are JS variables.
+# The arg group stops at a top-level ',' or ')', tolerating one nested call like
+# encodeURIComponent(x).
+_ARG = r"""((?:['"][^'"]*['"]|[^,)('"]|\([^)]*\))+)"""
 _JS_ENDPOINT_PATTERNS = [
-    re.compile(r"""XMLHttpRequest\(\)[\s\S]{0,80}?\.open\(\s*['"][A-Z]+['"]\s*,\s*['"]([^'"]+)['"]"""),
-    re.compile(r"""\.open\(\s*['"][A-Z]+['"]\s*,\s*['"]([^'"]+)['"]"""),
-    re.compile(r"""fetch\(\s*['"]([^'"]+)['"]"""),
-    re.compile(r"""axios\.(?:get|post|put|delete|patch)\(\s*['"]([^'"]+)['"]"""),
-    re.compile(r"""axios\(\s*\{[^}]*?url\s*:\s*['"]([^'"]+)['"]"""),
-    re.compile(r"""\$\.ajax\(\s*\{[^}]*?url\s*:\s*['"]([^'"]+)['"]"""),
-    re.compile(r"""\$\.(?:get|post)\(\s*['"]([^'"]+)['"]"""),
+    re.compile(r"""\.open\(\s*['"][A-Z]+['"]\s*,\s*""" + _ARG),
+    re.compile(r"""fetch\(\s*""" + _ARG),
+    re.compile(r"""axios\.(?:get|post|put|delete|patch)\(\s*""" + _ARG),
+    re.compile(r"""axios\(\s*\{[^}]*?url\s*:\s*""" + _ARG),
+    re.compile(r"""\$\.ajax\(\s*\{[^}]*?url\s*:\s*""" + _ARG),
+    re.compile(r"""\$\.(?:get|post)\(\s*""" + _ARG),
 ]
+
+_JS_STR_LITERAL = re.compile(r"""(['"])((?:\\.|(?!\1).)*)\1""")
+
+
+def _resolve_js_concat(expr: str) -> str | None:
+    """
+    Turn a JS URL expression into a concrete URL, filling any concatenated
+    variable with '1' so dynamic params become testable.
+      'getCupoNuevo.php?q="+str+"&prod="+prod'  ->  getCupoNuevo.php?q=1&prod=1
+    Returns None if there is no string literal to anchor on.
+    """
+    matches = list(_JS_STR_LITERAL.finditer(expr))
+    if not matches:
+        return None
+
+    result = ""
+    last_end = 0
+    for i, m in enumerate(matches):
+        gap = expr[last_end:m.start()]
+        # A '+' between two string literals means a variable was inserted here.
+        if i > 0 and "+" in gap:
+            result += "1"
+        result += m.group(2)
+        last_end = m.end()
+
+    # Trailing "...="+var  -> dynamic value at the end
+    trailing = expr[last_end:]
+    if re.search(r"\+\s*\S", trailing):
+        result += "1"
+
+    return result
+
+
+_SCRIPT_TAG = re.compile(r"<script\b[^>]*>([\s\S]*?)</script>", re.IGNORECASE)
+
+
+def _extract_inline_scripts(html: str) -> str:
+    """Concatenate the bodies of all inline <script> tags in an HTML page."""
+    bodies = [m.group(1) for m in _SCRIPT_TAG.finditer(html) if m.group(1).strip()]
+    return "\n".join(bodies)
 
 
 def _extract_js_endpoints(js_content: str, base_url: str) -> list[str]:
-    """Pull endpoints referenced by AJAX/fetch/axios/jQuery calls in a JS file."""
+    """Pull endpoints from AJAX/fetch/axios/jQuery calls in JS (file or inline)."""
     from urllib.parse import urljoin
 
     found: set[str] = set()
     for pat in _JS_ENDPOINT_PATTERNS:
-        for ref in pat.findall(js_content):
-            ref = ref.strip()
-            if not ref or ref.startswith(("data:", "blob:", "javascript:", "mailto:", "#")):
+        for expr in pat.findall(js_content):
+            ref = _resolve_js_concat(expr.strip())
+            if not ref:
                 continue
-            # Skip template literals we can't resolve (e.g. `/api/${id}`)
-            if "${" in ref or "{{" in ref:
+            ref = ref.strip()
+            if ref.startswith(("data:", "blob:", "javascript:", "mailto:", "tel:", "#")):
+                continue
+            if "${" in ref or "{{" in ref:  # unresolved template literal
                 continue
             if ref.startswith(("http://", "https://", "/")) or "?" in ref:
                 found.add(urljoin(base_url, ref))
@@ -422,26 +468,50 @@ async def run_sqli_probe_pipeline(req: PipelineRequest):
 
     cookie = opts.get("cookie", "") or None
 
-    # Phase 1b: mine .js files for endpoints the crawler never linked to
+    # Phase 1b: mine endpoints from external .js files AND inline <script> tags
     if opts.get("parse_js", True):
         js_urls = [r["url"] for r in all_results if r["url"].split("?")[0].endswith(".js")]
-        if js_urls:
+        # HTML pages to scrape for inline <script> (skip static assets)
+        _SKIP_EXT = (".js", ".css", ".png", ".jpg", ".jpeg", ".gif", ".svg",
+                     ".webp", ".ico", ".woff", ".woff2", ".ttf", ".pdf", ".zip", ".mp4")
+        html_urls = list({
+            r["url"] for r in all_results
+            if not r["url"].split("?")[0].lower().endswith(_SKIP_EXT)
+        })[:120]
+
+        if js_urls or html_urls:
             await ws_manager.broadcast("pipeline", {
                 "phase": "js_parse", "event": "started", "pipeline": "sqli",
-                "targets": len(js_urls),
-                "message": f"Parsing {len(js_urls)} JS files for hidden endpoints...",
+                "targets": len(js_urls) + len(html_urls),
+                "message": f"Parsing {len(js_urls)} JS files + {len(html_urls)} pages (inline <script>) for hidden endpoints...",
             })
             js_endpoints: set[str] = set()
             workers = int(opts.get("workers", 5))
+
+            def _collect(content: str, source_url: str):
+                for ep in _extract_js_endpoints(content, source_url):
+                    if "?" in ep and parse_qs(urlparse(ep).query) and ep not in param_urls:
+                        js_endpoints.add(ep)
+
+            # External .js: parse the whole file body
             for i in range(0, len(js_urls), workers):
                 chunk = js_urls[i:i + workers]
                 contents = await asyncio.gather(*[_fetch_js(u, cookie) for u in chunk])
                 for u, content in zip(chunk, contents):
+                    if content:
+                        _collect(content, u)
+
+            # HTML pages: parse only the inline <script> bodies
+            for i in range(0, len(html_urls), workers):
+                chunk = html_urls[i:i + workers]
+                contents = await asyncio.gather(*[_fetch_js(u, cookie) for u in chunk])
+                for u, content in zip(chunk, contents):
                     if not content:
                         continue
-                    for ep in _extract_js_endpoints(content, u):
-                        if "?" in ep and parse_qs(urlparse(ep).query) and ep not in param_urls:
-                            js_endpoints.add(ep)
+                    inline = _extract_inline_scripts(content)
+                    if inline:
+                        _collect(inline, u)
+
             param_urls |= js_endpoints
             await ws_manager.broadcast("pipeline", {
                 "phase": "js_parse", "event": "completed", "pipeline": "sqli",
