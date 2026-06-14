@@ -1,6 +1,20 @@
+import re
 import json
 from typing import AsyncIterator
 from nexhunt.adapters.base import ToolAdapter
+
+
+def _domain_to_org(value: str) -> str:
+    """acme.com / https://www.acme-corp.io/x -> acme / acme-corp (GitHub org guess)."""
+    from urllib.parse import urlparse
+    v = value.strip()
+    if v.startswith(("http://", "https://")):
+        v = urlparse(v).netloc or v
+    v = re.sub(r"^www\.", "", v)
+    v = v.split("/")[0]
+    if "." in v:                      # looks like a domain — take the first label
+        v = v.split(".")[0]
+    return v
 
 
 class GithubScannerAdapter(ToolAdapter):
@@ -10,16 +24,18 @@ class GithubScannerAdapter(ToolAdapter):
 
     async def run(self, target: str, options: dict) -> AsyncIterator[dict]:
         clean = target.strip()
-        # Strip scheme from non-GitHub URLs (user may paste their bug bounty target URL)
-        if clean.startswith(("http://", "https://")) and "github.com" not in clean:
-            from urllib.parse import urlparse
-            clean = urlparse(clean).netloc or clean
 
         if "github.com" in clean or options.get("mode") == "repo":
-            cmd = [self.binary_name, "github", "--repo", clean, "--json", "--no-verification"]
+            cmd = [self.binary_name, "github", "--repo", clean, "--json"]
         else:
-            cmd = [self.binary_name, "github", "--org", clean, "--json", "--no-verification"]
+            # Accept a plain org name OR a domain (acme.com -> org "acme")
+            org = _domain_to_org(clean)
+            if org != clean:
+                yield {"_raw": True, "line": f"  Derived GitHub org '{org}' from '{clean}'"}
+            cmd = [self.binary_name, "github", "--org", org, "--json"]
 
+        # Verification ON (no --no-verification): trufflehog confirms each secret is
+        # still live against its issuing API, which drives the verified/critical badge.
         cmd = self._with_extra_args(cmd, options)
         yield {"_raw": True, "line": "$ " + " ".join(cmd)}
 

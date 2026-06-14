@@ -23,6 +23,7 @@ type ViewMode = 'findings' | 'terminal'
 const HOST_TOOLS: ToolId[] = ['cors', 'bypass_403', 'exposed_files']
 const BULK_ENDPOINT: Partial<Record<ToolId, string>> = {
   cors: '/api/tools/cors-bulk',
+  bypass_403: '/api/tools/bypass-403-bulk',
   exposed_files: '/api/tools/exposed-files-bulk',
 }
 
@@ -110,9 +111,9 @@ const TOOLS: ToolDef[] = [
     tagline: 'TruffleHog secret scanner for orgs and repos',
     what: 'Scans a GitHub org or repo\'s full history for committed secrets using TruffleHog.',
     impact: 'Developers leak API keys, tokens and passwords in commits and never rotate them. Verified hits are confirmed still-active against the issuing API — instant valid credentials.',
-    desc: 'Runs TruffleHog over a GitHub org or repo, scanning commit history, branches and PRs for API keys, tokens, passwords and private keys. Enter an org name ("acme-corp") or a repo URL. Verified secrets are confirmed active via the issuing API. Requires trufflehog.',
-    inputLabel: 'GitHub org name or repo URL',
-    placeholder: 'acme-corp  or  https://github.com/acme/repo',
+    desc: 'Runs TruffleHog over a GitHub org or repo, scanning commit history, branches and PRs for API keys, tokens, passwords and private keys. Enter an org name ("acme-corp"), a domain ("acme.com" -> org "acme") or a repo URL. Secrets are verified live against the issuing API. Requires trufflehog.',
+    inputLabel: 'GitHub org, domain or repo URL',
+    placeholder: 'acme-corp,  acme.com  or  https://github.com/acme/repo',
     color: 'text-purple-400',
     border: 'border-purple-500/30',
     bg: 'bg-purple-950/15',

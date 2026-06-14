@@ -110,6 +110,13 @@ async def run_bypass_403(req: ToolRequest):
     return _start_tool("bypass_403", req.target, req.options, req.project_id or None)
 
 
+@router.post("/bypass-403-bulk")
+async def run_bypass_403_bulk(req: BulkToolRequest):
+    targets = [t.strip() for t in req.targets if t.strip()][:50]
+    job_ids = [_start_tool("bypass_403", t, req.options, req.project_id or None)["job_id"] for t in targets]
+    return {"status": "started", "count": len(job_ids), "job_ids": job_ids}
+
+
 @router.post("/cloud-buckets")
 async def run_cloud_buckets(req: ToolRequest):
     return _start_tool("cloud_buckets", req.target, req.options, req.project_id or None)
