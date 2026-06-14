@@ -10,13 +10,13 @@ import { cn } from '@/lib/utils'
 import {
   Play, Square, Loader2, Terminal, Copy, Check,
   Globe, Lock, Cloud, GitBranch, Radio, Info, X, BookOpen, Sparkles,
-  FolderGit2, Server, ChevronDown,
+  FolderGit2, Server, ChevronDown, Share2,
 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import type { Finding } from '@/types'
 
-type ToolId = 'cors' | 'bypass_403' | 'cloud_buckets' | 'exposed_files' | 'github_scanner' | 'interactsh'
+type ToolId = 'cors' | 'bypass_403' | 'cloud_buckets' | 'exposed_files' | 'graphql_audit' | 'github_scanner' | 'interactsh'
 type ViewMode = 'findings' | 'terminal'
 
 // Tools that take a live-host URL — get the host picker + bulk scan.
@@ -106,6 +106,21 @@ const TOOLS: ToolDef[] = [
     endpoint: '/api/tools/exposed-files',
   },
   {
+    id: 'graphql_audit',
+    label: 'GraphQL Auditor',
+    icon: Share2,
+    tagline: 'Introspection dump + no-auth access check + error leaks',
+    what: 'Audits a GraphQL API endpoint: dumps its whole schema via introspection, then re-runs each query WITHOUT your token to see which ones still return data, and harvests internal URLs leaked in error messages.',
+    impact: 'GraphQL APIs routinely ship with introspection enabled and per-query authorization missing. This surfaces operations that hand user / payment / loyalty data to anyone unauthenticated, plus internal microservice URLs you can pivot to.',
+    desc: 'Point it at a GraphQL endpoint (e.g. https://api.target.com/graphql). It sends the introspection query to recover every query, mutation and type; then for each root query with no required arguments it sends the request with the Authorization header stripped and flags any that return data (broken access control). It also fires a malformed query to trigger verbose errors and extracts leaked internal/infra URLs, and inventories sensitive-looking mutations. Set your Session token first so it can compare authed vs anonymous.',
+    inputLabel: 'GraphQL endpoint URL',
+    placeholder: 'https://api.target.com/graphql',
+    color: 'text-fuchsia-400',
+    border: 'border-fuchsia-500/30',
+    bg: 'bg-fuchsia-950/15',
+    endpoint: '/api/tools/graphql',
+  },
+  {
     id: 'github_scanner',
     label: 'GitHub Secrets',
     icon: GitBranch,
@@ -162,7 +177,7 @@ const TOOL_BINARY: Partial<Record<ToolId, string>> = {
 export function SecurityToolsPage() {
   const [activeTab, setActiveTab] = useState<ToolId>('cors')
   const [targets, setTargets] = useState<Record<ToolId, string>>({
-    cors: '', bypass_403: '', cloud_buckets: '', exposed_files: '', github_scanner: '', interactsh: '',
+    cors: '', bypass_403: '', cloud_buckets: '', exposed_files: '', graphql_audit: '', github_scanner: '', interactsh: '',
   })
   const [view, setView] = useState<ViewMode>('findings')
   const [selected, setSelected] = useState<Finding | null>(null)
@@ -613,6 +628,7 @@ export function SecurityToolsPage() {
               {activeTab === 'bypass_403' && <Bypass403Guide />}
               {activeTab === 'cloud_buckets' && <CloudGuide />}
               {activeTab === 'exposed_files' && <ExposedFilesGuide />}
+              {activeTab === 'graphql_audit' && <GraphqlGuide />}
               {activeTab === 'github_scanner' && <GithubGuide />}
               {activeTab === 'interactsh' && <InteractshGuide />}
             </div>
@@ -851,6 +867,45 @@ function LiveHostPicker({ selected, onSelect, color }: {
         </div>
       )}
     </div>
+  )
+}
+
+function GraphqlGuide() {
+  return (
+    <>
+      <GuideSection title="What it does, step by step">
+        <div className="space-y-1 text-[10px] text-zinc-500 leading-relaxed">
+          <p><span className="text-fuchsia-400 font-semibold">1. Introspection</span> — asks the API for its own schema (every query, mutation, type). If it answers, that is already a finding (production APIs should disable it).</p>
+          <p><span className="text-fuchsia-400 font-semibold">2. No-auth access check</span> — re-runs each simple query <span className="text-zinc-300">with your token removed</span>. Anything that still returns data is broken access control (e.g. user/order/loyalty data readable while logged out).</p>
+          <p><span className="text-fuchsia-400 font-semibold">3. Error leaks</span> — sends a deliberately broken query; verbose errors often leak internal microservice URLs to pivot to.</p>
+          <p><span className="text-fuchsia-400 font-semibold">4. Mutation inventory</span> — lists mutations, flagging auth/payment/OTP ones for manual review.</p>
+        </div>
+      </GuideSection>
+      <GuideSection title="Which URL do I put">
+        <p className="text-[10px] text-zinc-500 leading-relaxed">
+          The <span className="text-zinc-300">GraphQL endpoint</span>, not the website. It is the URL that receives
+          POST requests with a JSON <code className="text-fuchsia-400">{'{ "query": ... }'}</code> body. Typical paths:
+          <code className="text-fuchsia-400"> /graphql</code>, <code className="text-fuchsia-400">/api/graphql</code>,
+          <code className="text-fuchsia-400"> /v1/graphql</code>, <code className="text-fuchsia-400">/query</code>.
+          Example: <code className="text-green-400">https://api.target.com/graphql</code>.
+        </p>
+      </GuideSection>
+      <GuideSection title="How to find the endpoint">
+        <div className="space-y-1 text-[10px] text-zinc-500 leading-relaxed">
+          <p>• Run the <span className="text-blue-400">JS Secrets</span> pipeline — it flags <code className="text-blue-400">graphql_endpoint</code> references.</p>
+          <p>• Or DevTools (F12) → Network → filter <span className="text-zinc-300">Fetch/XHR</span> → look for POST requests to a <code className="text-fuchsia-400">/graphql</code> path. The host is often a separate API domain (e.g. <code className="text-zinc-400">api.*</code>, <code className="text-zinc-400">*-gateway.*</code>).</p>
+        </div>
+      </GuideSection>
+      <GuideSection title="Set your Session first">
+        <p className="text-[10px] text-zinc-500 leading-relaxed">
+          Paste your <code className="text-fuchsia-400">Authorization: Bearer ...</code> (and any required context headers like
+          <code className="text-fuchsia-400"> x-ui-region</code>) in the <span className="text-zinc-300">Session</span> panel.
+          The auditor uses it for introspection, then strips it for the no-auth check — so it compares what an
+          authenticated user sees vs an anonymous one. It still runs without a token, just with less coverage.
+        </p>
+      </GuideSection>
+      <Tip>A "returns data without authentication" hit on a query like <code className="text-fuchsia-400">me</code>, <code className="text-fuchsia-400">order</code> or <code className="text-fuchsia-400">loyaltyUser</code> is usually a high-impact broken-access-control bug. Verify with the curl in the finding, then build the full query by hand to pull the actual data.</Tip>
+    </>
   )
 }
 
