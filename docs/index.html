@@ -88,24 +88,28 @@ nav{position:sticky;top:0;z-index:500;height:62px;display:flex;align-items:cente
 .tbar-dot{width:10px;height:10px;border-radius:50%}
 .tbar-dot-r{background:#ff5f57}.tbar-dot-y{background:#febc2e}.tbar-dot-g{background:#28c840}
 .tbar-title{margin-left:6px;font-family:var(--mono);font-size:.5875rem;color:var(--text-3);letter-spacing:.04em}
-/* hero terminal animation */
-.hero-term{background:#0d0d0f;border:1px solid var(--border-2);border-radius:12px;overflow:hidden;box-shadow:0 28px 90px rgba(0,0,0,.7),0 0 0 1px rgba(255,255,255,.04),0 0 60px rgba(34,197,94,.06);animation:fadein .7s ease .15s both;font-family:var(--mono);font-size:.78rem;line-height:1.65}
-.ht-bar{display:flex;align-items:center;gap:7px;padding:11px 16px;background:#141416;border-bottom:1px solid #1e1e22}
-.ht-dot{width:12px;height:12px;border-radius:50%}
-.ht-dot-r{background:#ff5f57}.ht-dot-y{background:#febc2e}.ht-dot-g{background:#28c840}
-.ht-bar-title{margin-left:8px;font-size:.6875rem;color:#3f3f46;letter-spacing:.04em}
-.ht-body{padding:18px 20px;min-height:300px;display:flex;flex-direction:column;gap:0}
-.ht-row{display:flex;gap:.6ch;white-space:pre}
-.ht-ps{color:var(--green);user-select:none}
-.ht-cmd-text{color:#f4f4f5}
-.ht-cursor{display:inline-block;width:.55ch;background:var(--green);vertical-align:text-bottom;animation:termcursor 1s step-end infinite}
-@keyframes termcursor{0%,100%{opacity:1}50%{opacity:0}}
-.ht-out{color:#71717a;display:flex;align-items:baseline;gap:.6ch}
-.ht-out .g{color:var(--green)}
-.ht-out .a{color:var(--amber)}
-.ht-out .w{color:#f4f4f5}
-.ht-out .d{color:#3f3f46}
-.ht-out .tag{font-size:.7rem;border:1px solid currentColor;border-radius:3px;padding:0 4px;line-height:1.4;opacity:.8}
+/* hero stats dashboard */
+.hero-dash{background:#0d0d0f;border:1px solid var(--border-2);border-radius:14px;overflow:hidden;box-shadow:0 28px 90px rgba(0,0,0,.7),0 0 0 1px rgba(255,255,255,.04),0 0 70px rgba(34,197,94,.07);animation:fadein .7s ease .15s both}
+.hd-header{display:flex;align-items:center;justify-content:space-between;padding:14px 18px;background:#111113;border-bottom:1px solid #1e1e22}
+.hd-target{display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:.75rem;color:var(--text)}
+.hd-pulse{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 0 0 rgba(34,197,94,.4);animation:hd-ping 1.4s ease infinite}
+@keyframes hd-ping{0%{box-shadow:0 0 0 0 rgba(34,197,94,.5)}70%{box-shadow:0 0 0 8px rgba(34,197,94,0)}100%{box-shadow:0 0 0 0 rgba(34,197,94,0)}}
+.hd-phase-bar{display:flex;gap:4px}
+.hd-phase{font-family:var(--mono);font-size:.6rem;letter-spacing:.08em;padding:3px 8px;border-radius:4px;border:1px solid #2a2a2e;color:#3f3f46;transition:all .4s}
+.hd-phase.done{border-color:var(--green);color:var(--green);background:rgba(34,197,94,.06)}
+.hd-phase.active{border-color:var(--amber);color:var(--amber);background:rgba(245,158,11,.08)}
+.hd-stats{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:#1a1a1e}
+.hd-stat{background:#0d0d0f;padding:20px 20px 16px}
+.hd-num{font-size:2.25rem;font-weight:800;font-family:var(--mono);line-height:1;letter-spacing:-.04em;color:var(--green);transition:color .3s}
+.hd-num.amber{color:var(--amber)}
+.hd-slabel{font-size:.6875rem;color:#52525b;margin-top:4px;font-weight:500;letter-spacing:.03em}
+.hd-bar-track{height:3px;background:#1e1e22;border-radius:2px;margin-top:10px;overflow:hidden}
+.hd-bar-fill{height:100%;width:0;border-radius:2px;background:var(--green);transition:width 1.2s cubic-bezier(.4,0,.2,1)}
+.hd-bar-fill.amber{background:var(--amber)}
+.hd-tools{padding:14px 18px;border-top:1px solid #1a1a1e;display:flex;flex-wrap:wrap;gap:6px;min-height:52px;align-items:center}
+.hd-tool{font-family:var(--mono);font-size:.65rem;padding:3px 9px;border-radius:4px;border:1px solid #222226;color:#3f3f46;transition:all .35s}
+.hd-tool.running{border-color:var(--green);color:var(--green);background:rgba(34,197,94,.07)}
+.hd-tool.done{border-color:#2a2a2e;color:#3d3d42;background:transparent}
 @media(max-width:840px){
   .hero-inner{grid-template-columns:1fr;gap:2.5rem;padding:4rem 0 3rem;text-align:left}
   .hero-visual{order:2}
@@ -316,16 +320,49 @@ footer{border-top:1px solid var(--border);padding:2rem clamp(1rem,4vw,2.5rem)}
       </div>
     </div>
     <div class="hero-visual">
-      <div class="hero-term" id="hero-term">
-        <div class="ht-bar">
-          <span class="ht-dot ht-dot-r"></span>
-          <span class="ht-dot ht-dot-y"></span>
-          <span class="ht-dot ht-dot-g"></span>
-          <span class="ht-bar-title">nexhunt -- bash</span>
+      <div class="hero-dash">
+        <div class="hd-header">
+          <div class="hd-target">
+            <span class="hd-pulse"></span>
+            <span id="hd-target-text">meridian-corp.io</span>
+          </div>
+          <div class="hd-phase-bar">
+            <span class="hd-phase" id="hd-ph1">RECON</span>
+            <span class="hd-phase" id="hd-ph2">SCAN</span>
+            <span class="hd-phase" id="hd-ph3">EXPLOIT</span>
+          </div>
         </div>
-        <div class="ht-body" id="ht-body">
-          <div class="ht-row"><span class="ht-ps">$</span><span class="ht-cmd-text" id="ht-cmd"></span><span class="ht-cursor" id="ht-cursor"></span></div>
-          <div id="ht-lines"></div>
+        <div class="hd-stats">
+          <div class="hd-stat">
+            <div class="hd-num" id="hd-n1">0</div>
+            <div class="hd-slabel">Subdomains</div>
+            <div class="hd-bar-track"><div class="hd-bar-fill" id="hd-b1"></div></div>
+          </div>
+          <div class="hd-stat">
+            <div class="hd-num" id="hd-n2">0</div>
+            <div class="hd-slabel">Endpoints</div>
+            <div class="hd-bar-track"><div class="hd-bar-fill" id="hd-b2"></div></div>
+          </div>
+          <div class="hd-stat">
+            <div class="hd-num" id="hd-n3">0</div>
+            <div class="hd-slabel">Live hosts</div>
+            <div class="hd-bar-track"><div class="hd-bar-fill" id="hd-b3"></div></div>
+          </div>
+          <div class="hd-stat">
+            <div class="hd-num amber" id="hd-n4">0</div>
+            <div class="hd-slabel">Findings</div>
+            <div class="hd-bar-track"><div class="hd-bar-fill amber" id="hd-b4"></div></div>
+          </div>
+        </div>
+        <div class="hd-tools" id="hd-tools">
+          <span class="hd-tool" id="hdt-subfinder">subfinder</span>
+          <span class="hd-tool" id="hdt-amass">amass</span>
+          <span class="hd-tool" id="hdt-httpx">httpx</span>
+          <span class="hd-tool" id="hdt-katana">katana</span>
+          <span class="hd-tool" id="hdt-nuclei">nuclei</span>
+          <span class="hd-tool" id="hdt-ffuf">ffuf</span>
+          <span class="hd-tool" id="hdt-sqlmap">sqlmap</span>
+          <span class="hd-tool" id="hdt-dalfox">dalfox</span>
         </div>
       </div>
     </div>
@@ -846,66 +883,59 @@ if ('IntersectionObserver' in window) {
   reveals.forEach(el => el.classList.add('in'));
 }
 
-// ---- HERO TERMINAL ANIMATION ----
+// ---- HERO STATS ANIMATION ----
 (function() {
-  const CMD = 'nexhunt recon mcdonalds.com.ar';
-  const LINES = [
-    { d:120,  h:'<span class="g">[+]</span> <span class="w">Initializing recon pipeline</span>' },
-    { d:320,  h:'<span class="g">[+]</span> Running <span class="a">subfinder</span> + <span class="a">amass</span> in parallel...' },
-    { d:900,  h:'<span class="d">    admin.mcdonalds.com.ar</span>' },
-    { d:180,  h:'<span class="d">    api.mcdonalds.com.ar</span>' },
-    { d:160,  h:'<span class="d">    static.mcdonalds.com.ar</span>' },
-    { d:150,  h:'<span class="d">    portal.mcdonalds.com.ar</span>' },
-    { d:170,  h:'<span class="d">    cdn.mcdonalds.com.ar</span>' },
-    { d:200,  h:'<span class="g">[+]</span> <span class="w">13 subdomains discovered</span>' },
-    { d:280,  h:'<span class="g">[+]</span> Probing live hosts with <span class="a">httpx</span>...' },
-    { d:700,  h:'<span class="g">[+]</span> <span class="w">8 live hosts</span> <span class="d">|</span> <span class="w">5 filtered</span>' },
-    { d:300,  h:'<span class="g">[+]</span> Crawling with <span class="a">katana</span>...' },
-    { d:1100, h:'<span class="g">[+]</span> <span class="w">282 endpoints found</span>' },
-    { d:300,  h:'<span class="g">[+]</span> Screenshotting with <span class="a">gowitness</span>...' },
-    { d:950,  h:'<span class="g">[+]</span> Running <span class="a">nuclei</span> <span class="d">(8127 templates)</span>...' },
-    { d:1400, h:'<span class="a">[!]</span> <span class="w">CVE-2023-44487</span> <span class="d">api.mcdonalds.com.ar:443</span> <span class="g tag">HIGH</span>' },
-    { d:280,  h:'<span class="a">[!]</span> <span class="w">cors-misconfiguration</span> <span class="d">portal.mcdonalds.com.ar</span> <span class="a tag">MED</span>' },
-    { d:350,  h:'<span class="g">[+]</span> <span class="w">Recon complete.</span> <span class="d">Results saved to project.</span>' },
-  ];
-
-  const cmdEl  = document.getElementById('ht-cmd');
-  const cursor = document.getElementById('ht-cursor');
-  const lines  = document.getElementById('ht-lines');
+  function countUp(el, target, duration) {
+    const start = Date.now();
+    const tick = () => {
+      const p = Math.min((Date.now() - start) / duration, 1);
+      const ease = 1 - Math.pow(1 - p, 3);
+      el.textContent = Math.round(ease * target);
+      if (p < 1) requestAnimationFrame(tick);
+      else el.textContent = target;
+    };
+    requestAnimationFrame(tick);
+  }
+  function setBar(el, pct, delay) {
+    setTimeout(() => { el.style.width = pct + '%'; }, delay);
+  }
+  function setTool(id, state) {
+    const el = document.getElementById('hdt-' + id);
+    if (!el) return;
+    el.className = 'hd-tool' + (state ? ' ' + state : '');
+  }
+  function setPhase(id, state) {
+    const el = document.getElementById(id);
+    el.className = 'hd-phase' + (state ? ' ' + state : '');
+  }
 
   function run() {
-    cmdEl.textContent = '';
-    lines.innerHTML = '';
-    cursor.style.display = 'inline-block';
+    // reset
+    ['hd-n1','hd-n2','hd-n3','hd-n4'].forEach(id => document.getElementById(id).textContent = '0');
+    ['hd-b1','hd-b2','hd-b3','hd-b4'].forEach(id => document.getElementById(id).style.width = '0');
+    ['subfinder','amass','httpx','katana','nuclei','ffuf','sqlmap','dalfox'].forEach(t => setTool(t, ''));
+    ['hd-ph1','hd-ph2','hd-ph3'].forEach(id => setPhase(id, ''));
 
-    let i = 0;
-    function typeChar() {
-      if (i < CMD.length) {
-        cmdEl.textContent += CMD[i++];
-        setTimeout(typeChar, 38 + Math.random() * 28);
-      } else {
-        cursor.style.display = 'none';
-        showLines(0);
-      }
-    }
+    // RECON phase
+    setTimeout(() => { setPhase('hd-ph1', 'active'); setTool('subfinder', 'running'); setTool('amass', 'running'); }, 200);
+    setTimeout(() => { countUp(document.getElementById('hd-n1'), 17, 900); setBar(document.getElementById('hd-b1'), 68, 0); }, 600);
+    setTimeout(() => { setTool('subfinder', 'done'); setTool('amass', 'done'); setTool('httpx', 'running'); setTool('katana', 'running'); }, 1500);
+    setTimeout(() => { countUp(document.getElementById('hd-n3'), 11, 600); setBar(document.getElementById('hd-b3'), 73, 0); }, 1800);
+    setTimeout(() => { countUp(document.getElementById('hd-n2'), 341, 1100); setBar(document.getElementById('hd-b2'), 100, 0); }, 2200);
+    setTimeout(() => { setTool('httpx', 'done'); setTool('katana', 'done'); setPhase('hd-ph1', 'done'); }, 3400);
 
-    let acc = 200;
-    function showLines(idx) {
-      if (idx >= LINES.length) {
-        setTimeout(run, 3200);
-        return;
-      }
-      acc += LINES[idx].d;
-      setTimeout(() => {
-        const row = document.createElement('div');
-        row.className = 'ht-out';
-        row.innerHTML = LINES[idx].h;
-        lines.appendChild(row);
-        showLines(idx + 1);
-      }, acc);
-    }
+    // SCAN phase
+    setTimeout(() => { setPhase('hd-ph2', 'active'); setTool('nuclei', 'running'); setTool('ffuf', 'running'); }, 3600);
+    setTimeout(() => { countUp(document.getElementById('hd-n4'), 4, 500); setBar(document.getElementById('hd-b4'), 80, 0); }, 5000);
+    setTimeout(() => { setTool('nuclei', 'done'); setTool('ffuf', 'done'); setPhase('hd-ph2', 'done'); }, 5800);
 
-    typeChar();
+    // EXPLOIT phase
+    setTimeout(() => { setPhase('hd-ph3', 'active'); setTool('sqlmap', 'running'); setTool('dalfox', 'running'); }, 6000);
+    setTimeout(() => { countUp(document.getElementById('hd-n4'), 7, 400); setBar(document.getElementById('hd-b4'), 100, 0); }, 7200);
+    setTimeout(() => { setTool('sqlmap', 'done'); setTool('dalfox', 'done'); setPhase('hd-ph3', 'done'); }, 7800);
+
+    // loop
+    setTimeout(run, 11000);
   }
 
   run();
