@@ -33,7 +33,7 @@ const navSections = [
       { path: '/recon',          icon: Radar,        label: 'Recon',           requiresProject: true  },
       { path: '/proxy',          icon: Globe,         label: 'Proxy',           requiresProject: true  },
       { path: '/scanner',        icon: ScanSearch,    label: 'Scanner',         requiresProject: true  },
-      { path: '/security-tools', icon: ShieldCheck,   label: 'Security Tools',  requiresProject: true  },
+      { path: '/security-tools', icon: ShieldCheck,   label: 'Attacks',         requiresProject: true  },
       { path: '/exploit',        icon: Swords,        label: 'Exploit',         requiresProject: true  },
       { path: '/pipelines',      icon: Zap,           label: 'Pipelines',       requiresProject: true  },
       { path: '/brute-force',    icon: KeyRound,      label: 'Brute Force',     requiresProject: true, pro: true },

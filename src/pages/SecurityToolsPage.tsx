@@ -10,19 +10,29 @@ import { cn } from '@/lib/utils'
 import {
   Play, Square, Loader2, Terminal, Copy, Check,
   Globe, Lock, Cloud, GitBranch, Radio, Info, X, BookOpen, Sparkles,
+  FolderGit2, Server, ChevronDown,
 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import type { Finding } from '@/types'
 
-type ToolId = 'cors' | 'bypass_403' | 'cloud_buckets' | 'github_scanner' | 'interactsh'
+type ToolId = 'cors' | 'bypass_403' | 'cloud_buckets' | 'exposed_files' | 'github_scanner' | 'interactsh'
 type ViewMode = 'findings' | 'terminal'
+
+// Tools that take a live-host URL — get the host picker + bulk scan.
+const HOST_TOOLS: ToolId[] = ['cors', 'bypass_403', 'exposed_files']
+const BULK_ENDPOINT: Partial<Record<ToolId, string>> = {
+  cors: '/api/tools/cors-bulk',
+  exposed_files: '/api/tools/exposed-files-bulk',
+}
 
 interface ToolDef {
   id: ToolId
   label: string
   icon: React.ComponentType<{ size?: number; className?: string }>
   tagline: string
+  what: string      // what this attack is, in one line
+  impact: string    // what happens when it lands
   desc: string
   inputLabel: string
   placeholder: string
@@ -37,8 +47,10 @@ const TOOLS: ToolDef[] = [
     id: 'cors',
     label: 'CORS Scanner',
     icon: Globe,
-    tagline: '6 origin bypass tests per target',
-    desc: 'Tests cross-origin resource sharing misconfigurations. Sends 6 probes per target: arbitrary origin reflection, null origin, trusted subdomain bypass, prefix bypass (evil.target.com), and HTTP downgrade. A critical finding means any website can read credentialed API responses from this origin.',
+    tagline: '8 origin bypass tests + wildcard detection',
+    what: 'Checks whether the server reflects an attacker-controlled Origin in its CORS headers (Access-Control-Allow-Origin).',
+    impact: 'If ACAO reflects your origin AND Access-Control-Allow-Credentials is true, any malicious page can read this site\'s authenticated responses (session data, tokens, PII) from a logged-in victim\'s browser.',
+    desc: 'Sends 8 crafted Origin headers per target: arbitrary reflection, null origin, subdomain (evil.target.com), prefix/suffix tricks, unanchored-regex bypass and HTTP downgrade. Also flags a bare wildcard ACAO. Severity is critical when reflection is paired with credentials.',
     inputLabel: 'Target URL',
     placeholder: 'https://api.target.com',
     color: 'text-yellow-400',
@@ -50,8 +62,10 @@ const TOOLS: ToolDef[] = [
     id: 'bypass_403',
     label: '403/401 Bypass',
     icon: Lock,
-    tagline: '19 bypass techniques — path tricks + header injections',
-    desc: 'Attempts to reach a 403/401-protected endpoint using path encoding tricks (/%2f, /;/, /..;/) and HTTP header injections (X-Forwarded-For: 127.0.0.1, X-Original-URL, X-Rewrite-URL, Referer, X-Host). Reports any probe that returns a 200 or 302 as a potential bypass.',
+    tagline: '18 path tricks + 15 header injections + 6 verbs',
+    what: 'Tries to reach an endpoint that returns 403/401 by tricking the proxy/WAF that enforces the block while the backend still serves the content.',
+    impact: 'A working bypass reaches admin panels, internal APIs or restricted files that were supposed to be access-controlled — often a direct path to sensitive functionality.',
+    desc: 'Probes the protected path with encoding/path tricks (/%2f, /..;/, /%2e/, overlong UTF-8), IP-spoofing and URL-override headers (X-Forwarded-For, X-Original-URL, X-Rewrite-URL...), and HTTP verb tampering (POST/PUT/HEAD/OPTIONS/TRACE). Any probe returning 2xx where the baseline returned 403 is flagged, with a curl to reproduce.',
     inputLabel: 'Protected URL (returns 403/401)',
     placeholder: 'https://target.com/admin',
     color: 'text-orange-400',
@@ -63,8 +77,10 @@ const TOOLS: ToolDef[] = [
     id: 'cloud_buckets',
     label: 'Cloud Buckets',
     icon: Cloud,
-    tagline: '~40 name variants across AWS S3, GCS, Azure',
-    desc: 'Brute-forces cloud storage bucket names derived from a company name or domain. Tests ~40 variations (acme, acme-prod, acme-backup, acme-data...) across AWS S3, Google Cloud Storage, and Azure Blob Storage. A 200 means the bucket is publicly readable — list its contents with "aws s3 ls s3://BUCKET --no-sign-request".',
+    tagline: '~66 name variants across S3, GCS, Azure, DO',
+    what: 'Guesses cloud storage bucket names from the company/domain and checks whether they are publicly readable.',
+    impact: 'A public bucket exposes whatever the company stored there — backups, source, customer data, credentials. The finding includes the command to list and download its contents.',
+    desc: 'Derives ~66 bucket names from the name/domain (acme, acme-prod, acme-backup, acme-data...) and checks AWS S3, Google Cloud Storage, Azure Blob and DigitalOcean Spaces. A 200 means public; the listing is parsed and an "aws s3 ls / gsutil ls" repro is attached. 403 means the bucket exists but is private (confirm ownership).',
     inputLabel: 'Company name or domain',
     placeholder: 'acme-corp or acme.com',
     color: 'text-blue-400',
@@ -73,11 +89,28 @@ const TOOLS: ToolDef[] = [
     endpoint: '/api/tools/cloud-buckets',
   },
   {
+    id: 'exposed_files',
+    label: 'Exposed Files',
+    icon: FolderGit2,
+    tagline: '.git, .env, .svn, .htpasswd, WEB-INF exposure',
+    what: 'Checks a live host for sensitive files and version-control directories left reachable in the web root.',
+    impact: 'An exposed /.git/ or /.env hands over source code, commit history and cleartext secrets (DB creds, API keys). The finding tells you exactly how to dump it (git-dumper) and where to look.',
+    desc: 'Requests /.git/HEAD, /.git/config, /.env, /.svn metadata, /.htpasswd and WEB-INF/web.xml, validating each by content signature so it survives servers that answer 200 to everything. Run it on a single URL or sweep every live host from Recon.',
+    inputLabel: 'Target URL',
+    placeholder: 'https://target.com',
+    color: 'text-red-400',
+    border: 'border-red-500/30',
+    bg: 'bg-red-950/15',
+    endpoint: '/api/tools/exposed-files',
+  },
+  {
     id: 'github_scanner',
     label: 'GitHub Secrets',
     icon: GitBranch,
     tagline: 'TruffleHog secret scanner for orgs and repos',
-    desc: 'Scans GitHub organizations or repositories for leaked secrets using TruffleHog. Detects API keys, tokens, passwords, and private keys in commit history, branches, and PRs. Enter a GitHub org name (e.g. "acme-corp") or a full repo URL (e.g. "https://github.com/acme/api"). Verified secrets are confirmed active via the issuing API. Requires trufflehog.',
+    what: 'Scans a GitHub org or repo\'s full history for committed secrets using TruffleHog.',
+    impact: 'Developers leak API keys, tokens and passwords in commits and never rotate them. Verified hits are confirmed still-active against the issuing API — instant valid credentials.',
+    desc: 'Runs TruffleHog over a GitHub org or repo, scanning commit history, branches and PRs for API keys, tokens, passwords and private keys. Enter an org name ("acme-corp") or a repo URL. Verified secrets are confirmed active via the issuing API. Requires trufflehog.',
     inputLabel: 'GitHub org name or repo URL',
     placeholder: 'acme-corp  or  https://github.com/acme/repo',
     color: 'text-purple-400',
@@ -90,7 +123,9 @@ const TOOLS: ToolDef[] = [
     label: 'OOB / Interactsh',
     icon: Radio,
     tagline: 'Out-of-band listener for blind SSRF, XSS, XXE',
-    desc: 'Starts an out-of-band interaction server via interactsh-client. Generates a unique hostname you can embed in SSRF payloads (http://HOST/), blind XSS (<img src="http://HOST">), XXE (<!ENTITY e SYSTEM "http://HOST">), and command injection ($(nslookup HOST)). Any DNS or HTTP callback appears here in real time. Requires interactsh-client installed.',
+    what: 'Spins up an out-of-band server with a unique hostname you embed in payloads to catch blind, no-response vulnerabilities.',
+    impact: 'Confirms blind bugs that have no visible output: blind SSRF, blind XSS, XXE and command injection all prove out via a DNS/HTTP callback to your host.',
+    desc: 'Starts interactsh-client and generates a unique hostname. Embed it in SSRF payloads (http://HOST/), blind XSS (<img src="http://HOST">), XXE (<!ENTITY e SYSTEM "http://HOST">) or command injection ($(nslookup HOST)). Any DNS or HTTP callback appears here in real time. Requires interactsh-client.',
     inputLabel: 'Target context (optional)',
     placeholder: 'https://target.com (optional, for context)',
     color: 'text-green-400',
@@ -125,7 +160,7 @@ const TOOL_BINARY: Partial<Record<ToolId, string>> = {
 export function SecurityToolsPage() {
   const [activeTab, setActiveTab] = useState<ToolId>('cors')
   const [targets, setTargets] = useState<Record<ToolId, string>>({
-    cors: '', bypass_403: '', cloud_buckets: '', github_scanner: '', interactsh: '',
+    cors: '', bypass_403: '', cloud_buckets: '', exposed_files: '', github_scanner: '', interactsh: '',
   })
   const [view, setView] = useState<ViewMode>('findings')
   const [selected, setSelected] = useState<Finding | null>(null)
@@ -192,21 +227,23 @@ export function SecurityToolsPage() {
     try { await api.delete(`/api/tools/jobs/${jobId}`) } catch {}
   }
 
-  const handleCorsBulk = async () => {
-    const targets = liveHosts.map(h => h.url).filter(Boolean)
-    if (targets.length === 0) {
+  const handleBulkScan = async () => {
+    const endpoint = BULK_ENDPOINT[activeTab]
+    if (!endpoint) return
+    const hostUrls = liveHosts.map(h => h.url).filter(Boolean)
+    if (hostUrls.length === 0) {
       toast.error('No live hosts', 'Run HTTPX on the Recon page first to populate live hosts.')
       return
     }
     try {
-      const res = await api.post<{ count: number }>('/api/tools/cors-bulk', {
-        targets,
+      const res = await api.post<{ count: number }>(endpoint, {
+        targets: hostUrls,
         options: getSessionOpts(),
         project_id: activeProject ?? '',
       })
-      toast.success(`CORS scan started`, `Running on ${res.count} live hosts`)
+      toast.success(`${tool.label} started`, `Running on ${res.count} live hosts`)
     } catch (err) {
-      toast.error('Failed to start bulk CORS scan', err)
+      toast.error(`Failed to start bulk ${tool.label} scan`, err)
     }
   }
 
@@ -224,7 +261,7 @@ export function SecurityToolsPage() {
   }
 
   return (
-    <WorkspaceShell title="Security Tools" subtitle="CORS, 403 bypass, cloud buckets, GitHub secrets, OOB testing">
+    <WorkspaceShell title="Attacks" subtitle="Targeted attacks — CORS, 403 bypass, cloud buckets, exposed files, secrets, OOB">
       <div className="flex gap-4 h-full min-h-0">
 
         {/* LEFT: Tool selector */}
@@ -290,7 +327,27 @@ export function SecurityToolsPage() {
                 <Info size={11} /> Guide
               </button>
             </div>
-            <p className="text-[11px] text-zinc-500 leading-relaxed">{tool.desc}</p>
+            {/* What it is / what happens */}
+            <div className="space-y-1.5 rounded-md border border-zinc-800 bg-zinc-900/40 p-2.5">
+              <div className="flex gap-2">
+                <span className="text-[9px] font-semibold uppercase tracking-wide text-zinc-500 w-14 shrink-0 pt-0.5">Attack</span>
+                <span className="text-[11px] text-zinc-300 leading-relaxed flex-1">{tool.what}</span>
+              </div>
+              <div className="flex gap-2">
+                <span className={cn('text-[9px] font-semibold uppercase tracking-wide w-14 shrink-0 pt-0.5', tool.color)}>Impact</span>
+                <span className="text-[11px] text-zinc-400 leading-relaxed flex-1">{tool.impact}</span>
+              </div>
+            </div>
+            <p className="text-[10px] text-zinc-600 leading-relaxed">{tool.desc}</p>
+
+            {/* Host picker for URL-based tools */}
+            {HOST_TOOLS.includes(activeTab) && (
+              <LiveHostPicker
+                color={tool.color}
+                selected={targets[activeTab]}
+                onSelect={url => setTargets(prev => ({ ...prev, [activeTab]: url }))}
+              />
+            )}
 
             {/* Input + buttons */}
             <div className="flex gap-2">
@@ -319,14 +376,17 @@ export function SecurityToolsPage() {
               )}
             </div>
 
-            {/* CORS: bulk scan all live hosts */}
-            {activeTab === 'cors' && (
+            {/* Bulk scan all live hosts (tools that support it) */}
+            {BULK_ENDPOINT[activeTab] && (
               <button
-                onClick={handleCorsBulk}
+                onClick={handleBulkScan}
                 disabled={isRunning || liveHosts.length === 0}
-                className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 text-[11px] font-medium rounded-md border border-yellow-700/50 text-yellow-400/80 hover:bg-yellow-950/20 hover:text-yellow-300 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                className={cn(
+                  'w-full flex items-center justify-center gap-1.5 px-3 py-1.5 text-[11px] font-medium rounded-md border transition-colors disabled:opacity-40 disabled:cursor-not-allowed',
+                  tool.border, tool.color, 'hover:bg-zinc-800/40'
+                )}
               >
-                <Globe size={11} />
+                <Server size={11} />
                 Scan all live hosts ({liveHosts.length})
               </button>
             )}
@@ -536,6 +596,7 @@ export function SecurityToolsPage() {
               {activeTab === 'cors' && <CorsGuide />}
               {activeTab === 'bypass_403' && <Bypass403Guide />}
               {activeTab === 'cloud_buckets' && <CloudGuide />}
+              {activeTab === 'exposed_files' && <ExposedFilesGuide />}
               {activeTab === 'github_scanner' && <GithubGuide />}
               {activeTab === 'interactsh' && <InteractshGuide />}
             </div>
@@ -638,6 +699,112 @@ function CloudGuide() {
       </GuideSection>
       <Tip>A public S3 bucket with sensitive data (backups, keys, user data) is a P1 in most programs. Use <code className="text-green-400">aws s3 ls s3://BUCKET --no-sign-request</code> to list contents without credentials.</Tip>
     </>
+  )
+}
+
+function ExposedFilesGuide() {
+  return (
+    <>
+      <GuideSection title="What gets checked">
+        <div className="space-y-1 text-[10px]">
+          {[
+            ['/.git/HEAD + config', 'text-red-400', 'Whole repo + history. Dump with git-dumper, then grep git log for secrets.'],
+            ['/.env', 'text-red-400', 'App secrets in cleartext: DB creds, API keys, APP_KEY. Read and pivot.'],
+            ['/.svn metadata', 'text-orange-400', 'Reconstruct source paths and pristine files from the working copy.'],
+            ['/.htpasswd', 'text-orange-400', 'Basic-auth hashes. Crack offline with hashcat/john.'],
+            ['WEB-INF/web.xml', 'text-orange-400', 'Java deployment descriptor: servlet maps, params, internal endpoints.'],
+          ].map(([f, color, desc]) => (
+            <div key={f} className="flex gap-2 items-start">
+              <span className={`font-mono font-bold shrink-0 ${color}`}>{f}</span>
+              <span className="text-zinc-500 leading-relaxed">{desc}</span>
+            </div>
+          ))}
+        </div>
+      </GuideSection>
+      <GuideSection title="Why content signatures">
+        <p className="text-[10px] text-zinc-500 leading-relaxed">
+          Many servers answer 200 to every path (SPA fallbacks). Each check validates the body against a
+          per-type signature (e.g. <code className="text-green-400">ref:</code> for .git/HEAD,
+          <code className="text-green-400"> KEY=value</code> for .env), so a soft-404 HTML page is not flagged.
+        </p>
+      </GuideSection>
+      <Tip>Use <code className="text-green-400">Scan all live hosts</code> to sweep every host from Recon at once. An exposed .git is usually a P1 — dump it: <code className="text-green-400">git-dumper http://HOST/.git/ ./loot</code>.</Tip>
+    </>
+  )
+}
+
+function LiveHostPicker({ selected, onSelect, color }: {
+  selected: string
+  onSelect: (url: string) => void
+  color: string
+}) {
+  const { liveHosts } = useReconStore()
+  const [open, setOpen] = useState(false)
+  const [filter, setFilter] = useState('')
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [open])
+
+  if (liveHosts.length === 0) return null
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        onClick={() => setOpen(v => !v)}
+        className={cn('w-full flex items-center justify-between gap-1.5 px-2.5 py-1.5 rounded-md border border-zinc-700 bg-zinc-900/60 text-xs hover:border-zinc-500 transition-colors', color)}
+      >
+        <div className="flex items-center gap-1.5">
+          <Server size={11} />
+          <span>{liveHosts.length} live hosts</span>
+          {selected && liveHosts.some(h => h.url === selected) && (
+            <span className="text-[9px] text-zinc-500">· selected</span>
+          )}
+        </div>
+        <ChevronDown size={11} className={cn('transition-transform', open && 'rotate-180')} />
+      </button>
+
+      {open && (
+        <div className="absolute top-full left-0 right-0 mt-1 z-50 rounded-lg border border-zinc-700 bg-zinc-900 shadow-xl shadow-black/50 overflow-hidden">
+          <div className="p-1.5 border-b border-zinc-800">
+            <input
+              autoFocus type="text" placeholder="Filter hosts..."
+              value={filter} onChange={e => setFilter(e.target.value)}
+              className="w-full text-[10px] bg-zinc-950 border border-zinc-800 rounded px-2 py-1 text-zinc-300 placeholder:text-zinc-700 focus:outline-none"
+            />
+          </div>
+          <div className="max-h-48 overflow-y-auto">
+            {liveHosts
+              .filter(h => !filter || h.url.toLowerCase().includes(filter.toLowerCase()))
+              .map((h, i) => (
+                <button
+                  key={i}
+                  onClick={() => { onSelect(h.url); setOpen(false); setFilter('') }}
+                  className={cn(
+                    'w-full flex items-center gap-2 px-2.5 py-1.5 text-left hover:bg-zinc-800 transition-colors',
+                    selected === h.url && 'bg-zinc-800'
+                  )}
+                >
+                  <span className={cn('text-[10px] font-mono font-bold shrink-0',
+                    h.status_code && h.status_code < 300 ? 'text-green-400' :
+                    h.status_code && h.status_code < 400 ? 'text-yellow-400' : 'text-orange-400'
+                  )}>
+                    {h.status_code}
+                  </span>
+                  <span className="text-[10px] text-zinc-300 font-mono truncate flex-1">{h.url}</span>
+                  {h.title && <span className="text-[9px] text-zinc-600 truncate max-w-[80px] shrink-0">{h.title}</span>}
+                </button>
+              ))}
+          </div>
+        </div>
+      )}
+    </div>
   )
 }
 
