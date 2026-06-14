@@ -3,13 +3,12 @@ import os
 import glob
 import logging
 import uuid
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter
 from pydantic import BaseModel
 from nexhunt.adapters.base import get_adapter
 from nexhunt.ws.manager import ws_manager
 from nexhunt.database import DefaultSession
 from nexhunt.models.finding import Finding
-from nexhunt.licensing.guard import require_pro
 
 router = APIRouter(prefix="/api/tools", tags=["security-tools"])
 logger = logging.getLogger(__name__)
@@ -99,7 +98,7 @@ async def run_cors(req: ToolRequest):
     return _start_tool("cors", req.target, req.options, req.project_id or None)
 
 
-@router.post("/cors-bulk", dependencies=[Depends(require_pro("Bulk CORS scanning"))])
+@router.post("/cors-bulk")
 async def run_cors_bulk(req: BulkToolRequest):
     targets = [t.strip() for t in req.targets if t.strip()][:50]
     job_ids = [_start_tool("cors", t, req.options, req.project_id or None)["job_id"] for t in targets]
@@ -119,6 +118,18 @@ async def run_cloud_buckets(req: ToolRequest):
 @router.post("/github")
 async def run_github(req: ToolRequest):
     return _start_tool("github_scanner", req.target, req.options, req.project_id or None)
+
+
+@router.post("/exposed-files")
+async def run_exposed_files(req: ToolRequest):
+    return _start_tool("exposed_files", req.target, req.options, req.project_id or None)
+
+
+@router.post("/exposed-files-bulk")
+async def run_exposed_files_bulk(req: BulkToolRequest):
+    targets = [t.strip() for t in req.targets if t.strip()][:50]
+    job_ids = [_start_tool("exposed_files", t, req.options, req.project_id or None)["job_id"] for t in targets]
+    return {"status": "started", "count": len(job_ids), "job_ids": job_ids}
 
 
 @router.post("/interactsh")
