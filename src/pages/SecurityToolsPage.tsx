@@ -174,7 +174,7 @@ export function SecurityToolsPage() {
 
   const { activeProject, globalTarget, getSessionOpts } = useAppStore()
   const { findings, rawOutput, activeScans, activeJobIds } = useScannerStore()
-  const { liveHosts } = useReconStore()
+  const { liveHosts, urls } = useReconStore()
   const { addFinding: addToWorkspace } = useWorkspaceStore()
 
   // Check which tools are installed once on mount
@@ -211,6 +211,12 @@ export function SecurityToolsPage() {
 
   const tool = TOOLS.find(t => t.id === activeTab)!
 
+  // Cloud buckets mines real bucket refs from already-discovered Recon URLs (+ their .js).
+  const optsFor = (id: ToolId) =>
+    id === 'cloud_buckets'
+      ? { ...getSessionOpts(), seed_urls: urls.map(u => u.url).filter(Boolean).slice(0, 800) }
+      : getSessionOpts()
+
   const handleRun = async () => {
     const target = targets[activeTab].trim()
     if (!target && activeTab !== 'interactsh') {
@@ -218,7 +224,7 @@ export function SecurityToolsPage() {
       return
     }
     try {
-      await api.post(tool.endpoint, { target, options: getSessionOpts(), project_id: activeProject ?? '' })
+      await api.post(tool.endpoint, { target, options: optsFor(activeTab), project_id: activeProject ?? '' })
     } catch (err) {
       toast.error(`Failed to start ${tool.label}`, err)
     }
@@ -239,7 +245,7 @@ export function SecurityToolsPage() {
     try {
       const res = await api.post<{ count: number }>(endpoint, {
         targets: bulkTargets,
-        options: getSessionOpts(),
+        options: optsFor(activeTab),
         project_id: activeProject ?? '',
       })
       const unit = activeTab === 'cloud_buckets' ? 'domains' : 'live hosts'

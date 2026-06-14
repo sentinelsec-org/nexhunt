@@ -128,29 +128,46 @@ class CloudBucketsAdapter(ToolAdapter):
             })
             return out
 
+        # URLs already discovered by Recon/crawler (passed from the frontend).
+        seed_urls = [u for u in (options.get("seed_urls") or []) if isinstance(u, str) and u]
+
         concurrency = 20
         async with httpx.AsyncClient(verify=False, timeout=5, follow_redirects=False) as client:
-            # Mine real bucket references from the target's homepage + linked JS.
+            # Mine real bucket references from the target's homepage, its JS, and Recon URLs.
             mined: set[tuple] = set()
+            text = ""
+            from urllib.parse import urljoin
+
+            # Recon seed URLs: the URL strings themselves may be bucket links, and any .js
+            # among them is worth reading for more references.
+            text += "\n".join(seed_urls)
+            seed_js = [u for u in seed_urls if u.split("?")[0].lower().endswith(".js")][:30]
+
             if "." in target or target.startswith("http"):
                 base_url = target if target.startswith("http") else f"https://{target}"
                 try:
                     home = await client.get(base_url, timeout=8)
-                    text = home.text
-                    srcs = re.findall(r'<script[^>]+src=["\']([^"\']+)["\']', text, re.I)[:20]
-                    from urllib.parse import urljoin
-                    js_urls = [urljoin(base_url, s) for s in srcs]
-                    js_bodies = await asyncio.gather(
-                        *[client.get(u, timeout=8) for u in js_urls], return_exceptions=True
-                    )
-                    for r in js_bodies:
-                        if not isinstance(r, Exception):
-                            text += "\n" + r.text
-                    mined = _buckets_from_text(text)
-                    if mined:
-                        yield {"_raw": True, "line": f"  Mined {len(mined)} bucket reference(s) from {base_url} pages/JS"}
+                    text += "\n" + home.text
+                    srcs = re.findall(r'<script[^>]+src=["\']([^"\']+)["\']', home.text, re.I)[:20]
+                    home_js = [urljoin(base_url, s) for s in srcs]
                 except Exception as e:
-                    yield {"_raw": True, "line": f"  Mining {base_url} failed: {e}"}
+                    home_js = []
+                    yield {"_raw": True, "line": f"  Fetching {base_url} failed: {e}"}
+            else:
+                home_js = []
+
+            js_urls = list(dict.fromkeys(home_js + seed_js))[:40]
+            if js_urls:
+                js_bodies = await asyncio.gather(
+                    *[client.get(u, timeout=8) for u in js_urls], return_exceptions=True
+                )
+                for r in js_bodies:
+                    if not isinstance(r, Exception):
+                        text += "\n" + r.text
+
+            mined = _buckets_from_text(text)
+            if mined:
+                yield {"_raw": True, "line": f"  Mined {len(mined)} bucket reference(s) from homepage + {len(js_urls)} JS + {len(seed_urls)} Recon URLs"}
 
             seen_urls = {u for _, _, u, _ in tasks}
             for provider, bucket in mined:
