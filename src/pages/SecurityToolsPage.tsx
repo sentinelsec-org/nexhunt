@@ -25,6 +25,7 @@ const BULK_ENDPOINT: Partial<Record<ToolId, string>> = {
   cors: '/api/tools/cors-bulk',
   bypass_403: '/api/tools/bypass-403-bulk',
   exposed_files: '/api/tools/exposed-files-bulk',
+  cloud_buckets: '/api/tools/cloud-buckets-bulk',
 }
 
 interface ToolDef {
@@ -231,18 +232,18 @@ export function SecurityToolsPage() {
   const handleBulkScan = async () => {
     const endpoint = BULK_ENDPOINT[activeTab]
     if (!endpoint) return
-    const hostUrls = liveHosts.map(h => h.url).filter(Boolean)
-    if (hostUrls.length === 0) {
+    if (bulkTargets.length === 0) {
       toast.error('No live hosts', 'Run HTTPX on the Recon page first to populate live hosts.')
       return
     }
     try {
       const res = await api.post<{ count: number }>(endpoint, {
-        targets: hostUrls,
+        targets: bulkTargets,
         options: getSessionOpts(),
         project_id: activeProject ?? '',
       })
-      toast.success(`${tool.label} started`, `Running on ${res.count} live hosts`)
+      const unit = activeTab === 'cloud_buckets' ? 'domains' : 'live hosts'
+      toast.success(`${tool.label} started`, `Running on ${res.count} ${unit}`)
     } catch (err) {
       toast.error(`Failed to start bulk ${tool.label} scan`, err)
     }
@@ -260,6 +261,12 @@ export function SecurityToolsPage() {
     try { return new URL(url.startsWith('http') ? url : `https://${url}`).hostname }
     catch { return url.slice(0, 30) }
   }
+
+  // Cloud buckets derives names from domains, not URLs — send unique hostnames.
+  const bulkTargets =
+    activeTab === 'cloud_buckets'
+      ? [...new Set(liveHosts.map(h => hostForUrl(h.url)).filter(d => d && d !== '-'))]
+      : liveHosts.map(h => h.url).filter(Boolean)
 
   return (
     <WorkspaceShell title="Attacks" subtitle="Targeted attacks — CORS, 403 bypass, cloud buckets, exposed files, secrets, OOB">
@@ -381,14 +388,16 @@ export function SecurityToolsPage() {
             {BULK_ENDPOINT[activeTab] && (
               <button
                 onClick={handleBulkScan}
-                disabled={isRunning || liveHosts.length === 0}
+                disabled={isRunning || bulkTargets.length === 0}
                 className={cn(
                   'w-full flex items-center justify-center gap-1.5 px-3 py-1.5 text-[11px] font-medium rounded-md border transition-colors disabled:opacity-40 disabled:cursor-not-allowed',
                   tool.border, tool.color, 'hover:bg-zinc-800/40'
                 )}
               >
                 <Server size={11} />
-                Scan all live hosts ({liveHosts.length})
+                {activeTab === 'cloud_buckets'
+                  ? `Derive buckets from ${bulkTargets.length} domains`
+                  : `Scan all live hosts (${bulkTargets.length})`}
               </button>
             )}
 

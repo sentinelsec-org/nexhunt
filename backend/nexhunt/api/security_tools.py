@@ -122,6 +122,14 @@ async def run_cloud_buckets(req: ToolRequest):
     return _start_tool("cloud_buckets", req.target, req.options, req.project_id or None)
 
 
+@router.post("/cloud-buckets-bulk")
+async def run_cloud_buckets_bulk(req: BulkToolRequest):
+    # targets here are domains/company names derived from live hosts
+    targets = [t.strip() for t in req.targets if t.strip()][:50]
+    job_ids = [_start_tool("cloud_buckets", t, req.options, req.project_id or None)["job_id"] for t in targets]
+    return {"status": "started", "count": len(job_ids), "job_ids": job_ids}
+
+
 @router.post("/github")
 async def run_github(req: ToolRequest):
     return _start_tool("github_scanner", req.target, req.options, req.project_id or None)
