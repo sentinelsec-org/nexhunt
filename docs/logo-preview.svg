@@ -1,0 +1,93 @@
+<svg width="800" height="520" viewBox="0 0 800 520" xmlns="http://www.w3.org/2000/svg">
+
+<!-- Page background -->
+<rect width="800" height="520" fill="#09090b"/>
+
+<!-- Title -->
+<text x="400" y="32" text-anchor="middle" font-family="system-ui,sans-serif" font-size="11" fill="#3f3f46" letter-spacing="3">NEXHUNT — LOGO PREVIEW</text>
+<text x="400" y="50" text-anchor="middle" font-family="system-ui,sans-serif" font-size="10" fill="#27272a">Open this file in a browser or VSCode to review</text>
+
+<!-- ===== LOGO MARK DEFINITION ===== -->
+<!-- The mark: dark rounded rect + green hexagon outline + green N -->
+
+<!-- ── 256px ── -->
+<text x="152" y="88" text-anchor="middle" font-family="system-ui,sans-serif" font-size="10" fill="#52525b" letter-spacing="1">256px</text>
+<svg x="24" y="96" width="256" height="256" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="96" fill="#09090b"/>
+  <polygon points="256,56 429,156 429,356 256,456 83,356 83,156"
+    fill="none" stroke="#22c55e" stroke-width="20" stroke-linejoin="round"/>
+  <path d="M 162,355 L 162,145 L 350,355 L 350,145"
+    fill="none" stroke="#22c55e" stroke-width="38"
+    stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
+
+<!-- ── 96px ── -->
+<text x="340" y="88" text-anchor="middle" font-family="system-ui,sans-serif" font-size="10" fill="#52525b" letter-spacing="1">96px</text>
+<svg x="292" y="96" width="96" height="96" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="96" fill="#09090b"/>
+  <polygon points="256,56 429,156 429,356 256,456 83,356 83,156"
+    fill="none" stroke="#22c55e" stroke-width="20" stroke-linejoin="round"/>
+  <path d="M 162,355 L 162,145 L 350,355 L 350,145"
+    fill="none" stroke="#22c55e" stroke-width="38"
+    stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
+
+<!-- ── 48px ── -->
+<text x="430" y="88" text-anchor="middle" font-family="system-ui,sans-serif" font-size="10" fill="#52525b" letter-spacing="1">48px</text>
+<svg x="406" y="96" width="48" height="48" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="96" fill="#09090b"/>
+  <polygon points="256,56 429,156 429,356 256,456 83,356 83,156"
+    fill="none" stroke="#22c55e" stroke-width="20" stroke-linejoin="round"/>
+  <path d="M 162,355 L 162,145 L 350,355 L 350,145"
+    fill="none" stroke="#22c55e" stroke-width="38"
+    stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
+
+<!-- ── 32px ── -->
+<text x="498" y="88" text-anchor="middle" font-family="system-ui,sans-serif" font-size="10" fill="#52525b" letter-spacing="1">32px</text>
+<svg x="482" y="96" width="32" height="32" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="96" fill="#09090b"/>
+  <polygon points="256,56 429,156 429,356 256,456 83,356 83,156"
+    fill="none" stroke="#22c55e" stroke-width="20" stroke-linejoin="round"/>
+  <path d="M 162,355 L 162,145 L 350,355 L 350,145"
+    fill="none" stroke="#22c55e" stroke-width="38"
+    stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
+
+<!-- ── 16px (favicon version: solid green bg, dark N) ── -->
+<text x="556" y="88" text-anchor="middle" font-family="system-ui,sans-serif" font-size="10" fill="#52525b" letter-spacing="1">16px favicon</text>
+<svg x="548" y="96" width="16" height="16" viewBox="0 0 32 32">
+  <rect width="32" height="32" rx="6" fill="#22c55e"/>
+  <path d="M 7,25 L 7,7 L 25,25 L 25,7"
+    fill="none" stroke="#09090b" stroke-width="5"
+    stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
+
+<!-- ── WORDMARK ── -->
+<text x="24" y="390" font-family="system-ui,sans-serif" font-size="10" fill="#52525b" letter-spacing="2">WORDMARK</text>
+<svg x="24" y="398" width="48" height="48" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="96" fill="#09090b"/>
+  <polygon points="256,56 429,156 429,356 256,456 83,356 83,156"
+    fill="none" stroke="#22c55e" stroke-width="20" stroke-linejoin="round"/>
+  <path d="M 162,355 L 162,145 L 350,355 L 350,145"
+    fill="none" stroke="#22c55e" stroke-width="38"
+    stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
+<text x="82" y="430" font-family="system-ui,sans-serif" font-size="28" font-weight="700" fill="#f4f4f5" letter-spacing="-1">NexHunt</text>
+
+<!-- ── ON WHITE (browser tab context) ── -->
+<rect x="24" y="462" width="760" height="46" rx="6" fill="#ffffff"/>
+<text x="44" y="490" font-family="system-ui,sans-serif" font-size="11" fill="#888" letter-spacing="0">sentinelsec-org.github.io</text>
+<svg x="620" y="468" width="16" height="16" viewBox="0 0 32 32">
+  <rect width="32" height="32" rx="6" fill="#22c55e"/>
+  <path d="M 7,25 L 7,7 L 25,25 L 25,7"
+    fill="none" stroke="#09090b" stroke-width="5"
+    stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
+<text x="644" y="481" font-family="system-ui,sans-serif" font-size="12" fill="#333">NexHunt - Bug Bounty, Automated.</text>
+
+<!-- ── Separator lines ── -->
+<line x1="24" y1="375" x2="776" y2="375" stroke="#1a1a1a" stroke-width="1"/>
+<line x1="24" y1="455" x2="776" y2="455" stroke="#1a1a1a" stroke-width="1"/>
+
+</svg>

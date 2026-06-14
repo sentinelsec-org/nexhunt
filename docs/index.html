@@ -7,7 +7,15 @@
 <meta name="description" content="NexHunt runs 20+ security tools for you. Recon to exploitation, chained into a single automated workflow. Built for Linux bug bounty hunters.">
 <meta property="og:title" content="NexHunt - Bug Bounty, Automated.">
 <meta property="og:description" content="The complete attack toolkit for bug bounty hunters. Recon to exploitation, automated on your Linux machine.">
-<meta property="og:image" content="screenshots/recon-pipeline.png">
+<meta property="og:image" content="og-image.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="og-image.png">
+<link rel="icon" type="image/x-icon" href="favicon.ico">
+<link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="favicon-16x16.png">
+<link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://app.lemonsqueezy.com/js/lemon.js" defer></script>
@@ -33,8 +41,6 @@ img{display:block;max-width:100%}
 /* ---- NAV ---- */
 nav{position:sticky;top:0;z-index:500;height:62px;display:flex;align-items:center;justify-content:space-between;padding:0 clamp(1rem,4vw,2.5rem);background:rgba(9,9,11,.88);border-bottom:1px solid var(--border);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px)}
 .nav-logo{display:flex;align-items:center;gap:9px;font-weight:700;font-size:.9375rem;letter-spacing:-.025em;color:var(--text)}
-.logo-mark{width:28px;height:28px;background:var(--green);border-radius:6px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
-.logo-mark svg{width:15px;height:15px;fill:#000}
 .nav-links{display:flex;align-items:center;gap:2px}
 .nav-link{font-size:.8125rem;font-weight:500;color:var(--text-2);padding:6px 13px;border-radius:6px;transition:color .15s,background .15s}
 .nav-link:hover{color:var(--text);background:var(--s2)}
@@ -198,8 +204,6 @@ nav{position:sticky;top:0;z-index:500;height:62px;display:flex;align-items:cente
 footer{border-top:1px solid var(--border);padding:2rem clamp(1rem,4vw,2.5rem)}
 .footer-inner{max-width:var(--max);margin:0 auto;display:flex;align-items:center;justify-content:space-between;gap:1.5rem;flex-wrap:wrap}
 .footer-left{display:flex;align-items:center;gap:.625rem;font-size:.8125rem;color:var(--text-3)}
-.footer-logo{width:22px;height:22px;background:var(--green);border-radius:5px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
-.footer-logo svg{width:12px;height:12px;fill:#000}
 .footer-links{display:flex;align-items:center;gap:1.25rem;flex-wrap:wrap}
 .footer-links a{font-size:.8125rem;color:var(--text-3);transition:color .15s}
 .footer-links a:hover{color:var(--text-2)}
@@ -230,9 +234,7 @@ footer{border-top:1px solid var(--border);padding:2rem clamp(1rem,4vw,2.5rem)}
 <!-- NAV -->
 <nav>
   <a href="#" class="nav-logo">
-    <div class="logo-mark">
-      <svg viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
-    </div>
+    <img src="favicon-32x32.png" width="28" height="28" alt="NexHunt" style="border-radius:6px;display:block;flex-shrink:0">
     NexHunt
   </a>
   <div class="nav-links">
@@ -660,9 +662,7 @@ footer{border-top:1px solid var(--border);padding:2rem clamp(1rem,4vw,2.5rem)}
 <footer>
   <div class="footer-inner">
     <div class="footer-left">
-      <div class="footer-logo">
-        <svg viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
-      </div>
+      <img src="favicon-32x32.png" width="22" height="22" alt="NexHunt" style="border-radius:5px;display:block;flex-shrink:0">
       <span data-key="footer_by">by Sentinel Security &bull; <a href="https://sentinelsec.online" target="_blank" rel="noreferrer" style="color:inherit">sentinelsec.online</a></span>
     </div>
     <div class="footer-links">
