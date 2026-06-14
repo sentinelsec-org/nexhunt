@@ -32,6 +32,7 @@ import {
   AlertTriangle,
   CheckCircle2,
   Zap,
+  Target,
 } from 'lucide-react'
 import type { Finding } from '@/types'
 
@@ -208,6 +209,7 @@ export function ScannerPage() {
   const [nucleiPreset, setNucleiPreset] = useState<string>('')
   const [nucleiGuideOpen, setNucleiGuideOpen] = useState(false)
   const [nucleiTemplateOpen, setNucleiTemplateOpen] = useState(false)
+  const [nucleiCatsOpen, setNucleiCatsOpen] = useState(false)
   const [nucleiTemplates, setNucleiTemplates] = useState<Array<{name: string; path: string; count: number}>>([])
   const [nucleiTemplatesLoaded, setNucleiTemplatesLoaded] = useState(false)
   const [toolOptions, setToolOptions] = useState<ToolOptionsMap>({})
@@ -485,7 +487,47 @@ export function ScannerPage() {
                             <BookOpen size={10} /> Templates
                           </button>
                         </div>
-                        {NUCLEI_SCAN_GROUPS.map(group => (
+                        {/* Quick start — the 90% path, one click */}
+                        <div>
+                          <div className="text-[9px] text-zinc-600 uppercase tracking-wider mb-1 font-semibold">Quick start</div>
+                          <div className="grid grid-cols-2 gap-1">
+                            <button
+                              onClick={() => { setNucleiPreset(''); setOption('nuclei', 'templates', '') }}
+                              className={cn(
+                                "text-left px-2 py-1.5 rounded border text-[10px] transition-colors",
+                                nucleiPreset === '' && !opts.templates
+                                  ? "border-green-500/60 bg-green-950/30 text-green-300"
+                                  : "border-zinc-800 text-zinc-500 hover:border-zinc-600 hover:text-zinc-300"
+                              )}
+                            >
+                              <div className={cn("font-medium", nucleiPreset === '' && !opts.templates ? "text-green-300" : "text-green-400")}>Recon rápido</div>
+                              <div className="text-[9px] mt-0.5 text-zinc-600 leading-tight">Tech + exposures + misconfig. Lo que corrés primero.</div>
+                            </button>
+                            <button
+                              onClick={() => { setNucleiPreset('full-owasp'); setOption('nuclei', 'templates', '') }}
+                              className={cn(
+                                "text-left px-2 py-1.5 rounded border text-[10px] transition-colors",
+                                nucleiPreset === 'full-owasp'
+                                  ? "border-red-500/60 bg-red-950/30 text-red-300"
+                                  : "border-zinc-800 text-zinc-500 hover:border-zinc-600 hover:text-zinc-300"
+                              )}
+                            >
+                              <div className={cn("font-medium", nucleiPreset === 'full-owasp' ? "text-red-300" : "text-red-400")}>Caza profunda</div>
+                              <div className="text-[9px] mt-0.5 text-zinc-600 leading-tight">OWASP Top 10 completo + CVEs. Lento pero exhaustivo.</div>
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* All categories — collapsed by default */}
+                        <button
+                          onClick={() => setNucleiCatsOpen(v => !v)}
+                          className="w-full flex items-center justify-center gap-1 text-[10px] text-zinc-500 hover:text-zinc-300 transition-colors py-0.5"
+                        >
+                          <Target size={10} /> Categoría específica
+                          <ChevronDown size={10} className={cn('transition-transform', nucleiCatsOpen && 'rotate-180')} />
+                        </button>
+
+                        {nucleiCatsOpen && NUCLEI_SCAN_GROUPS.map(group => (
                           <div key={group.label}>
                             <div className="text-[9px] text-zinc-600 uppercase tracking-wider mb-1 font-semibold">{group.label}</div>
                             <div className="grid grid-cols-2 gap-1">
