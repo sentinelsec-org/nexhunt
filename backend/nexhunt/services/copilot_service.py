@@ -123,21 +123,31 @@ class CopilotService:
             prompt = f"{ctx}\n\n---\n\nGenerate professional bug bounty reports for all critical and high severity findings. For each finding, include: severity, CVSS, description, steps to reproduce, impact, and remediation."
         return await self._dispatch(prompt)
 
-    async def _dispatch(self, message: str) -> str:
+    def _build_messages(self, history: list[dict] | None, message: str) -> list[dict]:
+        msgs = []
+        for h in (history or [])[-20:]:
+            role = h.get("role", "user")
+            if role not in ("user", "assistant"):
+                continue
+            msgs.append({"role": role, "content": str(h.get("content", ""))[:2000]})
+        msgs.append({"role": "user", "content": message})
+        return msgs
+
+    async def _dispatch(self, message: str, history: list[dict] | None = None) -> str:
         # PRO Copilot is hosted by Sentinel: the user's license key authorizes the call
         # and Sentinel's own AI key serves it. No local key is shipped.
         if settings.sentinel_ai_proxy_url:
-            return await self._chat_hosted(message)
+            return await self._chat_hosted(message, history)
         # Self-host / dev fallback: use a locally configured provider key.
         if settings.ai_provider == "groq" and settings.ai_groq_key:
-            return await self._chat_groq(message)
+            return await self._chat_groq(message, history)
         elif settings.ai_provider == "claude" and settings.ai_api_key:
-            return await self._chat_claude(message)
+            return await self._chat_claude(message, history)
         elif settings.ai_provider == "openai" and settings.ai_api_key:
-            return await self._chat_openai(message)
+            return await self._chat_openai(message, history)
         return "No AI provider configured."
 
-    async def _chat_hosted(self, message: str) -> str:
+    async def _chat_hosted(self, message: str, history: list[dict] | None = None) -> str:
         """Call Sentinel's hosted Copilot proxy, authenticated by the license key."""
         import asyncio
         import httpx
@@ -149,8 +159,9 @@ class CopilotService:
             "license_key": key,
             "machine_id": fingerprint.get_machine_id(),
             "system": SYSTEM_PROMPT + self._lang_instruction(),
-            "message": message[:12000],
-            "max_tokens": 2048,
+            "message": message[:16000],
+            "history": [h for h in (history or [])[-20:] if h.get("role") in ("user", "assistant")],
+            "max_tokens": 4096,
         }
         try:
             async with httpx.AsyncClient(timeout=95.0) as client:
@@ -169,8 +180,7 @@ class CopilotService:
             logger.error(f"Hosted Copilot error: {e}")
             return "AI Copilot is temporarily unavailable. Try again shortly."
 
-    async def _chat_groq(self, message: str) -> str:
-        """Call Groq via OpenAI-compatible API."""
+    async def _chat_groq(self, message: str, history: list[dict] | None = None) -> str:
         import asyncio
         try:
             from openai import AsyncOpenAI
@@ -180,16 +190,12 @@ class CopilotService:
                 timeout=90.0,
             )
             system = SYSTEM_PROMPT + self._lang_instruction()
-            # Trim context to keep under Groq's token limits and avoid timeouts
-            trimmed = message[:12000] if len(message) > 12000 else message
+            trimmed = message[:16000] if len(message) > 16000 else message
             resp = await asyncio.wait_for(
                 client.chat.completions.create(
                     model=settings.ai_model,
-                    messages=[
-                        {"role": "system", "content": system},
-                        {"role": "user", "content": trimmed},
-                    ],
-                    max_tokens=2048,
+                    messages=[{"role": "system", "content": system}] + self._build_messages(history, trimmed),
+                    max_tokens=4096,
                     temperature=0.3,
                 ),
                 timeout=90.0,
@@ -205,31 +211,28 @@ class CopilotService:
                 return "Request timed out. Groq is slow right now — try again or switch provider in Settings."
             return f"Groq API error: {err_str}"
 
-    async def _chat_claude(self, message: str) -> str:
+    async def _chat_claude(self, message: str, history: list[dict] | None = None) -> str:
         try:
             import anthropic
             client = anthropic.AsyncAnthropic(api_key=settings.ai_api_key)
             resp = await client.messages.create(
                 model="claude-sonnet-4-6",
-                max_tokens=4096,
+                max_tokens=8096,
                 system=SYSTEM_PROMPT,
-                messages=[{"role": "user", "content": message}],
+                messages=self._build_messages(history, message),
             )
             return resp.content[0].text
         except Exception as e:
             logger.error(f"Claude error: {e}")
             return f"Claude API error: {e}"
 
-    async def _chat_openai(self, message: str) -> str:
+    async def _chat_openai(self, message: str, history: list[dict] | None = None) -> str:
         try:
             from openai import AsyncOpenAI
             client = AsyncOpenAI(api_key=settings.ai_api_key)
             resp = await client.chat.completions.create(
                 model="gpt-4o",
-                messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": message},
-                ],
+                messages=[{"role": "system", "content": SYSTEM_PROMPT}] + self._build_messages(history, message),
                 max_tokens=4096,
             )
             return resp.choices[0].message.content or ""

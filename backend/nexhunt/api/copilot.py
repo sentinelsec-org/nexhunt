@@ -30,7 +30,8 @@ class HostsAnalysisRequest(BaseModel):
 class AgentChatRequest(BaseModel):
     message: str
     context: dict = {}
-    command_output: str = ""   # last terminal output to include
+    command_output: str = ""
+    history: list[dict] = []   # [{role, content}] previous turns
 
 
 @router.post("/chat")
@@ -119,7 +120,7 @@ async def agent_chat(req: AgentChatRequest):
         if lang:
             full_msg += lang
 
-        response = await copilot_service._dispatch(full_msg)
+        response = await copilot_service._dispatch(full_msg, history=req.history)
         return {"response": response}
     except Exception as e:
         logger.error(f"Copilot agent error: {e}")

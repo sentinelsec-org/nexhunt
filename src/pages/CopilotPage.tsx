@@ -285,11 +285,16 @@ export function CopilotPage() {
     addMessage({ role: 'terminal', content: output || '(no output)' })
     if (!output.trim()) return
     setLoading(true)
+    const history = messages
+      .filter(m => m.role === 'user' || m.role === 'assistant')
+      .slice(-20)
+      .map(m => ({ role: m.role, content: m.content }))
     try {
       const res = await api.post<{ response: string }>('/api/copilot/agent', {
         message: 'Analyze this command output and suggest next steps.',
         context: buildContext(),
         command_output: output.slice(0, 6000),
+        history,
       })
       appendAssistant(res.response || 'No response.')
     } catch (e) {
@@ -340,6 +345,10 @@ export function CopilotPage() {
 
   const sendChat = async (content: string) => {
     if (!content.trim() || loading) return
+    const history = messages
+      .filter(m => m.role === 'user' || m.role === 'assistant')
+      .slice(-20)
+      .map(m => ({ role: m.role, content: m.content }))
     addMessage({ role: 'user', content })
     setInput('')
     setLoading(true)
@@ -347,6 +356,7 @@ export function CopilotPage() {
       const res = await api.post<{ response: string }>('/api/copilot/agent', {
         message: content,
         context: buildContext(),
+        history,
       })
       appendAssistant(res.response || 'No response.')
     } catch (e) {
