@@ -119,8 +119,14 @@ class GraphqlAuditAdapter(ToolAdapter):
         yield {"_raw": True, "line": f"$ graphql-audit {url}"}
 
         # Split session headers into auth (stripped for unauth probes) and context (kept).
+        # A real browser User-Agent is included by default — CDNs/WAFs reset bare requests.
         raw_headers = options.get("session_headers", "") or ""
-        ctx_headers = {"Content-Type": "application/json"}
+        ctx_headers = {
+            "Content-Type": "application/json",
+            "User-Agent": ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                           "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"),
+            "Accept": "application/json",
+        }
         auth_headers = {}
         for part in raw_headers.replace("\n", ",").split(","):
             if ":" not in part:
@@ -182,7 +188,7 @@ class GraphqlAuditAdapter(ToolAdapter):
                 else:
                     yield {"_raw": True, "line": "  [-] Introspection disabled or not GraphQL"}
             except Exception as e:
-                yield {"_raw": True, "line": f"  Introspection error: {e}"}
+                yield {"_raw": True, "line": f"  Introspection error: {type(e).__name__}: {e or '(no message — connection blocked/timeout?)'}"}
 
             # 2) Error-leak probe (invalid field -> verbose error may leak internal URLs)
             try:
@@ -283,6 +289,7 @@ class GraphqlAuditAdapter(ToolAdapter):
                 yield {"_raw": True, "line": f"  Introspection off — discovering names ({len(candidates)} candidates + suggestions)..."}
                 suggestions: set[str] = set()
                 tried: set[str] = set()
+                stats = {"err": 0}
 
                 def _name_finding(name: str, code: int):
                     return {
@@ -309,7 +316,9 @@ class GraphqlAuditAdapter(ToolAdapter):
                         results = await asyncio.gather(*[_probe_name(n) for n in batch])
                         for n, (kind, code, sugg) in zip(batch, results):
                             suggestions.update(sugg)
-                            if kind == "hit":
+                            if kind == "err":
+                                stats["err"] += 1
+                            elif kind == "hit":
                                 out_hits.append((n, code))
                     return out_hits
 
@@ -337,6 +346,10 @@ class GraphqlAuditAdapter(ToolAdapter):
                                        "your extra names, and server field suggestions) answered without authentication.",
                         "tool": "graphql_audit", "template_id": "graphql-nointrospect-unauth", "status": "new",
                     }
+                elif stats["err"] >= len(tried) and tried:
+                    yield {"_raw": True, "line": f"  Could not reach the endpoint — every request failed ({stats['err']}/{len(tried)}). "
+                                                 "The host is blocking us (CDN/WAF), the URL is wrong, or it needs context headers "
+                                                 "(set Authorization + x-ui-* in Session)."}
                 else:
                     yield {"_raw": True, "line": "  No queries discovered. Add known names in 'Extra query names' and retry."}
 
