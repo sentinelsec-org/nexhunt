@@ -28,9 +28,12 @@ class DalfoxAdapter(ToolAdapter):
         if options.get("cookie"):
             base_flags.extend(["-C", options["cookie"]])
 
-        # Custom header
+        # Custom header(s) — one -H per "Name: value", comma- or newline-separated
         if options.get("header"):
-            base_flags.extend(["-H", options["header"]])
+            for h in options["header"].replace("\n", ",").split(","):
+                h = h.strip()
+                if h:
+                    base_flags.extend(["-H", h])
 
         # Specific parameter to test
         if options.get("param"):

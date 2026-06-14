@@ -33,6 +33,25 @@ def _base_domain(target: str) -> str:
     return urlparse(target).netloc or target
 
 
+def _parse_session_headers(raw: str) -> dict[str, str]:
+    """
+    Parse the Session 'headers' field (comma- or newline-separated 'Name: value')
+    into a dict, so token/Authorization auth applies to every pipeline stage.
+    """
+    out: dict[str, str] = {}
+    if not raw:
+        return out
+    for part in raw.replace("\n", ",").split(","):
+        part = part.strip()
+        if not part or ":" not in part:
+            continue
+        name, _, value = part.partition(":")
+        name, value = name.strip(), value.strip()
+        if name and value:
+            out[name] = value
+    return out
+
+
 async def _katana_crawl(
     target: str,
     opts: dict,
@@ -118,6 +137,8 @@ async def run_xss_pipeline(req: PipelineRequest):
         "message": f"Found {len(all_results)} URLs — {len(param_urls)} XSS candidates",
     })
 
+    sess_headers = _parse_session_headers(opts.get("session_headers", ""))
+
     # Phase 1b: mine endpoints from JS files and inline <script> tags
     if opts.get("parse_js", True):
         cookie_xss = opts.get("cookie", "") or None
@@ -142,14 +163,14 @@ async def run_xss_pipeline(req: PipelineRequest):
 
             for i in range(0, len(js_files_xss), workers_xss):
                 chunk = js_files_xss[i:i + workers_xss]
-                contents = await asyncio.gather(*[_fetch_js(u, cookie_xss) for u in chunk])
+                contents = await asyncio.gather(*[_fetch_js(u, cookie_xss, sess_headers) for u in chunk])
                 for u, c in zip(chunk, contents):
                     if c:
                         _collect_xss(c, u)
 
             for i in range(0, len(html_pages_xss), workers_xss):
                 chunk = html_pages_xss[i:i + workers_xss]
-                contents = await asyncio.gather(*[_fetch_js(u, cookie_xss) for u in chunk])
+                contents = await asyncio.gather(*[_fetch_js(u, cookie_xss, sess_headers) for u in chunk])
                 for u, c in zip(chunk, contents):
                     if c:
                         inline = _extract_inline_scripts(c)
@@ -191,8 +212,8 @@ async def run_xss_pipeline(req: PipelineRequest):
     dalfox_opts = {
         "targets": param_urls,
         "blind": opts.get("blind", ""),
-        "cookie": opts.get("cookie", ""),
-        "header": opts.get("header", ""),
+        "cookie": opts.get("cookie", "") or opts.get("session_cookies", ""),
+        "header": opts.get("header", "") or opts.get("session_headers", ""),
         "workers": opts.get("workers", 10),
     }
 
@@ -399,7 +420,7 @@ _TIME_PAYLOADS = [
 ]
 
 
-async def _probe_sqli(url: str, cookie: str | None) -> list[dict]:
+async def _probe_sqli(url: str, cookie: str | None, extra_headers: dict | None = None) -> list[dict]:
     """
     3-layer SQLi detection per parameter, params probed in priority order:
       1. Error-based: inject ' and match DB error signatures
@@ -418,6 +439,8 @@ async def _probe_sqli(url: str, cookie: str | None) -> list[dict]:
     headers = {"User-Agent": "Mozilla/5.0 NexHunt SQLi-Probe"}
     if cookie:
         headers["Cookie"] = cookie
+    if extra_headers:
+        headers.update(extra_headers)
 
     def build(param_name: str, payload: str) -> str:
         test_params = {k: v[0] for k, v in params.items()}
@@ -541,6 +564,7 @@ async def run_sqli_probe_pipeline(req: PipelineRequest):
     })
 
     cookie = opts.get("cookie", "") or None
+    sess_headers = _parse_session_headers(opts.get("session_headers", ""))
 
     # Phase 1b: mine endpoints from external .js files AND inline <script> tags
     if opts.get("parse_js", True):
@@ -570,7 +594,7 @@ async def run_sqli_probe_pipeline(req: PipelineRequest):
             # External .js: parse the whole file body
             for i in range(0, len(js_urls), workers):
                 chunk = js_urls[i:i + workers]
-                contents = await asyncio.gather(*[_fetch_js(u, cookie) for u in chunk])
+                contents = await asyncio.gather(*[_fetch_js(u, cookie, sess_headers) for u in chunk])
                 for u, content in zip(chunk, contents):
                     if content:
                         _collect(content, u)
@@ -578,7 +602,7 @@ async def run_sqli_probe_pipeline(req: PipelineRequest):
             # HTML pages: parse only the inline <script> bodies
             for i in range(0, len(html_urls), workers):
                 chunk = html_urls[i:i + workers]
-                contents = await asyncio.gather(*[_fetch_js(u, cookie) for u in chunk])
+                contents = await asyncio.gather(*[_fetch_js(u, cookie, sess_headers) for u in chunk])
                 for u, content in zip(chunk, contents):
                     if not content:
                         continue
@@ -612,7 +636,7 @@ async def run_sqli_probe_pipeline(req: PipelineRequest):
     # Process in chunks to limit concurrency
     for i in range(0, len(param_urls), workers):
         chunk = param_urls[i:i + workers]
-        results = await asyncio.gather(*[_probe_sqli(url, cookie) for url in chunk])
+        results = await asyncio.gather(*[_probe_sqli(url, cookie, sess_headers) for url in chunk])
         for findings in results:
             for finding in findings:
                 all_findings.append(finding)
@@ -661,12 +685,14 @@ _JS_PATTERNS: list[tuple[re.Pattern, str, str]] = [
 ]
 
 
-async def _fetch_js(url: str, cookie: str | None) -> str | None:
+async def _fetch_js(url: str, cookie: str | None, extra_headers: dict | None = None) -> str | None:
     """Fetch a JS file and return its content."""
     import httpx
     headers = {"User-Agent": "Mozilla/5.0 NexHunt JS-Scanner"}
     if cookie:
         headers["Cookie"] = cookie
+    if extra_headers:
+        headers.update(extra_headers)
     try:
         async with httpx.AsyncClient(verify=False, follow_redirects=True, timeout=15) as client:
             resp = await client.get(url, headers=headers)
@@ -766,12 +792,13 @@ async def run_js_scan_pipeline(req: PipelineRequest):
     })
 
     cookie = opts.get("cookie", "") or None
+    sess_headers = _parse_session_headers(opts.get("session_headers", ""))
     all_findings = []
     workers = int(opts.get("workers", 5))
 
     for i in range(0, len(js_urls), workers):
         chunk = js_urls[i:i + workers]
-        contents = await asyncio.gather(*[_fetch_js(url, cookie) for url in chunk])
+        contents = await asyncio.gather(*[_fetch_js(url, cookie, sess_headers) for url in chunk])
 
         for url, content in zip(chunk, contents):
             await ws_manager.broadcast("pipeline", {
@@ -808,7 +835,7 @@ async def run_js_scan_pipeline(req: PipelineRequest):
         })
         for i in range(0, len(html_scan_urls), workers):
             chunk = html_scan_urls[i:i + workers]
-            contents = await asyncio.gather(*[_fetch_js(u, cookie) for u in chunk])
+            contents = await asyncio.gather(*[_fetch_js(u, cookie, sess_headers) for u in chunk])
             for page_url, content in zip(chunk, contents):
                 if not content:
                     continue
