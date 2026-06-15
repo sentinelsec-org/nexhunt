@@ -11,7 +11,7 @@ import { cn } from '@/lib/utils'
 import {
   Play, Square, Loader2, Terminal, Copy, Check,
   Globe, Lock, Cloud, GitBranch, Radio, Info, X, BookOpen, Sparkles,
-  FolderGit2, Server, ChevronDown, Share2, FileCode2, Crown,
+  FolderGit2, Server, ChevronDown, Share2, FileCode2, Crown, Maximize2,
 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useWorkspaceStore } from '@/stores/workspace-store'
@@ -204,6 +204,7 @@ export function SecurityToolsPage() {
   const [view, setView] = useState<ViewMode>('findings')
   const [selected, setSelected] = useState<Finding | null>(null)
   const [copied, setCopied] = useState(false)
+  const [evidenceOpen, setEvidenceOpen] = useState(false)
   const [guideOpen, setGuideOpen] = useState(false)
   const [notInstalled, setNotInstalled] = useState<Set<string>>(new Set())
   const termRef = useRef<HTMLPreElement>(null)
@@ -648,7 +649,15 @@ export function SecurityToolsPage() {
                   )}
                   {selected.evidence && (
                     <div>
-                      <div className="text-zinc-600 mb-0.5 text-[10px]">Evidence</div>
+                      <div className="flex items-center justify-between mb-0.5">
+                        <div className="text-zinc-600 text-[10px]">Evidence</div>
+                        <button
+                          onClick={() => setEvidenceOpen(true)}
+                          className="flex items-center gap-1 text-[10px] text-cyan-400/80 hover:text-cyan-300 transition-colors"
+                        >
+                          <Maximize2 size={10} /> Expand
+                        </button>
+                      </div>
                       <pre className="text-[10px] bg-zinc-950 rounded p-2 overflow-auto text-zinc-400 whitespace-pre-wrap break-all leading-relaxed max-h-48">
                         {selected.evidence}
                       </pre>
@@ -674,6 +683,40 @@ export function SecurityToolsPage() {
           )}
         </div>
       </div>
+
+      {/* Evidence reader modal */}
+      {evidenceOpen && selected?.evidence && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
+          onClick={() => setEvidenceOpen(false)}
+        >
+          <div
+            className="w-full max-w-4xl max-h-[88vh] flex flex-col rounded-xl border border-zinc-700 bg-zinc-950 shadow-2xl overflow-hidden"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-5 py-3 border-b border-zinc-800 bg-zinc-900 shrink-0">
+              <div className="flex items-center gap-2 min-w-0">
+                <FileCode2 size={14} className="text-cyan-400 shrink-0" />
+                <span className="text-sm font-semibold text-zinc-100 truncate">{selected.title}</span>
+              </div>
+              <div className="flex items-center gap-3 shrink-0">
+                <button
+                  onClick={() => { navigator.clipboard.writeText(selected.evidence || ''); setCopied(true); setTimeout(() => setCopied(false), 1200) }}
+                  className="flex items-center gap-1 text-[11px] text-zinc-400 hover:text-zinc-200 transition-colors"
+                >
+                  {copied ? <Check size={12} className="text-green-400" /> : <Copy size={12} />} {copied ? 'Copied' : 'Copy all'}
+                </button>
+                <button onClick={() => setEvidenceOpen(false)} className="text-zinc-600 hover:text-zinc-300">
+                  <X size={14} />
+                </button>
+              </div>
+            </div>
+            <pre className="overflow-auto p-4 text-[11px] leading-relaxed font-mono text-zinc-300 whitespace-pre-wrap break-all">
+              {selected.evidence}
+            </pre>
+          </div>
+        </div>
+      )}
 
       {/* Guide modal */}
       {guideOpen && (

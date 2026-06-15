@@ -262,7 +262,7 @@ class ViewStateAuditAdapter(ToolAdapter):
                     "title": f"[VIEWSTATE] Decoded content — {found_url}",
                     "severity": "info", "vuln_type": "information-disclosure",
                     "url": found_url, "parameter": "__VIEWSTATE",
-                    "evidence": cleartext[:1900] + ("\n...(truncated)" if len(cleartext) > 1900 else ""),
+                    "evidence": cleartext[:18000] + ("\n...(truncated)" if len(cleartext) > 18000 else ""),
                     "description": (
                         "Human-readable strings recovered from the unencrypted __VIEWSTATE. "
                         "Read through it for control names, embedded data, internal paths or "
