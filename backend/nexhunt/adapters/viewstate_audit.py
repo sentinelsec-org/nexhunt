@@ -59,6 +59,31 @@ def _strings(data: bytes, minlen: int = 4) -> str:
     )
 
 
+_INPUT_RE = re.compile(r"<input\b[^>]*>", re.IGNORECASE)
+
+
+def _attr(tag: str, name: str) -> str | None:
+    m = re.search(name + r'\s*=\s*"([^"]*)"', tag, re.IGNORECASE)
+    return m.group(1) if m else None
+
+
+def _all_form_fields(html: str) -> dict:
+    """Every <input> name=value on the page (for replaying a postback)."""
+    fields = {}
+    for tag in _INPUT_RE.findall(html):
+        n = _attr(tag, "name")
+        if n:
+            fields[n] = _attr(tag, "value") or ""
+    return fields
+
+
+def _form_action(html: str, page_url: str) -> str:
+    m = re.search(r'<form\b[^>]*\baction\s*=\s*"([^"]*)"', html, re.IGNORECASE)
+    if not m or not m.group(1):
+        return page_url
+    return urljoin(page_url, m.group(1))
+
+
 # ── secret signatures (run over the recovered cleartext) ────────────────────
 
 _SECRET_PATTERNS = [
@@ -225,30 +250,36 @@ class ViewStateAuditAdapter(ToolAdapter):
                 cleartext = _strings(raw)
                 hits = _scan_cleartext(cleartext)
 
-                # Unencrypted VIEWSTATE + generator present = ViewState deserialization candidate.
+                # Surface the decoded content so it can actually be read, not just
+                # pattern-matched. Stream a preview to the console too.
+                preview = cleartext[:1500]
+                for ln in preview.splitlines()[:60]:
+                    yield {"_raw": True, "line": f"    | {ln}"}
+                if len(cleartext) > 1500:
+                    yield {"_raw": True, "line": f"    | ... ({len(cleartext) - 1500} more chars truncated in console)"}
+                yield {
+                    "_raw": False, "id": None,
+                    "title": f"[VIEWSTATE] Decoded content — {found_url}",
+                    "severity": "info", "vuln_type": "information-disclosure",
+                    "url": found_url, "parameter": "__VIEWSTATE",
+                    "evidence": cleartext[:1900] + ("\n...(truncated)" if len(cleartext) > 1900 else ""),
+                    "description": (
+                        "Human-readable strings recovered from the unencrypted __VIEWSTATE. "
+                        "Read through it for control names, embedded data, internal paths or "
+                        "anything the secret patterns did not catch."
+                    ),
+                    "tool": "viewstate_audit",
+                    "template_id": "viewstate-content",
+                    "status": "new",
+                }
+
+                # Confirm whether ViewStateMAC is enabled by replaying a tampered postback.
+                verdict, mac_ev = "inconclusive", ""
                 if generator:
-                    yield {
-                        "_raw": False, "id": None,
-                        "title": f"[VIEWSTATE] Unencrypted ViewState — RCE candidate — {found_url}",
-                        "severity": "high", "vuln_type": "deserialization",
-                        "url": found_url, "parameter": "__VIEWSTATE",
-                        "evidence": (
-                            f"__VIEWSTATE decodes to cleartext ObjectStateFormatter "
-                            f"({len(raw)} bytes), __VIEWSTATEGENERATOR={generator}.\n"
-                            "Not encrypted -> if the MAC is also disabled this is a "
-                            "deserialization RCE sink."
-                        ),
-                        "description": (
-                            "ASP.NET __VIEWSTATE is not encrypted. If ViewStateMAC is disabled "
-                            "(or the machineKey leaks), it is exploitable for remote code "
-                            "execution. Verify with: "
-                            f"ysoserial.net -p ViewState -g <gadget> --generator={generator} "
-                            "-c \"<cmd>\"  and replay against the page."
-                        ),
-                        "tool": "viewstate_audit",
-                        "template_id": "viewstate-unencrypted",
-                        "status": "new",
-                    }
+                    yield {"_raw": True, "line": "  Testing ViewStateMAC (tampered postback)..."}
+                    verdict, mac_ev = await self._test_mac(client, found_url, html, vs, headers)
+                    yield {"_raw": True, "line": f"  MAC test: {verdict} — {mac_ev}"}
+                    yield self._rce_finding(found_url, generator, len(raw), verdict, mac_ev)
 
                 if hits:
                     yield {"_raw": True, "line": f"  {len(hits)} sensitive value(s) recovered from VIEWSTATE"}
@@ -278,6 +309,72 @@ class ViewStateAuditAdapter(ToolAdapter):
             for au in list(asmx_urls)[:5]:
                 async for item in self._enum_soap(client, au, headers):
                     yield item
+
+    async def _test_mac(self, client, page_url: str, html: str, vs: str, headers: dict):
+        """Replay the postback with a tampered __VIEWSTATE to detect ViewStateMAC.
+
+        Returns (verdict, evidence) with verdict in {enabled, disabled, inconclusive}.
+        """
+        fields = _all_form_fields(html)
+        if "__VIEWSTATE" not in fields or len(vs) < 8:
+            return "inconclusive", "no replayable postback form on the page"
+        mid = len(vs) // 2
+        fields["__VIEWSTATE"] = vs[:mid] + ("A" if vs[mid] != "A" else "B") + vs[mid + 1:]
+        action = _form_action(html, page_url)
+        post_headers = {**headers, "Content-Type": "application/x-www-form-urlencoded"}
+        try:
+            resp = await client.post(action, data=fields, headers=post_headers)
+        except Exception as e:
+            return "inconclusive", f"replay request failed: {e}"
+        body = resp.text.lower()
+        mac_on = ("validation of viewstate mac failed" in body
+                  or "state information is invalid for this page" in body)
+        mac_off = ("failed to load viewstate" in body or "control tree into which viewstate" in body)
+        if mac_on:
+            return "enabled", f"tampered postback -> HTTP {resp.status_code}, MAC validation error"
+        if mac_off:
+            return "disabled", f"tampered postback -> HTTP {resp.status_code}, deserialized without MAC rejection"
+        if resp.status_code == 200:
+            return "disabled", f"tampered postback accepted (HTTP {resp.status_code}) with no MAC error"
+        return "inconclusive", f"tampered postback -> HTTP {resp.status_code}, no clear MAC signal (custom errors may hide it)"
+
+    def _rce_finding(self, found_url: str, generator: str, size: int, verdict: str, mac_ev: str) -> dict:
+        gad = f"ysoserial.net -p ViewState -g TypeConfuseDelegate --generator={generator} -c \"<cmd>\""
+        common = {
+            "_raw": False, "id": None,
+            "url": found_url, "parameter": "__VIEWSTATE",
+            "tool": "viewstate_audit", "template_id": "viewstate-unencrypted", "status": "new",
+        }
+        if verdict == "disabled":
+            return {**common,
+                "title": f"[VIEWSTATE] Unencrypted + MAC disabled — RCE likely — {found_url}",
+                "severity": "critical", "vuln_type": "deserialization",
+                "evidence": (f"Unencrypted ObjectStateFormatter ({size} bytes), generator={generator}.\n"
+                             f"MAC test: {mac_ev}.\nThe server accepted a tampered __VIEWSTATE -> no MAC."),
+                "description": ("ViewStateMAC appears disabled: the page processed a tampered __VIEWSTATE "
+                                "without a MAC error. This is a deserialization RCE. Confirm out-of-band:\n"
+                                f"{gad} (point -c at your Interactsh host and replay the generated VIEWSTATE)."),
+            }
+        if verdict == "enabled":
+            return {**common,
+                "title": f"[VIEWSTATE] Unencrypted but MAC-validated — info leak, not RCE — {found_url}",
+                "severity": "medium", "vuln_type": "information-disclosure",
+                "evidence": (f"Unencrypted ObjectStateFormatter ({size} bytes), generator={generator}.\n"
+                             f"MAC test: {mac_ev}."),
+                "description": ("__VIEWSTATE is readable (not encrypted) but ViewStateMAC is ON — the tampered "
+                                "postback was rejected. Blind ViewState RCE is not possible without the machineKey. "
+                                "Value still leaks whatever is embedded; to reach RCE, hunt the machineKey "
+                                "(exposed web.config/.git/backups), then forge with ysoserial.net --validationkey."),
+            }
+        return {**common,
+            "title": f"[VIEWSTATE] Unencrypted ViewState — RCE candidate (MAC unconfirmed) — {found_url}",
+            "severity": "high", "vuln_type": "deserialization",
+            "evidence": (f"Unencrypted ObjectStateFormatter ({size} bytes), generator={generator}.\n"
+                         f"MAC test: {mac_ev}."),
+            "description": ("__VIEWSTATE is not encrypted. The MAC test was inconclusive (custom errors may "
+                            "hide the result). Verify the MAC by hand, then if disabled:\n"
+                            f"{gad} and replay against the page."),
+        }
 
     async def _enum_soap(self, client, asmx_url: str, headers: dict) -> AsyncIterator[dict]:
         wsdl_url = asmx_url.split("?")[0] + "?WSDL"
