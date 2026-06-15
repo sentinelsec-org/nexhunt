@@ -146,6 +146,18 @@ async def run_graphql_audit(req: ToolRequest):
     return _start_tool("graphql_audit", req.target, req.options, req.project_id or None)
 
 
+@router.post("/viewstate", dependencies=[Depends(require_pro("VIEWSTATE Auditor"))])
+async def run_viewstate_audit(req: ToolRequest):
+    return _start_tool("viewstate_audit", req.target, req.options, req.project_id or None)
+
+
+@router.post("/viewstate-bulk", dependencies=[Depends(require_pro("VIEWSTATE Auditor"))])
+async def run_viewstate_audit_bulk(req: BulkToolRequest):
+    targets = [t.strip() for t in req.targets if t.strip()][:50]
+    job_ids = [_start_tool("viewstate_audit", t, req.options, req.project_id or None)["job_id"] for t in targets]
+    return {"status": "started", "count": len(job_ids), "job_ids": job_ids}
+
+
 @router.post("/exposed-files-bulk")
 async def run_exposed_files_bulk(req: BulkToolRequest):
     targets = [t.strip() for t in req.targets if t.strip()][:50]

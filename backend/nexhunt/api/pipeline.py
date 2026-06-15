@@ -792,6 +792,7 @@ async def run_js_scan_pipeline(req: PipelineRequest):
     })
 
     from nexhunt.adapters.cloud_buckets import _buckets_from_text
+    from nexhunt.adapters.viewstate_audit import viewstate_findings_from_html
 
     cookie = opts.get("cookie", "") or None
     sess_headers = _parse_session_headers(opts.get("session_headers", ""))
@@ -843,6 +844,16 @@ async def run_js_scan_pipeline(req: PipelineRequest):
             for page_url, content in zip(chunk, contents):
                 if not content:
                     continue
+                # ASP.NET __VIEWSTATE mining (decode + secret scan, no extra request)
+                for vf in viewstate_findings_from_html(page_url, content):
+                    all_findings.append(vf)
+                    await ws_manager.broadcast("findings", vf)
+                    await ws_manager.broadcast("pipeline", {
+                        "phase": "js_scan", "event": "finding",
+                        "pipeline": "js_scan",
+                        "finding": vf,
+                        "total_findings": len(all_findings),
+                    })
                 inline = _extract_inline_scripts(content)
                 if not inline:
                     continue

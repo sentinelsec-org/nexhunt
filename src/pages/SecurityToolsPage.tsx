@@ -11,22 +11,26 @@ import { cn } from '@/lib/utils'
 import {
   Play, Square, Loader2, Terminal, Copy, Check,
   Globe, Lock, Cloud, GitBranch, Radio, Info, X, BookOpen, Sparkles,
-  FolderGit2, Server, ChevronDown, Share2, Crown,
+  FolderGit2, Server, ChevronDown, Share2, FileCode2, Crown,
 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import type { Finding } from '@/types'
 
-type ToolId = 'cors' | 'bypass_403' | 'cloud_buckets' | 'exposed_files' | 'graphql_audit' | 'github_scanner' | 'interactsh'
+type ToolId = 'cors' | 'bypass_403' | 'cloud_buckets' | 'exposed_files' | 'graphql_audit' | 'viewstate_audit' | 'github_scanner' | 'interactsh'
 type ViewMode = 'findings' | 'terminal'
 
+// PRO-only tools in prod.
+const PRO_TOOLS: ToolId[] = ['graphql_audit', 'viewstate_audit']
+
 // Tools that take a live-host URL — get the host picker + bulk scan.
-const HOST_TOOLS: ToolId[] = ['cors', 'bypass_403', 'exposed_files']
+const HOST_TOOLS: ToolId[] = ['cors', 'bypass_403', 'exposed_files', 'viewstate_audit']
 const BULK_ENDPOINT: Partial<Record<ToolId, string>> = {
   cors: '/api/tools/cors-bulk',
   bypass_403: '/api/tools/bypass-403-bulk',
   exposed_files: '/api/tools/exposed-files-bulk',
   cloud_buckets: '/api/tools/cloud-buckets-bulk',
+  viewstate_audit: '/api/tools/viewstate-bulk',
 }
 
 interface ToolDef {
@@ -122,6 +126,21 @@ const TOOLS: ToolDef[] = [
     endpoint: '/api/tools/graphql',
   },
   {
+    id: 'viewstate_audit',
+    label: 'VIEWSTATE Auditor',
+    icon: FileCode2,
+    tagline: 'Decode ASP.NET __VIEWSTATE + secrets + SOAP enum',
+    what: 'Decodes the hidden __VIEWSTATE field on ASP.NET WebForms pages and reads what developers embedded in it — and flags when the blob is unencrypted (a deserialization-RCE candidate).',
+    impact: 'Unencrypted VIEWSTATE leaks whatever was stored in it: credentials, connection strings, private keys, internal service URLs and IPs — in cleartext. If its MAC is also disabled it is a ViewState deserialization RCE sink (ysoserial.net). It also surfaces internal .asmx/.svc SOAP services and lists their methods.',
+    desc: 'Fetches the URL (and common ASP.NET entry points: /, /default.aspx, /login.aspx), extracts __VIEWSTATE + __VIEWSTATEGENERATOR, Base64-decodes the blob and confirms whether it is encrypted (encrypted blobs do not start with the ObjectStateFormatter 0xFF01 marker). When cleartext, it runs strings-style extraction and mines for embedded credentials, keys, connection strings, AWS keys, private IPs and internal/SOAP URLs. Any .asmx/.svc referenced on the page or inside the blob has its WSDL pulled and its operations listed. Run on one URL or sweep every live host from Recon. Honors your Session cookie/token.',
+    inputLabel: 'Target URL (ASP.NET page)',
+    placeholder: 'https://target.com/Login.aspx',
+    color: 'text-cyan-400',
+    border: 'border-cyan-500/30',
+    bg: 'bg-cyan-950/15',
+    endpoint: '/api/tools/viewstate',
+  },
+  {
     id: 'github_scanner',
     label: 'GitHub Secrets',
     icon: GitBranch,
@@ -178,7 +197,7 @@ const TOOL_BINARY: Partial<Record<ToolId, string>> = {
 export function SecurityToolsPage() {
   const [activeTab, setActiveTab] = useState<ToolId>('cors')
   const [targets, setTargets] = useState<Record<ToolId, string>>({
-    cors: '', bypass_403: '', cloud_buckets: '', exposed_files: '', graphql_audit: '', github_scanner: '', interactsh: '',
+    cors: '', bypass_403: '', cloud_buckets: '', exposed_files: '', graphql_audit: '', viewstate_audit: '', github_scanner: '', interactsh: '',
   })
   const [graphqlSampleIds, setGraphqlSampleIds] = useState('')
   const [graphqlExtraQueries, setGraphqlExtraQueries] = useState('')
@@ -191,9 +210,9 @@ export function SecurityToolsPage() {
   const navigate = useNavigate()
 
   const { activeProject, globalTarget, getSessionOpts } = useAppStore()
+  const { isPro } = useLicenseStore()
   const { findings, rawOutput, activeScans, activeJobIds } = useScannerStore()
   const { liveHosts, urls } = useReconStore()
-  const { isPro } = useLicenseStore()
   const { addFinding: addToWorkspace } = useWorkspaceStore()
 
   // Check which tools are installed once on mount
@@ -229,7 +248,7 @@ export function SecurityToolsPage() {
   const oobHost = findings.find(f => f.tool === 'interactsh' && f.template_id === 'interactsh-host')?.url?.replace('http://', '') ?? ''
 
   const tool = TOOLS.find(t => t.id === activeTab)!
-  const gqlGated = activeTab === 'graphql_audit' && !isPro()  // PRO-only in prod
+  const proGated = PRO_TOOLS.includes(activeTab) && !isPro()  // PRO-only in prod
 
   // Per-tool extra options on top of the session (cookies/headers).
   const optsFor = (id: ToolId) => {
@@ -323,7 +342,7 @@ export function SecurityToolsPage() {
                   <span className={cn('text-xs font-medium flex-1', active ? t.color : 'text-zinc-400')}>
                     {t.label}
                   </span>
-                  {t.id === 'graphql_audit' && !isPro() && <Crown size={11} className="text-amber-400 shrink-0" />}
+                  {PRO_TOOLS.includes(t.id) && !isPro() && <Crown size={11} className="text-amber-400 shrink-0" />}
                   {running && <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse shrink-0" />}
                   {count > 0 && !running && (
                     <span className="text-[9px] px-1 rounded bg-zinc-800 text-zinc-500">{count}</span>
@@ -378,12 +397,12 @@ export function SecurityToolsPage() {
             </div>
             <p className="text-[10px] text-zinc-600 leading-relaxed">{tool.desc}</p>
 
-            {gqlGated && (
+            {proGated && (
               <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-950/20 px-3 py-2">
                 <Crown size={14} className="text-amber-400 shrink-0 mt-0.5" />
                 <div className="text-[11px] leading-relaxed">
-                  <span className="text-amber-300 font-semibold">GraphQL Auditor is a PRO feature.</span>
-                  <span className="text-zinc-400"> Upgrade to run schema introspection, no-auth access checks and IDOR testing. </span>
+                  <span className="text-amber-300 font-semibold">{tool.label} is a PRO feature.</span>
+                  <span className="text-zinc-400"> Upgrade to run it. </span>
                   <a href="https://sentinelsec.online/pricing" target="_blank" rel="noreferrer" className="text-amber-400 underline">Get PRO</a>
                 </div>
               </div>
@@ -426,10 +445,10 @@ export function SecurityToolsPage() {
               ) : (
                 <button
                   onClick={handleRun}
-                  disabled={(!targets[activeTab].trim() && activeTab !== 'interactsh') || gqlGated}
+                  disabled={(!targets[activeTab].trim() && activeTab !== 'interactsh') || proGated}
                   className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border border-green-700/70 text-green-400 hover:bg-green-950/30 disabled:opacity-40 disabled:cursor-not-allowed transition-colors shrink-0"
                 >
-                  {gqlGated ? <Crown size={11} /> : <Play size={11} />} {gqlGated ? 'PRO' : 'Run'}
+                  {proGated ? <Crown size={11} /> : <Play size={11} />} {proGated ? 'PRO' : 'Run'}
                 </button>
               )}
             </div>
@@ -438,7 +457,7 @@ export function SecurityToolsPage() {
             {BULK_ENDPOINT[activeTab] && (
               <button
                 onClick={handleBulkScan}
-                disabled={isRunning || bulkTargets.length === 0}
+                disabled={isRunning || bulkTargets.length === 0 || proGated}
                 className={cn(
                   'w-full flex items-center justify-center gap-1.5 px-3 py-1.5 text-[11px] font-medium rounded-md border transition-colors disabled:opacity-40 disabled:cursor-not-allowed',
                   tool.border, tool.color, 'hover:bg-zinc-800/40'
@@ -682,6 +701,7 @@ export function SecurityToolsPage() {
               {activeTab === 'cloud_buckets' && <CloudGuide />}
               {activeTab === 'exposed_files' && <ExposedFilesGuide />}
               {activeTab === 'graphql_audit' && <GraphqlGuide />}
+              {activeTab === 'viewstate_audit' && <ViewStateGuide />}
               {activeTab === 'github_scanner' && <GithubGuide />}
               {activeTab === 'interactsh' && <InteractshGuide />}
             </div>
@@ -1019,6 +1039,65 @@ function GraphqlGuide() {
         </p>
       </GuideSection>
       <Tip>A "returns data without authentication" hit on a query like <code className="text-fuchsia-400">me</code>, <code className="text-fuchsia-400">order</code> or <code className="text-fuchsia-400">loyaltyUser</code> is usually a high-impact broken-access-control bug. Verify with the curl in the finding, then build the full query by hand to pull the actual data.</Tip>
+    </>
+  )
+}
+
+function ViewStateGuide() {
+  return (
+    <>
+      <GuideSection title="New to this? Read this first">
+        <div className="space-y-1.5 text-[10px] text-zinc-500 leading-relaxed">
+          <p>
+            Sites built on <span className="text-zinc-300">ASP.NET WebForms</span> (Microsoft, very common in
+            enterprise/legacy apps — pages ending in <code className="text-cyan-400">.aspx</code>) carry a giant hidden field
+            called <code className="text-cyan-400">__VIEWSTATE</code> in every form:
+          </p>
+          <pre className="text-[10px] bg-zinc-950 rounded p-2 text-cyan-300 overflow-x-auto">{`<input type="hidden" name="__VIEWSTATE"
+       value="/wEPDwUJNjgzNDM1ODU3DxYE..." />`}</pre>
+          <p>
+            That long value is just <span className="text-zinc-300">Base64</span>, not encryption. It stores the page's state
+            between clicks. Developers sometimes dump config into it ("it's encoded, nobody reads it") — so it leaks.
+          </p>
+        </div>
+      </GuideSection>
+      <GuideSection title="The two bugs this finds">
+        <div className="space-y-1 text-[10px] text-zinc-500 leading-relaxed">
+          <p><span className="text-amber-400">1. Secret leakage</span> — decode the blob and read embedded credentials, DB connection strings, private/API keys, internal service URLs and IPs in cleartext.</p>
+          <p><span className="text-amber-400">2. Deserialization RCE</span> — if the VIEWSTATE is not encrypted <span className="text-zinc-300">and</span> its MAC is disabled, you can forge a malicious blob the server deserializes into code execution (the classic <code className="text-zinc-400">ysoserial.net -p ViewState</code> attack).</p>
+        </div>
+      </GuideSection>
+      <GuideSection title="What this tool does, step by step">
+        <div className="space-y-1 text-[10px] text-zinc-500 leading-relaxed">
+          <p><span className="text-cyan-400 font-semibold">1. Find it</span> — fetches the URL plus common entry points (<code className="text-zinc-400">/</code>, <code className="text-zinc-400">/default.aspx</code>, <code className="text-zinc-400">/login.aspx</code>) and pulls __VIEWSTATE + __VIEWSTATEGENERATOR.</p>
+          <p><span className="text-cyan-400 font-semibold">2. Decode</span> — Base64-decodes and checks if it is encrypted (encrypted blobs lack the <code className="text-zinc-400">0xFF01</code> ObjectStateFormatter marker).</p>
+          <p><span className="text-cyan-400 font-semibold">3. Mine</span> — on cleartext blobs, runs strings extraction and flags credentials, keys, connection strings, AWS keys, private IPs and internal/SOAP URLs.</p>
+          <p><span className="text-cyan-400 font-semibold">4. RCE flag</span> — an unencrypted blob with a generator value is reported as an RCE candidate (verify the MAC by hand with ysoserial.net).</p>
+          <p><span className="text-cyan-400 font-semibold">5. SOAP enum</span> — any <code className="text-zinc-400">.asmx</code>/<code className="text-zinc-400">.svc</code> referenced on the page or inside the blob gets its WSDL pulled and its methods listed.</p>
+        </div>
+      </GuideSection>
+      <GuideSection title="Which URL goes here">
+        <p className="text-[10px] text-zinc-500 leading-relaxed">
+          Any ASP.NET page that renders a form — login pages and search/listing pages are the richest.
+          Look for URLs ending in <code className="text-cyan-400">.aspx</code>, or "View source" and search for
+          <code className="text-cyan-400"> __VIEWSTATE</code>. If it is there, this tool has something to chew on.
+          You can also sweep every live host from Recon with the bulk button.
+        </p>
+      </GuideSection>
+      <GuideSection title="Runs inside JS Secrets too">
+        <p className="text-[10px] text-zinc-500 leading-relaxed">
+          The <span className="text-blue-400">JS Secrets</span> pipeline now auto-decodes any __VIEWSTATE it crawls, so you
+          get these findings for free across a whole site without picking pages by hand.
+        </p>
+      </GuideSection>
+      <GuideSection title="Is it safe to run?">
+        <p className="text-[10px] text-zinc-500 leading-relaxed">
+          Yes — <span className="text-green-300">read-only</span>. It only GETs pages and decodes a field that was already
+          sent to your browser; it never forges or replays a VIEWSTATE. The RCE finding is a <span className="text-zinc-300">candidate</span>
+          flag — actual exploitation (ysoserial.net) is a manual step you run only with authorization.
+        </p>
+      </GuideSection>
+      <Tip>An unencrypted VIEWSTATE that leaks an internal URL with a non-standard port (like <code className="text-cyan-400">http://10.0.0.5:8083/...asmx</code>) is gold: it usually points at an internal SOAP backend. Let the tool pull its WSDL, then review the methods for unauthenticated, state-changing operations.</Tip>
     </>
   )
 }
