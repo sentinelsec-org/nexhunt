@@ -20,7 +20,7 @@ The installer downloads the latest `.deb` from GitHub Releases when available. I
 Manual install:
 
 ```bash
-curl -L -o nexhunt.deb https://github.com/sentinelsec-org/nexhunt/releases/latest/download/nexhunt_1.2.0_amd64.deb
+curl -L -o nexhunt.deb https://github.com/sentinelsec-org/nexhunt/releases/latest/download/nexhunt_1.2.1_amd64.deb
 sudo apt install ./nexhunt.deb
 ```
 
