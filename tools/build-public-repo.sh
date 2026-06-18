@@ -147,6 +147,7 @@ cat > "$OUT/.gitignore" <<'GITIGNORE'
 !install.sh
 GITIGNORE
 
+sed -i "s/nexhunt_1\.2\.0_amd64\.deb/nexhunt_${VERSION}_amd64.deb/" "$OUT/README.md"
 chmod +x "$OUT/install.sh"
 ok "$OUT"
 
