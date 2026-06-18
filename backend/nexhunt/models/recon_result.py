@@ -11,9 +11,11 @@ class ReconResult(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     type: Mapped[str] = mapped_column(String(30), nullable=False)  # subdomain, live_host, url, port, screenshot
     target: Mapped[str] = mapped_column(Text, nullable=True)
+    project_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     data: Mapped[str] = mapped_column(Text, nullable=False)  # JSON blob
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     __table_args__ = (
         Index("idx_recon_type", "type"),
+        Index("idx_recon_project", "project_id"),
     )

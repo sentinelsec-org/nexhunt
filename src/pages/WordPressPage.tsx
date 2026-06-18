@@ -40,7 +40,7 @@ export function WordPressPage() {
   const [showAdv, setShowAdv] = useState(false)
   const [opts, setOpts] = useState({
     random_user_agent: true, stealthy: false, disable_tls_checks: false, force: false,
-    passwords: '', usernames: '', password_attack: '',
+    extra_args: '', passwords: '', usernames: '', password_attack: '',
   })
   const [copiedId, setCopiedId] = useState<string | null>(null)
   const logRef = useRef<HTMLPreElement>(null)
@@ -77,6 +77,7 @@ export function WordPressPage() {
           stealthy: opts.stealthy,
           disable_tls_checks: opts.disable_tls_checks,
           force: opts.force,
+          extra_args: opts.extra_args || undefined,
           passwords: opts.passwords || undefined,
           usernames: opts.usernames || undefined,
           password_attack: opts.password_attack || undefined,
@@ -204,6 +205,17 @@ export function WordPressPage() {
                 <Check label="Stealthy (passive)" checked={opts.stealthy} onChange={v => setOpts(p => ({ ...p, stealthy: v }))} />
                 <Check label="Disable TLS checks" checked={opts.disable_tls_checks} onChange={v => setOpts(p => ({ ...p, disable_tls_checks: v }))} />
                 <Check label="Force (skip WP check / 403)" checked={opts.force} onChange={v => setOpts(p => ({ ...p, force: v }))} />
+              </div>
+              <div className="rounded-lg border border-zinc-800 bg-zinc-950/60 p-3 space-y-1.5">
+                <OptRow
+                  label="Extra flags"
+                  placeholder="--ignore-main-redirect --detection-mode mixed"
+                  value={opts.extra_args}
+                  onChange={v => setOpts(p => ({ ...p, extra_args: v }))}
+                />
+                <div className="pl-[6.5rem] text-[10px] text-zinc-600 leading-relaxed">
+                  Appended directly to WPScan. Use this for flags such as <code className="text-zinc-500">--ignore-main-redirect</code>, custom proxy, user-agent, or detection options.
+                </div>
               </div>
               {/* Password attack */}
               <div className="rounded-lg border border-red-900/40 bg-red-950/10 p-3 space-y-2">

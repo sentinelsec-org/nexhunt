@@ -14,13 +14,13 @@ logger = logging.getLogger(__name__)
 
 # ── Persistence helper ──────────────────────────────────────────────────────────
 
-async def _save_recon_result(result_type: str, target: str, data: dict):
+async def _save_recon_result(result_type: str, target: str, data: dict, project_id: str | None = None):
     """Persist a single recon result to the database."""
     from nexhunt.database import DefaultSession
     from nexhunt.models.recon_result import ReconResult
     try:
         async with DefaultSession() as session:
-            r = ReconResult(type=result_type, target=target, data=json.dumps(data))
+            r = ReconResult(type=result_type, target=target, project_id=project_id, data=json.dumps(data))
             session.add(r)
             await session.commit()
     except Exception as e:
@@ -33,9 +33,11 @@ from pydantic import BaseModel as _BaseModel
 
 class ScreenshotRequest(_BaseModel):
     url: str
+    project_id: str = ""
 
 class BulkScreenshotRequest(_BaseModel):
     urls: list[str]
+    project_id: str = ""
 
 
 @router.post("/screenshot")
@@ -43,7 +45,7 @@ async def take_screenshot(req: ScreenshotRequest):
     """Take a single screenshot of a URL using gowitness."""
     from nexhunt.config import settings as _settings
     job_id = str(uuid.uuid4())
-    task = asyncio.create_task(_run_screenshot(job_id, req.url, _settings.screenshots_dir))
+    task = asyncio.create_task(_run_screenshot(job_id, req.url, _settings.screenshots_dir, req.project_id or None))
     _RECON_JOBS[job_id] = task
     return {"status": "started", "job_id": job_id, "url": req.url}
 
@@ -55,7 +57,7 @@ async def take_screenshots_bulk(req: BulkScreenshotRequest):
     if not req.urls:
         return {"error": "No URLs provided"}
     job_id = str(uuid.uuid4())
-    task = asyncio.create_task(_run_screenshots_bulk(job_id, req.urls, _settings.screenshots_dir))
+    task = asyncio.create_task(_run_screenshots_bulk(job_id, req.urls, _settings.screenshots_dir, req.project_id or None))
     _RECON_JOBS[job_id] = task
     return {"status": "started", "job_id": job_id, "total": len(req.urls)}
 
@@ -94,25 +96,31 @@ async def cancel_recon_job(job_id: str):
 
 
 @router.delete("/results")
-async def clear_recon_results():
-    """Delete all stored recon results from the database."""
+async def clear_recon_results(project_id: str | None = None):
+    """Delete stored recon results — optionally scoped to a single project."""
     from nexhunt.database import DefaultSession
     from nexhunt.models.recon_result import ReconResult
     from sqlalchemy import delete as sa_delete
     async with DefaultSession() as session:
-        await session.execute(sa_delete(ReconResult))
+        q = sa_delete(ReconResult)
+        if project_id:
+            q = q.where(ReconResult.project_id == project_id)
+        await session.execute(q)
         await session.commit()
     return {"status": "cleared"}
 
 
 @router.get("/results")
-async def get_recon_results():
-    """Return all stored recon results grouped by type."""
+async def get_recon_results(project_id: str | None = None):
+    """Return stored recon results grouped by type, scoped to a project."""
     from nexhunt.database import DefaultSession
     from nexhunt.models.recon_result import ReconResult
     from sqlalchemy import select
     async with DefaultSession() as session:
-        rows = await session.execute(select(ReconResult).order_by(ReconResult.created_at))
+        query = select(ReconResult).order_by(ReconResult.created_at)
+        if project_id:
+            query = query.where(ReconResult.project_id == project_id)
+        rows = await session.execute(query)
         results = rows.scalars().all()
     grouped: dict[str, list] = {}
     for r in results:
@@ -124,7 +132,7 @@ async def get_recon_results():
     return grouped
 
 
-async def _run_screenshot(job_id: str, url: str, screenshots_dir: str):
+async def _run_screenshot(job_id: str, url: str, screenshots_dir: str, project_id: str | None = None):
     from nexhunt.adapters.gowitness import GowitnessAdapter
     adapter = GowitnessAdapter()
     if not await adapter.check_installed():
@@ -135,13 +143,13 @@ async def _run_screenshot(job_id: str, url: str, screenshots_dir: str):
         if result.get("_raw"):
             await ws_manager.broadcast("tool_output", {"tool": "gowitness", "line": result["line"]})
         else:
-            await ws_manager.broadcast("recon_results", {"tool": "gowitness", "type": "screenshot", "results": [result]})
-            await _save_recon_result("screenshot", url, result)
+            await ws_manager.broadcast("recon_results", {"tool": "gowitness", "type": "screenshot", "results": [result], "project_id": project_id or ""})
+            await _save_recon_result("screenshot", url, result, project_id)
     await ws_manager.broadcast("tool_status", {"tool": "gowitness", "event": "completed", "job_id": job_id})
     _RECON_JOBS.pop(job_id, None)
 
 
-async def _run_screenshots_bulk(job_id: str, urls: list[str], screenshots_dir: str):
+async def _run_screenshots_bulk(job_id: str, urls: list[str], screenshots_dir: str, project_id: str | None = None):
     from nexhunt.adapters.gowitness import GowitnessAdapter
     adapter = GowitnessAdapter()
     if not await adapter.check_installed():
@@ -154,8 +162,8 @@ async def _run_screenshots_bulk(job_id: str, urls: list[str], screenshots_dir: s
             if result.get("_raw"):
                 await ws_manager.broadcast("tool_output", {"tool": "gowitness", "line": result["line"]})
             else:
-                await ws_manager.broadcast("recon_results", {"tool": "gowitness", "type": "screenshot", "results": [result]})
-                await _save_recon_result("screenshot", url, result)
+                await ws_manager.broadcast("recon_results", {"tool": "gowitness", "type": "screenshot", "results": [result], "project_id": project_id or ""})
+                await _save_recon_result("screenshot", url, result, project_id)
         done += 1
         await ws_manager.broadcast("tool_status", {"tool": "gowitness", "event": "progress", "done": done, "total": len(urls)})
     await ws_manager.broadcast("tool_status", {"tool": "gowitness", "event": "completed", "job_id": job_id, "total": done})
@@ -165,7 +173,7 @@ async def _run_screenshots_bulk(job_id: str, urls: list[str], screenshots_dir: s
 _RECON_JOBS: dict[str, asyncio.Task] = {}
 
 
-async def _run_recon_background(job_id: str, tool_name: str, target: str, options: dict):
+async def _run_recon_background(job_id: str, tool_name: str, target: str, options: dict, project_id: str | None = None):
     """Run a recon tool in a background task, independent of HTTP connection lifecycle."""
     # katana-headless reuses the katana adapter with headless=True in options
     adapter_name = "katana" if tool_name == "katana-headless" else tool_name
@@ -201,8 +209,9 @@ async def _run_recon_background(job_id: str, tool_name: str, target: str, option
                 "tool": tool_name,
                 "type": adapter.result_type,
                 "results": [result],
+                "project_id": project_id or "",
             })
-            await _save_recon_result(adapter.result_type, target, result)
+            await _save_recon_result(adapter.result_type, target, result, project_id)
     except asyncio.CancelledError:
         logger.info(f"Recon job {job_id} ({tool_name}) was cancelled")
         await ws_manager.broadcast("tool_status", {
@@ -224,10 +233,10 @@ async def _run_recon_background(job_id: str, tool_name: str, target: str, option
     logger.info(f"[{tool_name}] completed — {len(results)} results")
 
 
-def _start_recon(tool_name: str, target: str, options: dict) -> dict:
+def _start_recon(tool_name: str, target: str, options: dict, project_id: str | None = None) -> dict:
     job_id = str(uuid.uuid4())
     task = asyncio.create_task(
-        _run_recon_background(job_id, tool_name, target, options)
+        _run_recon_background(job_id, tool_name, target, options, project_id)
     )
     _RECON_JOBS[job_id] = task
     return {"status": "started", "job_id": job_id, "tool": tool_name, "target": target}
@@ -237,17 +246,17 @@ def _start_recon(tool_name: str, target: str, options: dict) -> dict:
 
 @router.post("/subfinder")
 async def run_subfinder(req: ReconRequest):
-    return _start_recon("subfinder", req.target, req.options)
+    return _start_recon("subfinder", req.target, req.options, req.project_id or None)
 
 
 @router.post("/amass")
 async def run_amass(req: ReconRequest):
-    return _start_recon("amass", req.target, req.options)
+    return _start_recon("amass", req.target, req.options, req.project_id or None)
 
 
 @router.post("/httpx")
 async def run_httpx(req: ReconRequest):
-    return _start_recon("httpx", req.target, req.options)
+    return _start_recon("httpx", req.target, req.options, req.project_id or None)
 
 
 class LiveHostAddRequest(_BaseModel):
@@ -269,8 +278,8 @@ async def add_live_host(req: LiveHostAddRequest):
         "url": url, "host": host, "status_code": None, "title": "",
         "technologies": [], "content_type": "", "ip": "",
     }
-    await _save_recon_result("live_host", req.project_id or "", result)
-    await ws_manager.broadcast("recon_results", {"tool": "manual", "type": "live_host", "results": [result]})
+    await _save_recon_result("live_host", host, result, req.project_id or None)
+    await ws_manager.broadcast("recon_results", {"tool": "manual", "type": "live_host", "results": [result], "project_id": req.project_id or ""})
     return {"status": "added", "url": url}
 
 
@@ -323,8 +332,9 @@ async def run_httpx_probe(req: HttpxProbeRequest):
                 results.append(result)
                 await ws_manager.broadcast("recon_results", {
                     "tool": "httpx", "type": "live_host", "results": [result],
+                    "project_id": req.project_id or "",
                 })
-                await _save_recon_result("live_host", "", result)
+                await _save_recon_result("live_host", "", result, req.project_id or None)
         except Exception as e:
             logger.error(f"httpx-probe error: {e}")
             await ws_manager.broadcast("tool_status", {"tool": "httpx-probe", "event": "failed", "error": str(e)})
@@ -343,48 +353,50 @@ async def run_httpx_probe(req: HttpxProbeRequest):
 
 @router.post("/nmap")
 async def run_nmap(req: ReconRequest):
-    return _start_recon("nmap", req.target, req.options)
+    return _start_recon("nmap", req.target, req.options, req.project_id or None)
 
 
 @router.post("/waybackurls")
 async def run_waybackurls(req: ReconRequest):
-    return _start_recon("waybackurls", req.target, req.options)
+    return _start_recon("waybackurls", req.target, req.options, req.project_id or None)
 
 
 @router.post("/gau")
 async def run_gau(req: ReconRequest):
-    return _start_recon("gau", req.target, req.options)
+    return _start_recon("gau", req.target, req.options, req.project_id or None)
 
 
 @router.post("/katana")
 async def run_katana(req: ReconRequest):
-    return _start_recon("katana", req.target, req.options)
+    return _start_recon("katana", req.target, req.options, req.project_id or None)
 
 
 @router.post("/katana-headless")
 async def run_katana_headless(req: ReconRequest):
-    return _start_recon("katana-headless", req.target, {**req.options, "headless": True})
+    return _start_recon("katana-headless", req.target, {**req.options, "headless": True}, req.project_id or None)
 
 
 @router.post("/linkfinder")
 async def run_linkfinder(req: ReconRequest):
-    return _start_recon("linkfinder", req.target, req.options)
+    return _start_recon("linkfinder", req.target, req.options, req.project_id or None)
 
 
 @router.post("/paramspider")
 async def run_paramspider(req: ReconRequest):
-    return _start_recon("paramspider", req.target, req.options)
+    return _start_recon("paramspider", req.target, req.options, req.project_id or None)
 
 
 @router.post("/arjun")
 async def run_arjun(req: ReconRequest):
-    return _start_recon("arjun", req.target, req.options)
+    return _start_recon("arjun", req.target, req.options, req.project_id or None)
 
 
 @router.post("/full", dependencies=[Depends(require_pro("Full automated recon"))])
 async def run_full_recon(req: ReconRequest):
     """Start a full recon pipeline in the background."""
     job_id = str(uuid.uuid4())
+
+    project_id = req.project_id or None
 
     async def _full_pipeline():
         await ws_manager.broadcast("tool_status", {"tool": "full_recon", "event": "started"})
@@ -403,8 +415,8 @@ async def run_full_recon(req: ReconRequest):
                         await ws_manager.broadcast("tool_output", {"tool": tool_name, "line": r["line"]})
                         continue
                     out.append(r)
-                    await ws_manager.broadcast("recon_results", {"tool": tool_name, "type": "subdomain", "results": [r]})
-                    await _save_recon_result("subdomain", req.target, r)
+                    await ws_manager.broadcast("recon_results", {"tool": tool_name, "type": "subdomain", "results": [r], "project_id": project_id or ""})
+                    await _save_recon_result("subdomain", req.target, r, project_id)
                 await ws_manager.broadcast("tool_status", {"tool": tool_name, "event": "completed", "result_count": len(out)})
 
         async def _collect_typed(tool_name: str):
@@ -423,8 +435,9 @@ async def run_full_recon(req: ReconRequest):
                     "tool": tool_name,
                     "type": adapter.result_type,  # "url" for gau/waybackurls
                     "results": [r],
+                    "project_id": project_id or "",
                 })
-                await _save_recon_result(adapter.result_type, req.target, r)
+                await _save_recon_result(adapter.result_type, req.target, r, project_id)
             await ws_manager.broadcast("tool_status", {"tool": tool_name, "event": "completed", "result_count": count})
 
         await asyncio.gather(
@@ -454,8 +467,8 @@ async def run_full_recon(req: ReconRequest):
                             await ws_manager.broadcast("tool_output", {"tool": "httpx-probe", "line": result["line"]})
                             continue
                         live_count += 1
-                        await ws_manager.broadcast("recon_results", {"tool": "httpx", "type": "live_host", "results": [result]})
-                        await _save_recon_result("live_host", req.target, result)
+                        await ws_manager.broadcast("recon_results", {"tool": "httpx", "type": "live_host", "results": [result], "project_id": project_id or ""})
+                        await _save_recon_result("live_host", req.target, result, project_id)
                 except Exception as e:
                     logger.error(f"httpx probe error in full recon: {e}")
                 await ws_manager.broadcast("tool_status", {"tool": "httpx-probe", "event": "completed", "result_count": live_count})
@@ -676,8 +689,9 @@ async def _run_endpoint_check(job_id: str, targets: list[str], paths: list[str],
                     "tool": "endpoint_check",
                     "type": "endpoint",
                     "results": [result],
+                    "project_id": project_id or "",
                 })
-                await _save_recon_result("endpoint", project_id or "global", result)
+                await _save_recon_result("endpoint", "", result, project_id)
                 count += 1
             except (json.JSONDecodeError, KeyError):
                 if line.strip():
@@ -788,13 +802,14 @@ async def wayback_cdx_scan(req: WaybackCdxRequest):
                 "content_type": mime or None,
             }
             results.append(result)
-            await _save_recon_result("url", req.project_id or target, result)
+            await _save_recon_result("url", target, result, req.project_id or None)
 
         # Broadcast all at once
         await ws_manager.broadcast("recon_results", {
             "tool": "waybackurls",
             "type": "url",
             "results": results,
+            "project_id": req.project_id or "",
         })
 
     except Exception as e:

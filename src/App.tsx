@@ -55,28 +55,30 @@ function App() {
     } catch {}
   }
 
-  // Load persisted data from DB on startup
+  // Load recon results from DB — scoped to the active project
+  const loadReconResults = async (projectId: string | null) => {
+    useReconStore.getState().clearRecon()
+    if (!projectId) return
+    try {
+      const recon = await api.get<Record<string, any[]>>(`/api/recon/results?project_id=${projectId}`)
+      if (recon.subdomain) addSubdomains(recon.subdomain)
+      if (recon.live_host) addLiveHosts(recon.live_host)
+      if (recon.url) addUrls(recon.url)
+      if (recon.port) addPorts(recon.port)
+      if (recon.screenshot) addScreenshots(recon.screenshot)
+      if (recon.endpoint) addEndpoints(recon.endpoint)
+    } catch {}
+  }
+
   useEffect(() => {
-    const loadPersistedData = async () => {
-      await loadFindings(useAppStore.getState().activeProject)
-      useLicenseStore.getState().fetchStatus()
-      try {
-        const recon = await api.get<Record<string, any[]>>('/api/recon/results')
-        if (recon.subdomain) addSubdomains(recon.subdomain)
-        if (recon.live_host) addLiveHosts(recon.live_host)
-        if (recon.url) addUrls(recon.url)
-        if (recon.port) addPorts(recon.port)
-        if (recon.screenshot) addScreenshots(recon.screenshot)
-      } catch {}
-    }
-    // Small delay to let backend start
-    setTimeout(loadPersistedData, 2000)
+    useLicenseStore.getState().fetchStatus()
   }, [])
 
-  // Reload findings when active project changes
+  // Reload findings + recon results when active project changes (and on initial mount)
   useEffect(() => {
     useScannerStore.getState().clearFindings()
     loadFindings(activeProject)
+    loadReconResults(activeProject)
   }, [activeProject])
 
   // Fetch active project data whenever activeProject changes
@@ -124,7 +126,10 @@ function App() {
     })
 
     const unsubRecon = wsClient.subscribe('recon_results', (data) => {
-      const result = data as { tool: string; type: string; results: any[] }
+      const result = data as { tool: string; type: string; results: any[]; project_id?: string }
+      const currentProject = useAppStore.getState().activeProject
+      // Only add recon results that belong to the active project (or have no project filter)
+      if (currentProject && result.project_id && result.project_id !== currentProject) return
 
       if (result.type === 'subdomain') {
         addSubdomains(result.results as SubdomainResult[])

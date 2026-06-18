@@ -34,6 +34,19 @@ async def init_db():
                 )
             except Exception:
                 pass  # Column already exists
+        try:
+            await conn.exec_driver_sql(
+                "ALTER TABLE recon_results ADD COLUMN project_id VARCHAR(36)"
+            )
+        except Exception:
+            pass  # Column already exists
+        # Endpoint results historically stored their project_id in the `target`
+        # column (see recon.py _run_endpoint_check) — move it to the real column.
+        await conn.exec_driver_sql(
+            "UPDATE recon_results SET project_id = target "
+            "WHERE type = 'endpoint' AND project_id IS NULL "
+            "AND target IS NOT NULL AND target NOT IN ('', 'global')"
+        )
 
 
 async def get_session() -> AsyncSession:

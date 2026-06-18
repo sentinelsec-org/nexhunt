@@ -350,12 +350,12 @@ export function ReconPage() {
           methods,
           extensions,
           limit: parseInt(opts.cdx_limit || '500', 10),
-          project_id: opts.project_id || '',
+          project_id: activeProject ?? '',
         })
         return
       }
 
-      await api.post(`/api/recon/${toolId}`, { target: target.trim(), options: opts })
+      await api.post(`/api/recon/${toolId}`, { target: target.trim(), options: opts, project_id: activeProject ?? '' })
     } catch (err) {
       toast.error(`Failed to start ${toolId}`, err)
     }
@@ -365,7 +365,7 @@ export function ReconPage() {
     if (subdomains.length === 0) return
     try {
       const targets = subdomains.map(s => s.subdomain)
-      await api.post('/api/recon/httpx-probe', { targets, options: getSessionOpts() })
+      await api.post('/api/recon/httpx-probe', { targets, options: getSessionOpts(), project_id: activeProject ?? '' })
     } catch (err) {
       toast.error('Failed to probe subdomains', err)
     }
@@ -374,7 +374,7 @@ export function ReconPage() {
   const handleFullRecon = async () => {
     if (!target.trim()) return
     try {
-      await api.post('/api/recon/full', { target: target.trim() })
+      await api.post('/api/recon/full', { target: target.trim(), project_id: activeProject ?? '' })
     } catch (err) {
       toast.error('Failed to start full recon', err)
     }
@@ -406,7 +406,7 @@ export function ReconPage() {
     setScreenshotLoading(true)
     try {
       const urls = liveHosts.map(h => h.url).filter(Boolean)
-      await api.post('/api/recon/screenshots-bulk', { urls })
+      await api.post('/api/recon/screenshots-bulk', { urls, project_id: activeProject ?? '' })
     } catch (err) {
       console.error('Failed to start bulk screenshots:', err)
     } finally {
@@ -767,7 +767,7 @@ export function ReconPage() {
             className="text-zinc-600 hover:text-red-400 text-xs"
             onClick={async () => {
               clearRecon()
-              try { await api.delete('/api/recon/results') } catch {}
+              try { await api.delete(`/api/recon/results?project_id=${activeProject ?? ''}`) } catch {}
             }}
           >
             <Trash2 size={12} className="mr-1" /> Clear all
