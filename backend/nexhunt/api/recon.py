@@ -745,10 +745,24 @@ async def crtsh_scan(req: CrtshRequest):
 
     results = []
     try:
-        async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.get("https://crt.sh/", params={"q": f"%.{target}", "output": "json"})
-            resp.raise_for_status()
-            rows = resp.json()
+        # crt.sh is a free, overloaded service — 502s and empty/non-JSON
+        # responses under load are routine, not a real failure. Retry before
+        # giving up.
+        rows = None
+        last_error: Exception | None = None
+        for attempt in range(4):
+            try:
+                async with httpx.AsyncClient(timeout=30) as client:
+                    resp = await client.get("https://crt.sh/", params={"q": f"%.{target}", "output": "json"})
+                    resp.raise_for_status()
+                    rows = resp.json()
+                break
+            except Exception as e:
+                last_error = e
+                if attempt < 3:
+                    await asyncio.sleep(3 * (attempt + 1))
+        if rows is None:
+            raise last_error
 
         seen = set()
         for row in rows:
