@@ -11,7 +11,7 @@ const PRO_BENEFITS = [
   'Professional report export and priority updates',
 ]
 
-const UPGRADE_FALLBACK = 'https://sentinelsec.online/pricing'
+const UPGRADE_FALLBACK = 'https://nexhunt.myshopify.com/products/nexhunt-pro'
 
 export function UpgradeModal() {
   const { upgradeOpen, upgradeFeature, closeUpgrade, status } = useLicenseStore()

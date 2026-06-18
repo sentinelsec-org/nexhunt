@@ -13,10 +13,10 @@
 
 [![Version](https://img.shields.io/badge/version-1.2.0--beta-amber?style=flat-square)](https://github.com/sentinelsec-org/nexhunt/releases)
 [![Platform](https://img.shields.io/badge/platform-Linux-green?style=flat-square)]()
-[![License](https://img.shields.io/badge/license-Free%20%2F%20PRO-blue?style=flat-square)](https://sentinelsec.online/#pricing)
-[![Made by](https://img.shields.io/badge/by-Sentinel%20Security-green?style=flat-square)](https://sentinelsec.online)
+[![License](https://img.shields.io/badge/license-Free%20%2F%20PRO-blue?style=flat-square)](https://nexhunt.myshopify.com/products/nexhunt-pro)
+[![Made by](https://img.shields.io/badge/by-Sentinel%20Security-green?style=flat-square)](https://nexhunt.myshopify.com)
 
-**[Download Free](https://github.com/sentinelsec-org/nexhunt/releases/latest)** · **[Get PRO](https://sentinelsec.online/#pricing)** · **[sentinelsec.online](https://sentinelsec.online)**
+**[Download Free](https://github.com/sentinelsec-org/nexhunt/releases/latest)** · **[Get PRO](https://nexhunt.myshopify.com/products/nexhunt-pro)** · **[nexhunt.myshopify.com](https://nexhunt.myshopify.com)**
 
 > ⚠️ **Beta release** — actively developed. Core features are stable. New tools and improvements drop regularly.
 
@@ -160,7 +160,7 @@ The free tier is genuinely useful. No time limits, no feature degradation, no na
 | **Business logic testing** (IDOR, race conditions, param fuzzing) | ❌ | ✅ |
 | Priority support | ❌ | ✅ |
 
-**[→ Get PRO at sentinelsec.online](https://sentinelsec.online/#pricing)**
+**[→ Get PRO at nexhunt.myshopify.com](https://nexhunt.myshopify.com/products/nexhunt-pro)**
 
 ---
 
@@ -202,14 +202,14 @@ Or from inside the app: **Settings → Updates → Check for updates**.
 
 ## 🔑 PRO License
 
-1. Purchase at **[sentinelsec.online](https://sentinelsec.online/#pricing)**
+1. Purchase at **[nexhunt.myshopify.com](https://nexhunt.myshopify.com/products/nexhunt-pro)**
 2. Open NexHunt → **Settings → License**
 3. Paste your key → **Activate**
 
 - License is bound to your machine (hardware fingerprint)
 - Validates online every 24h — works offline for up to 7 days
 - Transfer to a new machine: deactivate first, then activate on the new one
-- Questions: reach us at [sentinelsec.online](https://sentinelsec.online)
+- Questions: reach us at [nexhunt.myshopify.com](https://nexhunt.myshopify.com)
 
 ---
 
@@ -236,13 +236,13 @@ Have a feature request? [Open an issue](https://github.com/sentinelsec-org/nexhu
 
 ## 📄 License
 
-NexHunt is proprietary software. The **free tier** is free to use indefinitely for personal and professional bug bounty work. The **PRO tier** requires a paid license. See [sentinelsec.online](https://sentinelsec.online) for terms.
+NexHunt is proprietary software. The **free tier** is free to use indefinitely for personal and professional bug bounty work. The **PRO tier** requires a paid license. See [nexhunt.myshopify.com](https://nexhunt.myshopify.com) for terms.
 
 ---
 
 <div align="center">
 
-Built with 🖤 by **[Sentinel Security](https://sentinelsec.online)**
+Built with 🖤 by **[Sentinel Security](https://nexhunt.myshopify.com)**
 
 *NexHunt v1.2.0 beta — Linux*
 

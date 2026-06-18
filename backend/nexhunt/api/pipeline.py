@@ -7,9 +7,12 @@ Pipelines:
   POST /api/pipeline/js_scan    — Katana crawl → fetch .js files → grep secrets
 """
 import re
+import time
+import json
+import hashlib
 import logging
 import asyncio
-from urllib.parse import urlparse, parse_qs, urlencode, urlunparse, quote
+from urllib.parse import urlparse, parse_qs, urlencode, urlunparse, quote, urljoin
 from pydantic import BaseModel
 from fastapi import APIRouter
 from nexhunt.adapters.base import get_adapter
@@ -17,6 +20,27 @@ from nexhunt.ws.manager import ws_manager
 
 router = APIRouter(prefix="/api/pipeline", tags=["pipeline"])
 logger = logging.getLogger(__name__)
+
+# ── Katana crawl cache ──────────────────────────────────────────────────────────
+# Reuse a crawl across pipelines (xss/sqli/js_scan) when target + crawl config match,
+# so running several pipelines on the same target does not re-crawl every time.
+_KATANA_CACHE: dict[str, tuple[float, list, list]] = {}
+_KATANA_CACHE_TTL = 1800  # seconds (30 min)
+
+
+def _crawl_cache_key(target: str, opts: dict) -> str:
+    """Key on the inputs that actually change the crawl result (not speed knobs)."""
+    sig = {
+        "target": target.strip(),
+        "depth": int(opts.get("depth", 3)),
+        "js_crawl": bool(opts.get("js_crawl", True)),
+        "crawl_forms": bool(opts.get("crawl_forms", True)),
+        "restrict_scope": bool(opts.get("restrict_scope", True)),
+        "headless": bool(opts.get("headless", False)),
+        "cookie": opts.get("cookie", "") or opts.get("session_cookies", ""),
+        "session_headers": opts.get("session_headers", ""),
+    }
+    return hashlib.sha256(json.dumps(sig, sort_keys=True).encode()).hexdigest()
 
 
 class PipelineRequest(BaseModel):
@@ -244,7 +268,23 @@ async def run_xss_pipeline(req: PipelineRequest):
 
 
 async def _katana_crawl_streaming(target: str, opts: dict, *, pipeline: str):
-    """Katana crawl with streaming WebSocket updates."""
+    """Katana crawl with streaming WebSocket updates. Reuses a recent cached crawl when target + config match."""
+    # ── Cache lookup (unless the caller forces a fresh crawl) ──
+    cache_key = _crawl_cache_key(target, opts)
+    if not opts.get("force_recrawl"):
+        cached = _KATANA_CACHE.get(cache_key)
+        if cached and (time.time() - cached[0]) < _KATANA_CACHE_TTL:
+            _, all_results, param_results = cached
+            age = int(time.time() - cached[0])
+            await ws_manager.broadcast("pipeline", {
+                "phase": "katana", "event": "cached",
+                "pipeline": pipeline,
+                "total": len(all_results),
+                "xss_candidates": len(param_results),
+                "message": f"Reusing cached crawl from {age}s ago — {len(all_results)} URLs, {len(param_results)} with params (skipped Katana)",
+            })
+            return list(all_results), list(param_results)
+
     katana = get_adapter("katana")
     if not katana or not await katana.check_installed():
         raise RuntimeError("katana is not installed")
@@ -292,6 +332,8 @@ async def _katana_crawl_streaming(target: str, opts: dict, *, pipeline: str):
             "xss_candidates": len(param_results),
         })
 
+    # Store for reuse by later pipelines on the same target + config
+    _KATANA_CACHE[cache_key] = (time.time(), all_results, param_results)
     return all_results, param_results
 
 
@@ -394,7 +436,7 @@ def _extract_inline_scripts(html: str) -> str:
 
 def _extract_js_endpoints(js_content: str, base_url: str) -> list[str]:
     """Pull endpoints from AJAX/fetch/axios/jQuery calls in JS (file or inline)."""
-    from urllib.parse import urljoin
+
 
     found: set[str] = set()
     for pat in _JS_ENDPOINT_PATTERNS:
@@ -671,7 +713,10 @@ _JS_PATTERNS: list[tuple[re.Pattern, str, str]] = [
     (re.compile(r'(?i)(api[_\-]?key|apikey|api_secret)\s*[:=]\s*["\']([a-zA-Z0-9\-_]{16,})["\']'), "api_key", "high"),
     (re.compile(r'(?i)(access[_\-]?token|auth[_\-]?token|bearer[_\-]?token)\s*[:=]\s*["\']([a-zA-Z0-9\-_.]{20,})["\']'), "token", "high"),
     (re.compile(r'(?i)(password|passwd|pwd)\s*[:=]\s*["\']([^"\']{4,64})["\']'), "password", "critical"),
-    (re.compile(r'(?i)(secret[_\-]?key|client[_\-]?secret)\s*[:=]\s*["\']([a-zA-Z0-9\-_]{8,})["\']'), "secret", "high"),
+    # Test/hardcoded credentials that real patterns miss
+    (re.compile(r'(?i)(testpass(?:word)?|test[_\-]?pass(?:word)?)\s*[:=]\s*["\']([a-zA-Z0-9\-_@.!$]{4,})["\']'), "test_credentials", "high"),
+    (re.compile(r'(?i)(testuser|test[_\-]?user(?:name)?|testlogin)\s*[:=]\s*["\']([a-zA-Z0-9\-_@.]{3,})["\']'), "test_credentials", "high"),
+    (re.compile(r'(?i)(secret[_\-]?key|client[_\-]?secret)\s*[:=]\s*["\']([a-zA-Z0-9\-_]{8,})["\"]'), "secret", "high"),
     (re.compile(r'AKIA[0-9A-Z]{16}'), "aws_access_key", "critical"),
     (re.compile(r'(?i)aws[_\-]?secret[_\-]?access[_\-]?key\s*[:=]\s*["\']([a-zA-Z0-9/+=]{40})["\']'), "aws_secret", "critical"),
     (re.compile(r'eyJ[a-zA-Z0-9_\-]{10,}\.[a-zA-Z0-9_\-]{10,}\.[a-zA-Z0-9_\-]{10,}'), "jwt_token", "medium"),
@@ -682,6 +727,11 @@ _JS_PATTERNS: list[tuple[re.Pattern, str, str]] = [
     (re.compile(r'[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}'), "email", "info"),
     (re.compile(r's3\.amazonaws\.com/([a-zA-Z0-9\-_\.]+)'), "s3_bucket", "medium"),
     (re.compile(r'(?i)["\']/?graphql[/?\"\']'), "graphql_endpoint", "info"),
+    # Redis / cache / DB connection objects
+    (re.compile(r'(?i)(?:redis|cache|database|db)\s*[:=]\s*\{[^}]{0,300}password\s*:\s*["\']([^"\']{6,})["\']'), "redis_password", "critical"),
+    # Cognito / user pool config
+    (re.compile(r'(?i)aws_user_pools_web_client_id\s*[:=]\s*["\']([a-zA-Z0-9]{10,})["\']'), "cognito_client_id", "medium"),
+    (re.compile(r'(?i)aws_user_pools_id\s*[:=]\s*["\']([a-zA-Z0-9_\-]{5,})["\']'), "cognito_pool_id", "medium"),
 ]
 
 
@@ -766,29 +816,61 @@ async def run_js_scan_pipeline(req: PipelineRequest):
     except RuntimeError as e:
         return {"error": str(e)}
 
-    # Filter JS files
-    js_urls = list({
+    # Filter JS files found by Katana
+    js_urls: set[str] = {
         r["url"] for r in all_results
         if r["url"].split("?")[0].endswith(".js")
-    })
+    }
+
+    # Also extract <script src> from HTML pages to catch webpack/Next.js chunks
+    # that are loaded dynamically and never appear as standalone Katana URLs.
+    _SCRIPT_SRC = re.compile(r'<script[^>]+src=["\']([^"\']+\.js(?:[?#][^"\']*)?)["\']', re.IGNORECASE)
+    base_domain = _base_domain(target)
+    target_url = target if target.startswith("http") else f"https://{target}"
+    cookie_js = opts.get("cookie", "") or None
+    sess_hdrs_js = _parse_session_headers(opts.get("session_headers", ""))
+
+    html_pages = list({
+        r["url"] for r in all_results
+        if not r["url"].split("?")[0].lower().endswith(
+            (".js", ".css", ".png", ".jpg", ".jpeg", ".gif", ".svg",
+             ".ico", ".woff", ".woff2", ".ttf", ".pdf", ".zip", ".mp4")
+        )
+    })[:60]
+    # Always include the target root page even if Katana didn't list it
+    if target_url not in html_pages:
+        html_pages.insert(0, target_url)
+
+    html_contents = await asyncio.gather(*[_fetch_js(u, cookie_js, sess_hdrs_js) for u in html_pages])
+
+    for page_url, content in zip(html_pages, html_contents):
+        if not content:
+            continue
+        for m in _SCRIPT_SRC.finditer(content):
+            src = m.group(1).split("#")[0]
+            full = urljoin(page_url, src)
+            if base_domain in full:
+                js_urls.add(full)
+
+    js_urls_list = list(js_urls)
 
     await ws_manager.broadcast("pipeline", {
         "phase": "katana", "event": "completed",
         "pipeline": "js_scan",
         "total_urls": len(all_results),
-        "xss_candidates": len(js_urls),
-        "message": f"Found {len(all_results)} URLs — {len(js_urls)} JS files to scan",
+        "xss_candidates": len(js_urls_list),
+        "message": f"Found {len(all_results)} URLs — {len(js_urls_list)} JS files to scan (incl. script-src extraction)",
     })
 
-    if not js_urls:
+    if not js_urls_list:
         return {"status": "completed", "total_urls": len(all_results), "js_files": 0, "findings": 0}
 
     # Phase 2: Fetch + grep
     await ws_manager.broadcast("pipeline", {
         "phase": "js_scan", "event": "started",
         "pipeline": "js_scan",
-        "targets": len(js_urls),
-        "message": f"Fetching and analyzing {len(js_urls)} JS files...",
+        "targets": len(js_urls_list),
+        "message": f"Fetching and analyzing {len(js_urls_list)} JS files...",
     })
 
     from nexhunt.adapters.cloud_buckets import _buckets_from_text
@@ -800,8 +882,8 @@ async def run_js_scan_pipeline(req: PipelineRequest):
     bucket_refs: set[tuple] = set()
     workers = int(opts.get("workers", 5))
 
-    for i in range(0, len(js_urls), workers):
-        chunk = js_urls[i:i + workers]
+    for i in range(0, len(js_urls_list), workers):
+        chunk = js_urls_list[i:i + workers]
         contents = await asyncio.gather(*[_fetch_js(url, cookie, sess_headers) for url in chunk])
 
         for url, content in zip(chunk, contents):
@@ -900,14 +982,14 @@ async def run_js_scan_pipeline(req: PipelineRequest):
         "phase": "js_scan", "event": "completed",
         "pipeline": "js_scan",
         "findings": len(all_findings),
-        "js_files": len(js_urls),
-        "message": f"JS scan done — {len(all_findings)} finding(s) in {len(js_urls)} files",
+        "js_files": len(js_urls_list),
+        "message": f"JS scan done — {len(all_findings)} finding(s) in {len(js_urls_list)} files",
     })
 
     return {
         "status": "completed",
         "total_urls": len(all_results),
-        "js_files": len(js_urls),
+        "js_files": len(js_urls_list),
         "findings": len(all_findings),
         "results": all_findings,
     }

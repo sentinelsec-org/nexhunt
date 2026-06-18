@@ -25,10 +25,14 @@ def _load_persisted():
                 settings.ai_groq_key = data["ai_groq_key"]
             if data.get("ai_api_key"):
                 settings.ai_api_key = data["ai_api_key"]
+            if data.get("ai_base_url"):
+                settings.ai_base_url = data["ai_base_url"]
             if data.get("language"):
                 settings.language = data["language"]
             if data.get("ngrok_authtoken"):
                 settings.ngrok_authtoken = data["ngrok_authtoken"]
+            if data.get("wpscan_api_token"):
+                settings.wpscan_api_token = data["wpscan_api_token"]
     except Exception:
         pass
 
@@ -43,8 +47,10 @@ def _persist():
             "ai_model": settings.ai_model,
             "ai_groq_key": settings.ai_groq_key,
             "ai_api_key": settings.ai_api_key,
+            "ai_base_url": settings.ai_base_url,
             "language": settings.language,
             "ngrok_authtoken": settings.ngrok_authtoken,
+            "wpscan_api_token": settings.wpscan_api_token,
         }, f, indent=2)
 
 
@@ -56,10 +62,12 @@ class SettingsUpdate(BaseModel):
     proxy_port: int | None = None
     ai_provider: str | None = None
     ai_model: str | None = None
+    ai_base_url: str | None = None
     ai_groq_key: str | None = None
     ai_api_key: str | None = None
     language: str | None = None
     ngrok_authtoken: str | None = None
+    wpscan_api_token: str | None = None
 
 
 def _mask(secret: str) -> str:
@@ -75,12 +83,15 @@ async def get_settings():
         "proxy_port": settings.proxy_port,
         "ai_provider": settings.ai_provider,
         "ai_model": settings.ai_model,
+        "ai_base_url": settings.ai_base_url,
         "ai_groq_key_masked": _mask(settings.ai_groq_key),
         "ai_groq_key_set": bool(settings.ai_groq_key),
         "ai_api_key_set": bool(settings.ai_api_key),
         "language": settings.language,
         "ngrok_authtoken_masked": _mask(settings.ngrok_authtoken),
         "ngrok_authtoken_set": bool(settings.ngrok_authtoken),
+        "wpscan_api_token_masked": _mask(settings.wpscan_api_token),
+        "wpscan_api_token_set": bool(settings.wpscan_api_token),
     }
 
 
@@ -96,9 +107,13 @@ async def update_settings(data: SettingsUpdate):
         settings.ai_groq_key = data.ai_groq_key
     if data.ai_api_key is not None:
         settings.ai_api_key = data.ai_api_key
+    if data.ai_base_url is not None:
+        settings.ai_base_url = data.ai_base_url
     if data.language is not None:
         settings.language = data.language
     if data.ngrok_authtoken is not None:
         settings.ngrok_authtoken = data.ngrok_authtoken
+    if data.wpscan_api_token is not None:
+        settings.wpscan_api_token = data.wpscan_api_token
     _persist()
     return {"status": "updated"}

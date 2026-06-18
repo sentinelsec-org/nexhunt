@@ -6,6 +6,7 @@ import { api } from '@/api/http-client'
 import { cn } from '@/lib/utils'
 import { useScannerStore } from '@/stores/scanner-store'
 import { useReconStore } from '@/stores/recon-store'
+import { useProxyStore } from '@/stores/proxy-store'
 import { useAppStore } from '@/stores/app-store'
 import { useCopilotStore, type CopilotMessage } from '@/stores/copilot-store'
 import { WS_BASE } from '@/lib/constants'
@@ -231,8 +232,9 @@ export function CopilotPage() {
   const wsRef = useRef<WebSocket | null>(null)
 
   const { findings } = useScannerStore()
-  const { subdomains, liveHosts, ports, urls } = useReconStore()
-  const { globalTarget, activeProject } = useAppStore()
+  const { subdomains, liveHosts, ports, urls, endpoints } = useReconStore()
+  const { flows } = useProxyStore()
+  const { globalTarget, activeProject, getSessionOpts } = useAppStore()
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -265,13 +267,26 @@ export function CopilotPage() {
     return () => { ws.close() }
   }, [])
 
-  const buildContext = useCallback(() => ({
-    target: globalTarget,
-    subdomains,
-    live_hosts: liveHosts,
-    ports,
-    urls: urls.slice(0, 100),
-  }), [globalTarget, subdomains, liveHosts, ports, urls])
+  const buildContext = useCallback(() => {
+    const sess = getSessionOpts()
+    return {
+      target: globalTarget,
+      subdomains,
+      live_hosts: liveHosts,
+      ports,
+      urls: urls.slice(0, 100),
+      endpoints: endpoints.slice(0, 80),
+      flows: flows.slice(0, 40).map(f => ({
+        request_method: f.request_method,
+        request_host: f.request_host,
+        request_path: f.request_path,
+        response_status: f.response_status,
+        response_length: f.response_body ? f.response_body.length : 0,
+      })),
+      session_cookies: sess.session_cookies,
+      session_headers: sess.session_headers,
+    }
+  }, [globalTarget, subdomains, liveHosts, ports, urls, endpoints, flows, getSessionOpts])
 
   const sevCounts = findings.reduce<Record<string, number>>((acc, f) => {
     acc[f.severity] = (acc[f.severity] || 0) + 1; return acc

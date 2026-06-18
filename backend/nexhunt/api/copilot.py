@@ -96,31 +96,17 @@ Finally add a **Quick Wins** section: 3-5 specific things to try immediately (ex
 
 @router.post("/agent")
 async def agent_chat(req: AgentChatRequest):
-    """Agent chat: full context + optional last terminal output."""
+    """Agent chat: active investigation loop (fetch_url / read_finding) + full context."""
     try:
-        parts = []
-
+        message = req.message or ""
         if req.command_output:
-            parts.append(
+            message = (
                 f"## Last Command Output\n```\n{req.command_output[:4000]}\n```\n\n"
                 "Analyze this output and suggest next steps. "
-                "If you suggest a command, put it in a ```bash code block so the user can run it with one click."
+                "If you suggest a command, put it in a ```bash code block so the user can run it with one click.\n\n"
+                + message
             )
-
-        lang = copilot_service._lang_instruction()
-        if req.message:
-            parts.append(req.message)
-
-        full_msg = "\n\n".join(parts) if parts else req.message
-
-        ctx = await copilot_service._build_full_context(req.context)
-        if ctx:
-            full_msg = f"{ctx}\n\n---\n\n{full_msg}"
-
-        if lang:
-            full_msg += lang
-
-        response = await copilot_service._dispatch(full_msg, history=req.history)
+        response = await copilot_service.agent_investigate(message, req.context, history=req.history)
         return {"response": response}
     except Exception as e:
         logger.error(f"Copilot agent error: {e}")

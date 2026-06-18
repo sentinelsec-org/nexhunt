@@ -1,6 +1,6 @@
 #!/bin/bash
 # ─────────────────────────────────────────────────────────────────────────────
-#  NexHunt Installer — by Sentinel Security (sentinelsec.online)
+#  NexHunt Installer — by Sentinel Security (nexhunt.myshopify.com)
 #  Supports: Kali Linux / Debian / Ubuntu
 #
 #  Usage:
@@ -23,7 +23,7 @@ die()  { err "$1"; exit 1; }
 
 NEXHUNT_DIR="$(cd "$(dirname "$0")" && pwd)"
 GO_BIN="$HOME/go/bin"
-REPO="sentinelsec/nexhunt"
+REPO="sentinelsec-org/nexhunt"
 
 echo -e "\n${CYAN}${BOLD}"
 echo "  ███████╗███████╗███╗   ██╗████████╗██╗███╗   ██╗███████╗██╗"
@@ -34,7 +34,7 @@ echo "  ███████║███████╗██║ ╚███�
 echo "  ╚══════╝╚══════╝╚═╝  ╚═══╝   ╚═╝   ╚═╝╚═╝  ╚═══╝╚══════╝╚══════╝"
 echo -e "${NC}"
 echo -e "  ${BOLD}NexHunt${NC} — Bug Bounty Automation Platform"
-echo -e "  ${CYAN}by Sentinel Security  •  sentinelsec.online${NC}"
+echo -e "  ${CYAN}by Sentinel Security  •  nexhunt.myshopify.com${NC}"
 echo -e "  Mode: ${BOLD}${MODE}${NC}   Dir: ${CYAN}${NEXHUNT_DIR}${NC}"
 echo ""
 
@@ -285,5 +285,5 @@ for tool in $TOOLS; do
     fi
 done
 echo ""
-echo -e "  ${CYAN}sentinelsec.online${NC}  •  Activate your PRO license in Settings -> License"
+echo -e "  ${CYAN}nexhunt.myshopify.com${NC}  •  Activate your PRO license in Settings -> License"
 echo ""

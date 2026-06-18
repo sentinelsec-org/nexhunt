@@ -31,6 +31,7 @@ import {
   ShieldAlert,
   Sparkles,
   X,
+  Plus,
   Route,
 } from 'lucide-react'
 
@@ -49,11 +50,14 @@ type ReconTab = 'subdomains' | 'live_hosts' | 'urls' | 'ports' | 'screenshots' |
 
 const ENDPOINT_CATEGORIES = [
   { id: 'api',       label: 'API / Swagger',   desc: 'Swagger, OpenAPI, GraphQL, REST discovery' },
-  { id: 'sensitive', label: 'Sensitive Files',  desc: '.env, .git, backups, configs' },
+  { id: 'sensitive', label: 'Sensitive Files',  desc: '.env, .git, .svn, configs, keys' },
+  { id: 'backups',   label: 'Backups / Dumps',  desc: '.zip, .sql, .bak, old archives' },
   { id: 'admin',     label: 'Admin Panels',     desc: '/admin, /panel, /dashboard, /console' },
   { id: 'spring',    label: 'Spring / Actuator',desc: '/actuator endpoints — high value for Java apps' },
   { id: 'wordpress', label: 'WordPress',        desc: 'wp-admin, wp-json, xmlrpc, common WP paths' },
   { id: 'php',       label: 'PHP / Laravel',    desc: 'phpinfo, phpmyadmin, artisan, debug endpoints' },
+  { id: 'devops',    label: 'DevOps / CI',      desc: 'Dockerfile, CI configs, terraform state, k8s' },
+  { id: 'debug',     label: 'Debug / Metrics',  desc: 'pprof, metrics, elmah/trace.axd, dev paths' },
   { id: 'login',     label: 'Login Pages',      desc: '/login, /auth, /signin, /sso' },
 ]
 
@@ -137,6 +141,17 @@ export function ReconPage() {
   const [liveHostFilter, setLiveHostFilter] = useState('')
   const liveHostPickerRef = useRef<HTMLDivElement>(null)
   const [endpointStatusFilter, setEndpointStatusFilter] = useState<string>('all')
+  const [selectedEndpointCats, setSelectedEndpointCats] = useState<Set<string>>(new Set())
+  const [endpointSearch, setEndpointSearch] = useState('')
+  const [endpointCodeFilter, setEndpointCodeFilter] = useState('')
+  const [endpointMinSize, setEndpointMinSize] = useState('')
+  const [endpointMaxSize, setEndpointMaxSize] = useState('')
+  const [endpointHideSizes, setEndpointHideSizes] = useState('')
+  const [selectedEndpointHosts, setSelectedEndpointHosts] = useState<Set<string>>(new Set())
+  const [endpointHostFilter, setEndpointHostFilter] = useState('')
+  const [manualHost, setManualHost] = useState('')
+  const [urlSearch, setUrlSearch] = useState('')
+  const [urlCategoryFilter, setUrlCategoryFilter] = useState<'all' | 'interesting' | 'api' | 'config' | 'backup' | 'scripts' | 'media'>('all')
 
   // Close live host picker on outside click
   useEffect(() => {
@@ -156,7 +171,7 @@ export function ReconPage() {
   const nucleiRunning = scannerActiveScans.has('nuclei')
   const [endpointMenuOpen, setEndpointMenuOpen] = useState(false)
   const endpointMenuRef = useRef<HTMLDivElement>(null)
-  const { subdomains, urls, ports, liveHosts, endpoints, cveResult, cveRunning, setCveResult, setCveRunning, clearRecon, activeReconTools, activeReconJobIds } = useReconStore()
+  const { subdomains, urls, ports, liveHosts, endpoints, cveResult, cveRunning, setCveResult, setCveRunning, clearRecon, activeReconTools, activeReconJobIds, addLiveHosts, removeLiveHost } = useReconStore()
 
   // Close endpoint menu on outside click
   useEffect(() => {
@@ -170,6 +185,45 @@ export function ReconPage() {
     return () => document.removeEventListener('mousedown', handler)
   }, [endpointMenuOpen])
   const { getSessionOpts } = useAppStore()  // activeProject already from line above
+
+  // URL classification for wayback/crawl results
+  function classifyUrl(url: string): 'sensitive' | 'api' | 'config' | 'backup' | 'scripts' | 'media' | 'other' {
+    const u = url.toLowerCase()
+    const ext = u.split('?')[0].split('#')[0].split('.').pop() ?? ''
+    if (/\.(env|bak|backup|sql|key|pem|p12|pfx|cer|der|dump|shadow|passwd|htpasswd)$/.test(u) ||
+        /[?&](token|api_key|apikey|auth|secret|password|pass|pwd|key|access_token)=/i.test(url))
+      return 'sensitive'
+    if (/\/(api|v\d+|graphql|rest|swagger|openapi|internal|admin|dashboard|panel|console|debug)\b/.test(u))
+      return 'api'
+    if (/\.(zip|tar|gz|tgz|rar|7z|old|orig|copy|bk)$/.test(u))
+      return 'backup'
+    if (/\.(json|xml|yaml|yml|toml|config|cfg|ini|conf)$/.test(u))
+      return 'config'
+    if (/\.(js|php|asp|aspx|jsp|cgi|pl|py|rb)$/.test(u))
+      return 'scripts'
+    if (/\.(jpg|jpeg|png|gif|svg|webp|ico|woff|woff2|ttf|eot|css|mp4|mp3|pdf)$/.test(u))
+      return 'media'
+    return 'other'
+  }
+
+  const urlCategoryColors: Record<string, string> = {
+    sensitive: 'text-red-400 bg-red-950/40 border-red-800/50',
+    api:       'text-blue-400 bg-blue-950/40 border-blue-800/50',
+    backup:    'text-orange-400 bg-orange-950/40 border-orange-800/50',
+    config:    'text-yellow-400 bg-yellow-950/40 border-yellow-800/50',
+    scripts:   'text-purple-400 bg-purple-950/40 border-purple-800/50',
+    media:     'text-zinc-500 bg-zinc-900/40 border-zinc-800/30',
+    other:     '',
+  }
+
+  const filteredUrls = urls.filter(u => {
+    if (urlSearch && !u.url.toLowerCase().includes(urlSearch.toLowerCase())) return false
+    if (urlCategoryFilter === 'all') return true
+    if (urlCategoryFilter === 'interesting') return ['sensitive', 'api', 'backup', 'config'].includes(classifyUrl(u.url))
+    return classifyUrl(u.url) === urlCategoryFilter
+  })
+
+  const interestingCount = urls.filter(u => ['sensitive', 'api', 'backup', 'config'].includes(classifyUrl(u.url))).length
 
   // Stop a running recon job
   const cancelReconTool = async (toolId: string) => {
@@ -220,10 +274,31 @@ export function ReconPage() {
     }
   }
 
+  const handleAddLiveHost = async () => {
+    let v = manualHost.trim()
+    if (!v) return
+    if (!/^https?:\/\//i.test(v)) v = 'https://' + v
+    let host = v
+    try { host = new URL(v).host } catch {}
+    addLiveHosts([{ url: v, host, status_code: null, title: '', technologies: [], content_type: '', ip: '' }])
+    setManualHost('')
+    setActiveTab('live_hosts')
+    try {
+      await api.post('/api/recon/live-host', { url: v, project_id: activeProject ?? '' })
+      toast.success('Live host added', host)
+    } catch (err) {
+      toast.error('Saved locally but not persisted', err)
+    }
+  }
+
   const handleCheckEndpoints = async (categories: string[]) => {
-    const targets = liveHosts.map(h => h.url).filter(Boolean)
+    // Use the chosen host subset, or all live hosts when none are explicitly selected
+    const allUrls = liveHosts.map(h => h.url).filter(Boolean)
+    const targets = selectedEndpointHosts.size > 0
+      ? allUrls.filter(u => selectedEndpointHosts.has(u))
+      : allUrls
     if (targets.length === 0) {
-      toast.error('No live hosts', 'Run HTTPX probe first.')
+      toast.error('No target hosts', selectedEndpointHosts.size > 0 ? 'No selected host is live.' : 'Run HTTPX probe first.')
       return
     }
     setEndpointMenuOpen(false)
@@ -259,7 +334,27 @@ export function ReconPage() {
   const handleRunTool = async (toolId: string) => {
     if (!target.trim()) return
     try {
-      const opts = { ...(toolOptions[toolId] || {}), ...getSessionOpts() }
+      const opts: Record<string, string> = { ...(toolOptions[toolId] || {}), ...getSessionOpts() }
+
+      // Waybackurls CDX mode — call CDX API directly instead of binary
+      if (toolId === 'waybackurls' && opts.cdx_mode === 'true') {
+        const statusRaw = opts.cdx_status || 'all'
+        const statusCodes = statusRaw === 'all' ? [] : statusRaw.split(',').map((s: string) => s.trim()).filter(Boolean)
+        const methodRaw = opts.cdx_method || 'all'
+        const methods = methodRaw === 'all' ? [] : [methodRaw]
+        const extRaw = opts.cdx_extensions || ''
+        const extensions = extRaw ? extRaw.split(',').map((s: string) => s.trim()).filter(Boolean) : []
+        await api.post('/api/recon/wayback-cdx', {
+          target: target.trim(),
+          status_codes: statusCodes,
+          methods,
+          extensions,
+          limit: parseInt(opts.cdx_limit || '500', 10),
+          project_id: opts.project_id || '',
+        })
+        return
+      }
+
       await api.post(`/api/recon/${toolId}`, { target: target.trim(), options: opts })
     } catch (err) {
       toast.error(`Failed to start ${toolId}`, err)
@@ -524,6 +619,108 @@ export function ReconPage() {
                           {tool.id === 'subfinder' && (
                             <OptionInput label="Sources" placeholder="shodan,virustotal" value={opts.sources || ''} onChange={v => setOption(tool.id, 'sources', v)} />
                           )}
+                          {tool.id === 'waybackurls' && (() => {
+                            const cdxMode = opts.cdx_mode === 'true'
+                            return (
+                              <div className="space-y-2 pt-1">
+                                {/* CDX mode toggle */}
+                                <label className="flex items-center gap-2 cursor-pointer">
+                                  <input type="checkbox" checked={cdxMode}
+                                    onChange={e => setOption(tool.id, 'cdx_mode', e.target.checked ? 'true' : '')}
+                                    className="w-3 h-3 accent-cyan-500" />
+                                  <span className="text-[10px] text-zinc-400 font-medium">CDX API mode</span>
+                                  <span className="text-[9px] text-zinc-600">— faster, no binary, deduplicated</span>
+                                </label>
+                                {cdxMode && (
+                                  <div className="space-y-2 border-l border-zinc-700 pl-2">
+                                    {/* Status codes */}
+                                    <div>
+                                      <div className="text-[9px] text-zinc-500 mb-1">Status</div>
+                                      <div className="flex gap-1 flex-wrap">
+                                        {[
+                                          { v: '200', label: '200 only' },
+                                          { v: '200,301,302', label: '2xx+3xx' },
+                                          { v: 'all', label: 'All' },
+                                        ].map(o => (
+                                          <button key={o.v}
+                                            onClick={() => setOption(tool.id, 'cdx_status', o.v)}
+                                            className={cn('px-2 py-0.5 rounded text-[9px] border transition-colors',
+                                              (opts.cdx_status || 'all') === o.v
+                                                ? 'bg-cyan-900/50 border-cyan-700 text-cyan-300'
+                                                : 'bg-zinc-900 border-zinc-700 text-zinc-400 hover:border-zinc-500'
+                                            )}
+                                          >{o.label}</button>
+                                        ))}
+                                      </div>
+                                    </div>
+                                    {/* Methods */}
+                                    <div>
+                                      <div className="text-[9px] text-zinc-500 mb-1">Method</div>
+                                      <div className="flex gap-1">
+                                        {['all', 'GET', 'POST'].map(m => (
+                                          <button key={m}
+                                            onClick={() => setOption(tool.id, 'cdx_method', m)}
+                                            className={cn('px-2 py-0.5 rounded text-[9px] border transition-colors',
+                                              (opts.cdx_method || 'all') === m
+                                                ? 'bg-cyan-900/50 border-cyan-700 text-cyan-300'
+                                                : 'bg-zinc-900 border-zinc-700 text-zinc-400 hover:border-zinc-500'
+                                            )}
+                                          >{m}</button>
+                                        ))}
+                                      </div>
+                                    </div>
+                                    {/* Extension presets */}
+                                    <div>
+                                      <div className="text-[9px] text-zinc-500 mb-1">Extension filter</div>
+                                      <div className="flex gap-1 flex-wrap">
+                                        {[
+                                          { label: 'All', v: '' },
+                                          { label: 'Sensitive', v: '.env,.bak,.backup,.sql,.key,.pem,.dump,.shadow,.htpasswd,.db' },
+                                          { label: 'Config', v: '.json,.xml,.yaml,.yml,.toml,.config,.cfg,.ini,.conf' },
+                                          { label: 'Scripts', v: '.js,.php,.asp,.aspx,.jsp' },
+                                        ].map(o => (
+                                          <button key={o.label}
+                                            onClick={() => setOption(tool.id, 'cdx_extensions', o.v)}
+                                            className={cn('px-2 py-0.5 rounded text-[9px] border transition-colors',
+                                              (opts.cdx_extensions ?? '') === o.v
+                                                ? 'bg-cyan-900/50 border-cyan-700 text-cyan-300'
+                                                : 'bg-zinc-900 border-zinc-700 text-zinc-400 hover:border-zinc-500'
+                                            )}
+                                          >{o.label}</button>
+                                        ))}
+                                      </div>
+                                    </div>
+                                    {/* Limit */}
+                                    <div>
+                                      <div className="text-[9px] text-zinc-500 mb-1">Limit</div>
+                                      <div className="flex gap-1">
+                                        {['200', '500', '1000', '5000', '20000'].map(l => (
+                                          <button key={l}
+                                            onClick={() => setOption(tool.id, 'cdx_limit', l)}
+                                            className={cn('px-2 py-0.5 rounded text-[9px] border transition-colors',
+                                              (opts.cdx_limit || '500') === l
+                                                ? 'bg-cyan-900/50 border-cyan-700 text-cyan-300'
+                                                : 'bg-zinc-900 border-zinc-700 text-zinc-400 hover:border-zinc-500'
+                                            )}
+                                          >{l}</button>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            )
+                          })()}
+                          {tool.id === 'amass' && (
+                            <label className="flex items-center gap-2 cursor-pointer pt-1">
+                              <input type="checkbox"
+                                checked={opts.active === 'true'}
+                                onChange={e => setOption(tool.id, 'active', e.target.checked ? 'true' : '')}
+                                className="w-3 h-3 accent-blue-500"
+                              />
+                              <span className="text-[10px] text-zinc-500">Active brute (-active -brute) — finds wildcard-hidden hosts, slower &amp; noisier</span>
+                            </label>
+                          )}
                           {tool.id === 'httpx' && (
                             <OptionInput label="Threads" placeholder="50" value={opts.threads || ''} onChange={v => setOption(tool.id, 'threads', v)} />
                           )}
@@ -663,6 +860,29 @@ export function ReconPage() {
             ) : null}
           </div>
 
+          {/* Live Hosts — manual add */}
+          {activeTab === 'live_hosts' && (
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={manualHost}
+                onChange={e => setManualHost(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') handleAddLiveHost() }}
+                placeholder="Add a host manually, e.g. api-ar.redremax.com"
+                className="flex-1 max-w-md text-xs bg-zinc-900 border border-zinc-800 rounded px-2.5 py-1.5 text-zinc-300 placeholder:text-zinc-700 focus:outline-none focus:border-zinc-600 font-mono"
+              />
+              <Button
+                size="sm"
+                variant="outline"
+                className="border-green-700 text-green-400 hover:bg-green-950/40 text-xs"
+                onClick={handleAddLiveHost}
+                disabled={!manualHost.trim()}
+              >
+                <Plus size={12} className="mr-1.5" />Add host
+              </Button>
+            </div>
+          )}
+
           {/* Live Hosts — action bar */}
           {activeTab === 'live_hosts' && liveHosts.length > 0 && (
             <div className="flex items-center gap-2 flex-wrap">
@@ -725,7 +945,7 @@ export function ReconPage() {
                   : <><ShieldAlert size={12} className="mr-1.5" />Check Takeovers ({liveHosts.length + subdomains.length})</>}
               </Button>
 
-              {/* Endpoint discovery dropdown */}
+              {/* Endpoint discovery dropdown — hosts + categories in one menu */}
               <div className="relative" ref={endpointMenuRef}>
                 <Button
                   size="sm"
@@ -739,29 +959,104 @@ export function ReconPage() {
                     : <><Route size={12} className="mr-1.5" />Check Endpoints <ChevronDown size={10} className="ml-1" /></>}
                 </Button>
                 {endpointMenuOpen && (
-                  <div className="absolute top-full left-0 mt-1 z-50 w-64 rounded-lg border border-zinc-700 bg-zinc-900 shadow-xl">
-                    <div className="px-3 py-2 border-b border-zinc-800">
-                      <p className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wide">Select category</p>
-                      <p className="text-[9px] text-zinc-600 mt-0.5">Checks ~15-25 paths per category on all {liveHosts.length} live hosts</p>
+                  <div className="absolute top-full left-0 mt-1 z-50 w-80 rounded-lg border border-zinc-700 bg-zinc-900 shadow-xl">
+                    {/* Target hosts */}
+                    <div className="flex items-center justify-between px-3 py-2 border-b border-zinc-800">
+                      <p className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wide">
+                        Target hosts ({selectedEndpointHosts.size > 0 ? selectedEndpointHosts.size : liveHosts.length})
+                      </p>
+                      <div className="flex gap-1.5">
+                        <button
+                          onClick={() => setSelectedEndpointHosts(new Set())}
+                          className="text-[9px] px-1.5 py-0.5 rounded border border-zinc-700 text-zinc-400 hover:border-zinc-500 transition-colors"
+                        >All</button>
+                        <button
+                          onClick={() => setSelectedEndpointHosts(new Set(['__none__']))}
+                          className="text-[9px] px-1.5 py-0.5 rounded border border-zinc-700 text-zinc-400 hover:border-zinc-500 transition-colors"
+                        >None</button>
+                      </div>
                     </div>
-                    <div className="py-1">
+                    <div className="px-1.5 py-1.5 border-b border-zinc-800">
+                      <input
+                        type="text" placeholder="Filter hosts..."
+                        value={endpointHostFilter}
+                        onChange={e => setEndpointHostFilter(e.target.value)}
+                        className="w-full text-[10px] bg-zinc-950 border border-zinc-800 rounded px-2 py-1 text-zinc-300 placeholder:text-zinc-700 focus:outline-none mb-1"
+                      />
+                      <div className="max-h-32 overflow-auto">
+                        {liveHosts
+                          .filter(h => !endpointHostFilter || h.url.toLowerCase().includes(endpointHostFilter.toLowerCase()))
+                          .map((h, i) => {
+                            // empty selection = all hosts implicitly checked
+                            const checked = selectedEndpointHosts.size === 0 || selectedEndpointHosts.has(h.url)
+                            return (
+                              <label key={i} className="w-full flex items-center gap-2 px-1.5 py-1 hover:bg-zinc-800 transition-colors cursor-pointer rounded">
+                                <input
+                                  type="checkbox"
+                                  checked={checked}
+                                  onChange={() => setSelectedEndpointHosts(prev => {
+                                    // Materialize implicit "all" (or the "none" sentinel) into a concrete set before toggling
+                                    const base = prev.size === 0
+                                      ? new Set(liveHosts.map(x => x.url))
+                                      : new Set([...prev].filter(u => u !== '__none__'))
+                                    if (base.has(h.url)) base.delete(h.url); else base.add(h.url)
+                                    return base.size === 0 ? new Set(['__none__']) : base
+                                  })}
+                                  className="shrink-0 accent-cyan-500"
+                                />
+                                <span className={cn('text-[10px] font-mono font-bold shrink-0',
+                                  h.status_code && h.status_code < 300 ? 'text-green-400' :
+                                  h.status_code && h.status_code < 400 ? 'text-yellow-400' : 'text-orange-400'
+                                )}>{h.status_code ?? '?'}</span>
+                                <span className="text-[10px] text-zinc-300 font-mono truncate flex-1">{h.url}</span>
+                              </label>
+                            )
+                          })}
+                      </div>
+                    </div>
+                    {/* Categories */}
+                    <div className="px-3 py-2 border-b border-zinc-800">
+                      <p className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wide">Wordlist categories</p>
+                    </div>
+                    <div className="py-1 max-h-52 overflow-auto">
+                      {ENDPOINT_CATEGORIES.map(cat => {
+                        const checked = selectedEndpointCats.has(cat.id)
+                        return (
+                          <label
+                            key={cat.id}
+                            className="w-full flex items-start gap-2 px-3 py-1.5 hover:bg-zinc-800 transition-colors text-left cursor-pointer"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() => setSelectedEndpointCats(prev => {
+                                const next = new Set(prev)
+                                if (next.has(cat.id)) next.delete(cat.id); else next.add(cat.id)
+                                return next
+                              })}
+                              className="mt-0.5 shrink-0 accent-cyan-500"
+                            />
+                            <span className="text-xs font-medium text-zinc-200 shrink-0 mt-0.5 w-28">{cat.label}</span>
+                            <span className="text-[10px] text-zinc-500 leading-snug">{cat.desc}</span>
+                          </label>
+                        )
+                      })}
+                    </div>
+                    {/* Scan actions */}
+                    <div className="flex items-center gap-2 px-3 py-2 border-t border-zinc-800">
+                      <button
+                        onClick={() => handleCheckEndpoints([...selectedEndpointCats])}
+                        disabled={selectedEndpointCats.size === 0}
+                        className="flex-1 text-[10px] font-semibold px-2 py-1 rounded border border-cyan-700 text-cyan-400 hover:bg-cyan-950/40 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                      >
+                        Scan {selectedEndpointCats.size} cats → {selectedEndpointHosts.has('__none__') ? 0 : selectedEndpointHosts.size > 0 ? selectedEndpointHosts.size : liveHosts.length} hosts
+                      </button>
                       <button
                         onClick={() => handleCheckEndpoints(ENDPOINT_CATEGORIES.map(c => c.id))}
-                        className="w-full flex items-start gap-2 px-3 py-2 hover:bg-zinc-800 transition-colors text-left"
+                        className="text-[10px] px-2 py-1 rounded border border-zinc-700 text-zinc-300 hover:bg-zinc-800 transition-colors"
                       >
-                        <span className="text-xs font-semibold text-cyan-400 shrink-0 mt-0.5">All</span>
-                        <span className="text-[10px] text-zinc-500">Run all categories (~100 paths per host)</span>
+                        All cats
                       </button>
-                      {ENDPOINT_CATEGORIES.map(cat => (
-                        <button
-                          key={cat.id}
-                          onClick={() => handleCheckEndpoints([cat.id])}
-                          className="w-full flex items-start gap-2 px-3 py-2 hover:bg-zinc-800 transition-colors text-left"
-                        >
-                          <span className="text-xs font-medium text-zinc-200 shrink-0 mt-0.5 w-28">{cat.label}</span>
-                          <span className="text-[10px] text-zinc-500 leading-snug">{cat.desc}</span>
-                        </button>
-                      ))}
                     </div>
                   </div>
                 )}
@@ -828,11 +1123,12 @@ export function ReconPage() {
                     <th className="px-3 py-2 w-16">Status</th>
                     <th className="px-3 py-2">Title</th>
                     <th className="px-3 py-2">Technologies</th>
+                    <th className="px-3 py-2 w-8"></th>
                   </tr>
                 </thead>
                 <tbody>
                   {liveHosts.map((h, i) => (
-                    <tr key={i} className="border-b border-zinc-800/50 hover:bg-zinc-800/30">
+                    <tr key={i} className="border-b border-zinc-800/50 hover:bg-zinc-800/30 group">
                       <td className="px-3 py-1.5 text-zinc-600">{i + 1}</td>
                       <td className="px-3 py-1.5 text-green-400 font-mono truncate max-w-[240px]">{h.url}</td>
                       <td className="px-3 py-1.5">
@@ -853,11 +1149,23 @@ export function ReconPage() {
                           ))}
                         </div>
                       </td>
+                      <td className="px-3 py-1.5">
+                        <button
+                          onClick={async () => {
+                            removeLiveHost(h.url)
+                            try { await api.delete(`/api/recon/live-host?url=${encodeURIComponent(h.url)}`) } catch {}
+                          }}
+                          title="Remove this host (permanent)"
+                          className="text-zinc-700 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all"
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      </td>
                     </tr>
                   ))}
                   {liveHosts.length === 0 && (
                     <tr>
-                      <td colSpan={5} className="px-3 py-12 text-center text-zinc-600">
+                      <td colSpan={6} className="px-3 py-12 text-center text-zinc-600">
                         No live hosts yet. Run Stage 1 first, then &quot;HTTPX (probe all)&quot; in Stage 2.
                       </td>
                     </tr>
@@ -894,33 +1202,88 @@ export function ReconPage() {
 
             {/* URLs tab */}
             {activeTab === 'urls' && (
-              <table className="w-full text-xs">
-                <thead className="bg-zinc-900 sticky top-0 z-10">
-                  <tr className="text-zinc-500 text-left">
-                    <th className="px-3 py-2 w-8">#</th>
-                    <th className="px-3 py-2">URL</th>
-                    <th className="px-3 py-2 w-28">Source</th>
-                    <th className="px-3 py-2 w-16">Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {urls.map((u, i) => (
-                    <tr key={i} className="border-b border-zinc-800/50 hover:bg-zinc-800/30">
-                      <td className="px-3 py-1.5 text-zinc-600">{i + 1}</td>
-                      <td className="px-3 py-1.5 text-zinc-300 font-mono truncate max-w-[500px]">{u.url}</td>
-                      <td className="px-3 py-1.5 text-zinc-500">{u.source}</td>
-                      <td className="px-3 py-1.5 text-zinc-500">{u.status_code ?? '—'}</td>
+              <div className="flex flex-col h-full">
+                {/* Filter bar */}
+                <div className="flex flex-wrap items-center gap-2 px-3 py-2 border-b border-zinc-800 bg-zinc-950 sticky top-0 z-10">
+                  <input
+                    type="text"
+                    placeholder="Search URLs..."
+                    value={urlSearch}
+                    onChange={e => setUrlSearch(e.target.value)}
+                    className="text-xs bg-zinc-900 border border-zinc-800 rounded px-2.5 py-1 text-zinc-300 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-600 font-mono w-64"
+                  />
+                  <div className="flex items-center gap-1 flex-wrap">
+                    {([
+                      { id: 'all', label: 'All' },
+                      { id: 'interesting', label: `Interesting (${interestingCount})`, hot: interestingCount > 0 },
+                      { id: 'api',      label: 'API / Admin' },
+                      { id: 'sensitive',label: 'Sensitive' },
+                      { id: 'backup',   label: 'Backups' },
+                      { id: 'config',   label: 'Config' },
+                      { id: 'scripts',  label: 'Scripts' },
+                      { id: 'media',    label: 'Media' },
+                    ] as { id: string; label: string; hot?: boolean }[]).map(chip => (
+                      <button
+                        key={chip.id}
+                        onClick={() => setUrlCategoryFilter(chip.id as typeof urlCategoryFilter)}
+                        className={cn(
+                          'px-2 py-0.5 rounded text-[10px] border transition-colors',
+                          urlCategoryFilter === chip.id
+                            ? 'bg-cyan-900/50 border-cyan-700 text-cyan-300'
+                            : chip.hot
+                              ? 'bg-red-950/40 border-red-800/60 text-red-400 hover:border-red-600'
+                              : 'bg-zinc-900 border-zinc-700 text-zinc-400 hover:border-zinc-500'
+                        )}
+                      >{chip.label}</button>
+                    ))}
+                  </div>
+                  <span className="ml-auto text-[10px] text-zinc-600">
+                    {filteredUrls.length} / {urls.length}
+                  </span>
+                </div>
+                {/* Table */}
+                <table className="w-full text-xs">
+                  <thead className="bg-zinc-900 sticky top-[41px] z-10">
+                    <tr className="text-zinc-500 text-left">
+                      <th className="px-3 py-2 w-8">#</th>
+                      <th className="px-3 py-2">URL</th>
+                      <th className="px-3 py-2 w-20">Type</th>
+                      <th className="px-3 py-2 w-24">Source</th>
+                      <th className="px-3 py-2 w-16">Status</th>
                     </tr>
-                  ))}
-                  {urls.length === 0 && (
-                    <tr>
-                      <td colSpan={4} className="px-3 py-12 text-center text-zinc-600">
-                        No URLs discovered yet. Run Stage 3.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {filteredUrls.map((u, i) => {
+                      const cat = classifyUrl(u.url)
+                      const colorClass = urlCategoryColors[cat]
+                      return (
+                        <tr key={i} className={cn('border-b border-zinc-800/50 hover:bg-zinc-800/30', cat === 'sensitive' && 'bg-red-950/10')}>
+                          <td className="px-3 py-1.5 text-zinc-600">{i + 1}</td>
+                          <td className="px-3 py-1.5 font-mono truncate max-w-[500px]">
+                            <a href={u.url} target="_blank" rel="noreferrer" className="text-zinc-300 hover:text-cyan-400 hover:underline">{u.url}</a>
+                          </td>
+                          <td className="px-3 py-1.5">
+                            {cat !== 'other' && (
+                              <span className={cn('px-1.5 py-0.5 rounded text-[9px] border font-medium', colorClass)}>
+                                {cat}
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-3 py-1.5 text-zinc-500">{u.source}</td>
+                          <td className="px-3 py-1.5 text-zinc-500">{u.status_code ?? '—'}</td>
+                        </tr>
+                      )
+                    })}
+                    {filteredUrls.length === 0 && (
+                      <tr>
+                        <td colSpan={5} className="px-3 py-12 text-center text-zinc-600">
+                          {urls.length === 0 ? 'No URLs discovered yet. Run Stage 3.' : 'No URLs match the current filter.'}
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
             )}
 
             {/* Screenshots tab */}
@@ -1170,9 +1533,23 @@ export function ReconPage() {
                   const counts = endpoints.reduce<Record<string, number>>((acc, ep) => {
                     const b = bucket(ep.status_code); acc[b] = (acc[b] || 0) + 1; return acc
                   }, {})
-                  const filtered = endpointStatusFilter === 'all'
-                    ? endpoints
-                    : endpoints.filter(ep => bucket(ep.status_code) === endpointStatusFilter)
+                  const q = endpointSearch.trim().toLowerCase()
+                  const codeQ = endpointCodeFilter.trim()
+                  const minS = endpointMinSize.trim() === '' ? null : Number(endpointMinSize)
+                  const maxS = endpointMaxSize.trim() === '' ? null : Number(endpointMaxSize)
+                  const hideSizes = new Set(
+                    endpointHideSizes.split(',').map(s => s.trim()).filter(Boolean).map(Number).filter(n => !isNaN(n))
+                  )
+                  const filtered = endpoints.filter(ep => {
+                    if (endpointStatusFilter !== 'all' && bucket(ep.status_code) !== endpointStatusFilter) return false
+                    if (codeQ && String(ep.status_code ?? '') !== codeQ) return false
+                    if (q && !(ep.url?.toLowerCase().includes(q) || ep.title?.toLowerCase().includes(q))) return false
+                    const len = ep.content_length
+                    if (minS != null && (len == null || len < minS)) return false
+                    if (maxS != null && (len == null || len > maxS)) return false
+                    if (len != null && hideSizes.has(len)) return false
+                    return true
+                  })
                   return (
                     <>
                       <div className="flex items-center gap-1.5 px-2 pb-1.5 flex-wrap">
@@ -1190,12 +1567,46 @@ export function ReconPage() {
                               endpointStatusFilter === b ? 'border-cyan-500/60 bg-cyan-950/40 text-cyan-400' : 'border-zinc-800 text-zinc-500 hover:border-zinc-600')}
                           >{b} <span className="text-zinc-600">{counts[b]}</span></button>
                         ))}
+                        <input
+                          value={endpointSearch}
+                          onChange={e => setEndpointSearch(e.target.value)}
+                          placeholder="filter url / title"
+                          className="text-[10px] bg-zinc-900 border border-zinc-800 rounded px-1.5 py-0.5 text-zinc-300 placeholder:text-zinc-700 focus:outline-none focus:border-zinc-600 w-36 font-mono"
+                        />
+                        <input
+                          value={endpointCodeFilter}
+                          onChange={e => setEndpointCodeFilter(e.target.value.replace(/[^0-9]/g, ''))}
+                          placeholder="code"
+                          className="text-[10px] bg-zinc-900 border border-zinc-800 rounded px-1.5 py-0.5 text-zinc-300 placeholder:text-zinc-700 focus:outline-none focus:border-zinc-600 w-14 font-mono"
+                        />
+                        <input
+                          value={endpointMinSize}
+                          onChange={e => setEndpointMinSize(e.target.value.replace(/[^0-9]/g, ''))}
+                          placeholder="min B"
+                          className="text-[10px] bg-zinc-900 border border-zinc-800 rounded px-1.5 py-0.5 text-zinc-300 placeholder:text-zinc-700 focus:outline-none focus:border-zinc-600 w-16 font-mono"
+                        />
+                        <input
+                          value={endpointMaxSize}
+                          onChange={e => setEndpointMaxSize(e.target.value.replace(/[^0-9]/g, ''))}
+                          placeholder="max B"
+                          className="text-[10px] bg-zinc-900 border border-zinc-800 rounded px-1.5 py-0.5 text-zinc-300 placeholder:text-zinc-700 focus:outline-none focus:border-zinc-600 w-16 font-mono"
+                        />
+                        <input
+                          value={endpointHideSizes}
+                          onChange={e => setEndpointHideSizes(e.target.value.replace(/[^0-9,]/g, ''))}
+                          placeholder="hide B (2000,3000)"
+                          title="Hide responses with these exact byte sizes (comma-separated)"
+                          className="text-[10px] bg-zinc-900 border border-zinc-800 rounded px-1.5 py-0.5 text-zinc-300 placeholder:text-zinc-700 focus:outline-none focus:border-red-700/60 w-28 font-mono"
+                        />
                       </div>
                       {filtered.map((ep, i) => (
                         <div key={i} className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-zinc-800/50 transition-colors group">
                           <span className={cn('text-[10px] font-mono font-bold shrink-0 w-8 text-center rounded px-1', statusClass(ep.status_code))}>{ep.status_code ?? '?'}</span>
                           <span className="text-xs text-zinc-200 font-mono flex-1 truncate">{ep.url}</span>
                           {ep.title && <span className="text-[10px] text-zinc-500 truncate max-w-32 shrink-0">{ep.title}</span>}
+                          {ep.content_length != null && (
+                            <span className="text-[9px] text-zinc-600 font-mono shrink-0 w-16 text-right">{ep.content_length} B</span>
+                          )}
                           {ep.content_type && (
                             <span className="text-[9px] text-zinc-700 shrink-0 hidden group-hover:block">{ep.content_type.split(';')[0]}</span>
                           )}

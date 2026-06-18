@@ -404,7 +404,7 @@ export function SecurityToolsPage() {
                 <div className="text-[11px] leading-relaxed">
                   <span className="text-amber-300 font-semibold">{tool.label} is a PRO feature.</span>
                   <span className="text-zinc-400"> Upgrade to run it. </span>
-                  <a href="https://sentinelsec.online/pricing" target="_blank" rel="noreferrer" className="text-amber-400 underline">Get PRO</a>
+                  <a href="https://nexhunt.myshopify.com/products/nexhunt-pro" target="_blank" rel="noreferrer" className="text-amber-400 underline">Get PRO</a>
                 </div>
               </div>
             )}

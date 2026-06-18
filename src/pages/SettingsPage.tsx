@@ -25,11 +25,23 @@ import {
 } from 'lucide-react'
 
 const GROQ_MODELS = [
-  { id: 'llama-3.3-70b-versatile', label: 'Llama 3.3 70B Versatile (recommended)' },
+  { id: 'openai/gpt-oss-120b', label: 'GPT-OSS 120B (recommended — best for pentesting, free)' },
+  { id: 'qwen/qwen3-32b', label: 'Qwen3 32B (strong reasoning, Chinese, free)' },
+  { id: 'openai/gpt-oss-20b', label: 'GPT-OSS 20B (lighter, higher rate limit)' },
+  { id: 'meta-llama/llama-4-scout-17b-16e-instruct', label: 'Llama 4 Scout (fast)' },
+  { id: 'llama-3.3-70b-versatile', label: 'Llama 3.3 70B Versatile' },
   { id: 'llama-3.1-8b-instant', label: 'Llama 3.1 8B Instant (fastest)' },
-  { id: 'mixtral-8x7b-32768', label: 'Mixtral 8x7B (32k context)' },
-  { id: 'gemma2-9b-it', label: 'Gemma 2 9B (Google)' },
 ]
+
+// Suggested models per OpenAI-compatible provider (free or near-free)
+const PROVIDER_MODEL_HINTS: Record<string, string> = {
+  gemini: 'gemini-2.0-flash',
+  cerebras: 'llama-3.3-70b',
+  openrouter: 'deepseek/deepseek-chat-v3-0324:free',
+  deepseek: 'deepseek-chat',
+  openai: 'gpt-4o',
+  custom: '',
+}
 
 export function SettingsPage() {
   const [tools, setTools] = useState<ToolStatus[]>([])
@@ -39,8 +51,11 @@ export function SettingsPage() {
   const [groqKey, setGroqKey] = useState('')
   const [groqKeySet, setGroqKeySet] = useState(false)
   const [aiApiKey, setAiApiKey] = useState('')
+  const [aiBaseUrl, setAiBaseUrl] = useState('')
   const [language, setLanguage] = useState('en')
   const [ngrokToken, setNgrokToken] = useState('')
+  const [wpscanToken, setWpscanToken] = useState('')
+  const [wpscanTokenSet, setWpscanTokenSet] = useState(false)
   const [saved, setSaved] = useState(false)
 
   const fetchTools = async () => {
@@ -58,9 +73,11 @@ export function SettingsPage() {
       if (s.proxy_port) setProxyPort(String(s.proxy_port))
       if (s.ai_provider) setAiProvider(s.ai_provider)
       if (s.ai_model) setAiModel(s.ai_model)
+      if (s.ai_base_url) setAiBaseUrl(s.ai_base_url)
       if (s.ai_groq_key_set) setGroqKeySet(true)
       if (s.language) setLanguage(s.language)
       if (s.ngrok_authtoken_set) setNgrokToken('')
+      if (s.wpscan_api_token_set) setWpscanTokenSet(true)
     }).catch(() => {})
     useLicenseStore.getState().fetchStatus()
   }, [])
@@ -73,9 +90,12 @@ export function SettingsPage() {
         ai_model: aiModel,
         ai_groq_key: groqKey,
         ai_api_key: aiApiKey || undefined,
+        ai_base_url: aiBaseUrl || undefined,
         language,
         ngrok_authtoken: ngrokToken || undefined,
+        wpscan_api_token: wpscanToken || undefined,
       })
+      if (wpscanToken) setWpscanTokenSet(true)
       setSaved(true)
       setTimeout(() => setSaved(false), 2000)
     } catch (err) {
@@ -157,16 +177,28 @@ export function SettingsPage() {
             <div>
               <label className="text-xs text-zinc-500 mb-1 block">AI Provider</label>
               <select
-                className="h-9 rounded-md border border-input bg-zinc-900 px-3 text-sm text-zinc-300 w-48"
+                className="h-9 rounded-md border border-input bg-zinc-900 px-3 text-sm text-zinc-300 w-full max-w-sm"
                 value={aiProvider}
-                onChange={e => setAiProvider(e.target.value)}
+                onChange={e => {
+                  const p = e.target.value
+                  setAiProvider(p)
+                  // Prefill a sensible default model when switching provider
+                  if (p === 'groq') setAiModel('openai/gpt-oss-120b')
+                  else if (PROVIDER_MODEL_HINTS[p]) setAiModel(PROVIDER_MODEL_HINTS[p])
+                }}
               >
-                <option value="groq">Groq (fast + free tier)</option>
+                <option value="groq">Groq (free — recommended, hosts GPT-OSS/Qwen/Llama4)</option>
+                <option value="gemini">Google Gemini (free tier, powerful)</option>
+                <option value="cerebras">Cerebras (free, fastest)</option>
+                <option value="openrouter">OpenRouter (free models: DeepSeek/Qwen/Llama)</option>
+                <option value="deepseek">DeepSeek (Chinese, cheap)</option>
                 <option value="openai">OpenAI</option>
                 <option value="claude">Claude (Anthropic)</option>
+                <option value="custom">Custom (OpenAI-compatible)</option>
               </select>
             </div>
 
+            {/* Groq: dedicated key + curated model dropdown */}
             {aiProvider === 'groq' && (
               <>
                 <div>
@@ -178,9 +210,7 @@ export function SettingsPage() {
                     value={groqKey}
                     onChange={e => setGroqKey(e.target.value)}
                   />
-                  <p className="text-[11px] text-zinc-600 mt-1">
-                    PRO Copilot is hosted by Sentinel and needs no key. A local key is only for self-hosting. Free key at console.groq.com
-                  </p>
+                  <p className="text-[11px] text-zinc-600 mt-1">Free key at console.groq.com — all listed models are free.</p>
                 </div>
                 <div>
                   <label className="text-xs text-zinc-500 mb-1 block">Model</label>
@@ -197,13 +227,52 @@ export function SettingsPage() {
               </>
             )}
 
-            {(aiProvider === 'openai' || aiProvider === 'claude') && (
+            {/* Any other OpenAI-compatible provider: key + free-text model (+ base URL for custom) */}
+            {(['gemini', 'cerebras', 'openrouter', 'deepseek', 'openai', 'custom'].includes(aiProvider)) && (
+              <>
+                <div>
+                  <label className="text-xs text-zinc-500 mb-1 block">API Key</label>
+                  <Input
+                    type="password"
+                    className="bg-zinc-900 font-mono text-sm"
+                    placeholder="provider API key"
+                    value={aiApiKey}
+                    onChange={e => setAiApiKey(e.target.value)}
+                  />
+                </div>
+                {aiProvider === 'custom' && (
+                  <div>
+                    <label className="text-xs text-zinc-500 mb-1 block">Base URL (OpenAI-compatible)</label>
+                    <Input
+                      className="bg-zinc-900 font-mono text-sm"
+                      placeholder="https://host/v1"
+                      value={aiBaseUrl}
+                      onChange={e => setAiBaseUrl(e.target.value)}
+                    />
+                  </div>
+                )}
+                <div>
+                  <label className="text-xs text-zinc-500 mb-1 block">Model</label>
+                  <Input
+                    className="bg-zinc-900 font-mono text-sm"
+                    placeholder={PROVIDER_MODEL_HINTS[aiProvider] || 'model id'}
+                    value={aiModel}
+                    onChange={e => setAiModel(e.target.value)}
+                  />
+                  {PROVIDER_MODEL_HINTS[aiProvider] && (
+                    <p className="text-[11px] text-zinc-600 mt-1">Suggested: <code className="text-zinc-400">{PROVIDER_MODEL_HINTS[aiProvider]}</code></p>
+                  )}
+                </div>
+              </>
+            )}
+
+            {aiProvider === 'claude' && (
               <div>
-                <label className="text-xs text-zinc-500 mb-1 block">API Key</label>
+                <label className="text-xs text-zinc-500 mb-1 block">Anthropic API Key</label>
                 <Input
                   type="password"
-                  className="bg-zinc-900"
-                  placeholder="sk-..."
+                  className="bg-zinc-900 font-mono text-sm"
+                  placeholder="sk-ant-..."
                   value={aiApiKey}
                   onChange={e => setAiApiKey(e.target.value)}
                 />
@@ -241,6 +310,25 @@ export function SettingsPage() {
                 onChange={e => setNgrokToken(e.target.value)}
               />
               {ngrokToken && <p className="text-[10px] text-green-500">Ngrok token configured — jku attacks against external targets will work automatically.</p>}
+            </div>
+
+            {/* WPScan */}
+            <div className="border-t border-zinc-800 pt-4 space-y-2">
+              <label className="text-xs text-zinc-400 font-semibold flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-blue-500" /> WPScan API Token
+                {wpscanTokenSet && <span className="text-[10px] text-green-500 font-normal">· configured</span>}
+              </label>
+              <p className="text-[11px] text-zinc-600">
+                Unlocks <strong className="text-zinc-400">WordPress vulnerability data</strong> in the WordPress pentest module.
+                Free token (25 requests/day) at <span className="text-blue-400">wpscan.com/profile</span>
+              </p>
+              <Input
+                type="password"
+                className="bg-zinc-900 font-mono text-sm"
+                placeholder={wpscanTokenSet ? 'configured — leave blank to keep' : 'your WPScan API token'}
+                value={wpscanToken}
+                onChange={e => setWpscanToken(e.target.value)}
+              />
             </div>
 
             <Button onClick={handleSaveSettings} size="sm" className="flex items-center gap-2">
@@ -386,7 +474,7 @@ function LicenseSection() {
           </div>
           {error && <p className="text-[11px] text-red-400">{error}</p>}
           <div className="flex items-center gap-3 text-[11px] pt-1">
-            <a href={status?.upgrade_url || 'https://sentinelsec.online/pricing'} target="_blank" rel="noreferrer"
+            <a href={status?.upgrade_url || 'https://nexhunt.myshopify.com/products/nexhunt-pro'} target="_blank" rel="noreferrer"
               className="inline-flex items-center gap-1 text-amber-400 hover:text-amber-300">
               Get a PRO license <ExternalLink size={11} />
             </a>

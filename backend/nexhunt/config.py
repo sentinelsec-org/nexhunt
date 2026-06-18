@@ -20,7 +20,8 @@ class Settings(BaseSettings):
     ai_groq_key: str = ""
 
     # AI — fallbacks
-    ai_api_key: str = ""           # Anthropic / OpenAI key
+    ai_api_key: str = ""           # key for the selected OpenAI-compatible provider (gemini/cerebras/openrouter/deepseek/openai) or Anthropic
+    ai_base_url: str = ""          # custom OpenAI-compatible base URL (when ai_provider == "custom")
 
     # AI — hosted Copilot (PRO). When set, PRO routes the Copilot through Sentinel's
     # proxy using the user's license key instead of a local AI key.
@@ -43,7 +44,7 @@ class Settings(BaseSettings):
     keygen_policy_id: str = "b216c614-6942-42da-b044-a25fbceb2ed5"
     keygen_product_token: str = ""             # set via NEXHUNT_KEYGEN_PRODUCT_TOKEN env var
 
-    upgrade_url: str = "https://sentinelsec.online/pricing"
+    upgrade_url: str = "https://nexhunt.myshopify.com/products/nexhunt-pro"
     update_repo: str = "sentinelsec-org/nexhunt"   # GitHub owner/repo for release updates
 
     # UI language
@@ -54,6 +55,9 @@ class Settings(BaseSettings):
 
     # Ngrok — for jku/x5u attacks against external targets
     ngrok_authtoken: str = ""
+
+    # WPScan — WordPress vulnerability database API token (wpscan.com)
+    wpscan_api_token: str = ""
 
     class Config:
         env_prefix = "NEXHUNT_"

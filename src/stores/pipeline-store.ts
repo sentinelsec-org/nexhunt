@@ -3,6 +3,14 @@ import type { PipelineEvent } from '@/types'
 
 export type PipelineType = 'xss' | 'sqli' | 'js_scan'
 
+export interface PipelineFinding {
+  severity: 'critical' | 'high' | 'medium' | 'low' | 'info'
+  label: string
+  text: string
+  url?: string
+  param?: string
+}
+
 export interface PipelineRun {
   id: string
   type: PipelineType
@@ -11,6 +19,7 @@ export interface PipelineRun {
   katanaUrls: string[]
   candidates: string[]      // XSS param URLs / SQLi param URLs / JS file URLs
   findingsCount: number
+  findings: PipelineFinding[]
   log: string[]
   startedAt: number
   stats: {
@@ -49,6 +58,7 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
       katanaUrls: [],
       candidates: [],
       findingsCount: 0,
+      findings: [],
       log: [`[•] ${PIPELINE_LABELS[type]} started for ${target}`],
       startedAt: Date.now(),
       stats: { totalUrls: 0 },
@@ -83,6 +93,8 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
             else if (updated.katanaUrls.length % 50 === 0) {
               updated.log.push(`  [•] ${updated.katanaUrls.length} URLs crawled so far...`)
             }
+          } else if (event.event === 'cached') {
+            updated.log.push(`[Katana] ♻ ${event.message ?? 'reused cached crawl'}`)
           } else if (event.event === 'completed') {
             const cLabel = run.type === 'js_scan' ? 'JS files' : 'param URLs'
             updated.log.push(
@@ -101,6 +113,12 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
             updated.log.push(`[Dalfox] Scanning ${event.targets ?? 0} endpoints...`)
           } else if (event.event === 'finding' && event.finding) {
             updated.findingsCount += 1
+            updated.findings = [...updated.findings, {
+              severity: 'high', label: 'XSS',
+              text: `param: ${event.finding.parameter ?? '?'}`,
+              url: event.finding.url,
+              param: event.finding.parameter,
+            }]
             updated.log.push(
               `  [XSS FOUND] ${event.finding.url ?? ''} — param: ${event.finding.parameter ?? '?'}`
             )
@@ -137,6 +155,12 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
             const tag = f.method === 'boolean-based' ? 'BOOLEAN'
               : f.method === 'time-based' ? 'TIME-BASED'
               : 'SQL ERROR'
+            updated.findings = [...updated.findings, {
+              severity: 'critical', label: tag,
+              text: `param: ${f.parameter} — ${f.evidence?.slice(0, 80) ?? ''}`,
+              url: f.original_url ?? f.url,
+              param: f.parameter,
+            }]
             updated.log.push(
               `  [${tag}] ${f.original_url ?? f.url} — param: ${f.parameter} — ${f.evidence?.slice(0, 80)}`
             )
@@ -161,6 +185,12 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
           } else if (event.event === 'finding' && event.finding) {
             updated.findingsCount += 1
             const f = event.finding
+            const sev = (f.severity ?? 'info') as PipelineFinding['severity']
+            updated.findings = [...updated.findings, {
+              severity: sev, label: f.label ?? 'secret',
+              text: `${f.match?.slice(0, 80) ?? ''}`,
+              url: f.js_url,
+            }]
             updated.log.push(
               `  [${f.severity?.toUpperCase()}] ${f.label} in ${f.js_url} :${f.line} — ${f.match?.slice(0, 60)}`
             )
@@ -182,7 +212,12 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
           } else if (event.event === 'finding' && event.finding) {
             updated.findingsCount += 1
             const f = event.finding
-            updated.log.push(`  [${f.severity?.toUpperCase()}] ${f.title} — ${f.url}`)
+            const bsev = (f.severity ?? 'high') as PipelineFinding['severity']
+            updated.findings = [...updated.findings, {
+              severity: bsev, label: 'Cloud bucket',
+              text: f.title ?? '', url: f.url,
+            }]
+            updated.log.push(`  [${f.severity?.toUpperCase()}] [Cloud] ${f.title} — ${f.url}`)
           } else if (event.event === 'completed') {
             updated.log.push(`[Buckets] ${event.message ?? 'done'}`)
           }

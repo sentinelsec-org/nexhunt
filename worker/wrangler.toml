@@ -1,0 +1,15 @@
+name = "nexhunt-licensing"
+main = "shopify-keygen.js"
+compatibility_date = "2024-11-01"
+
+# Set secrets (never commit them):
+#   wrangler secret put KEYGEN_PRODUCT_TOKEN
+#   wrangler secret put KEYGEN_ACCOUNT_ID
+#   wrangler secret put KEYGEN_POLICY_ID
+#   wrangler secret put SHOPIFY_WEBHOOK_SECRET
+#   wrangler secret put ADMIN_TOKEN
+#   wrangler secret put PRO_PRODUCT_ID     # optional
+#   wrangler secret put RESEND_API_KEY     # optional (email delivery)
+#   wrangler secret put MAIL_FROM          # e.g. "NexHunt <license@sentinelsec.online>" after Resend DNS verification
+#
+# Deploy: wrangler deploy

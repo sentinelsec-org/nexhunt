@@ -10,7 +10,7 @@ const BENEFITS = [
   { icon: Shield,  text: 'Proxy Intruder, JWT attack suite, brute force module' },
 ]
 
-const UPGRADE_URL = 'https://sentinelsec.online/pricing'
+const UPGRADE_URL = 'https://nexhunt.myshopify.com/products/nexhunt-pro'
 
 export function ProSplash() {
   const [visible, setVisible] = useState(false)

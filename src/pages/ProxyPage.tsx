@@ -432,6 +432,40 @@ function SiteMapTab({ flows, selectedFlowId, selectFlow, scopeDomains, sendToBru
   const tree = buildSiteTree(visibleFlows)
   const selectedFlow = flows.find(f => f.id === selectedFlowId)
 
+  // Live re-send state — fresh response from hitting the endpoint again
+  const [liveResp, setLiveResp] = useState<{ status: number; headers: Record<string, string>; body: string; duration_ms: number; error?: string } | null>(null)
+  const [sending, setSending] = useState(false)
+
+  // Reset the live response whenever a different endpoint is selected
+  useEffect(() => { setLiveResp(null) }, [selectedFlowId])
+
+  const handleSend = async () => {
+    if (!selectedFlow) return
+    setSending(true); setLiveResp(null)
+    try {
+      const raw = [
+        `${selectedFlow.request_method} ${selectedFlow.request_path} HTTP/1.1`,
+        `Host: ${selectedFlow.request_host}`,
+        ...Object.entries(selectedFlow.request_headers ?? {})
+          .filter(([k]) => k.toLowerCase() !== 'host')
+          .map(([k, v]) => `${k}: ${v}`),
+        '',
+        selectedFlow.request_body ?? '',
+      ].join('\n')
+      const data = await api.post<any>('/api/proxy/repeat-raw', {
+        raw_request: raw,
+        host: selectedFlow.request_host,
+        port: selectedFlow.request_port || (selectedFlow.request_url.startsWith('https') ? 443 : 80),
+        use_https: selectedFlow.request_url.startsWith('https'),
+      })
+      setLiveResp(data)
+    } catch (e: any) {
+      setLiveResp({ status: 0, headers: {}, body: '', duration_ms: 0, error: String(e) })
+    } finally {
+      setSending(false)
+    }
+  }
+
   const toggle = (key: string) => setExpanded(s => {
     const next = new Set(s)
     next.has(key) ? next.delete(key) : next.add(key)
@@ -508,12 +542,16 @@ function SiteMapTab({ flows, selectedFlowId, selectFlow, scopeDomains, sendToBru
               <Badge className={cn('font-mono', getMethodColor(selectedFlow.request_method))}>{selectedFlow.request_method}</Badge>
               <span className="text-xs text-zinc-400 font-mono truncate flex-1">{selectedFlow.request_host}{selectedFlow.request_path}</span>
               <span className={cn('font-mono font-semibold text-xs', statusBg(selectedFlow.response_status))}>{selectedFlow.response_status || '—'}</span>
+              <Button size="sm" className="text-xs bg-blue-700 hover:bg-blue-600 text-white" onClick={handleSend} disabled={sending}>
+                {sending ? <Loader2 size={12} className="mr-1 animate-spin" /> : <Send size={12} className="mr-1" />}
+                Send
+              </Button>
               <Button size="sm" variant="outline" className="text-xs border-amber-800/60 text-amber-400 hover:bg-amber-950/20"
                 onClick={() => sendToBruteForce(selectedFlow)}>
                 <KeyRound size={12} className="mr-1" /> Brute Force
               </Button>
             </div>
-            <div className="rounded-lg border border-zinc-800 bg-zinc-900/60 p-3 flex-1 overflow-auto">
+            <div className="rounded-lg border border-zinc-800 bg-zinc-900/60 p-3 overflow-auto max-h-[30%] shrink-0">
               <p className="text-[10px] text-zinc-500 font-semibold uppercase mb-2">Request</p>
               <pre className="text-[11px] text-zinc-300 font-mono whitespace-pre-wrap break-all">
                 {`${selectedFlow.request_method} ${selectedFlow.request_path} HTTP/1.1\nHost: ${selectedFlow.request_host}\n`}
@@ -522,6 +560,40 @@ function SiteMapTab({ flows, selectedFlowId, selectFlow, scopeDomains, sendToBru
                   .map(([k, v]) => `${k}: ${v}\n`).join('')}
                 {selectedFlow.request_body && `\n${selectedFlow.request_body}`}
               </pre>
+            </div>
+            {/* Response — live re-send if available, otherwise the captured one */}
+            <div className="rounded-lg border border-zinc-800 bg-zinc-900/60 p-3 flex-1 overflow-auto min-h-0">
+              {liveResp ? (
+                <>
+                  <p className="text-[10px] text-zinc-500 font-semibold uppercase mb-2 flex items-center gap-2">
+                    Live response — <span className={statusBg(liveResp.status)}>{liveResp.status || 'error'}</span>
+                    <span className="text-zinc-600 normal-case">{liveResp.duration_ms} ms · {formatBytes(liveResp.body.length)}</span>
+                    <span className="ml-auto text-[9px] text-blue-400 normal-case">freshly sent</span>
+                  </p>
+                  {liveResp.error
+                    ? <pre className="text-[11px] text-red-400 font-mono whitespace-pre-wrap break-all">{liveResp.error}</pre>
+                    : <pre className="text-[11px] text-zinc-300 font-mono whitespace-pre-wrap break-all">
+                        {Object.entries(liveResp.headers).map(([k, v]) => `${k}: ${v}\n`).join('')}
+                        {liveResp.body && `\n${liveResp.body.slice(0, 20000)}`}
+                      </pre>}
+                </>
+              ) : (
+                <>
+                  <p className="text-[10px] text-zinc-500 font-semibold uppercase mb-2">
+                    Response — <span className={statusBg(selectedFlow.response_status)}>{selectedFlow.response_status || '—'}</span>
+                    <span className="ml-2 text-zinc-600 normal-case">captured · press Send to re-issue</span>
+                  </p>
+                  {(selectedFlow.response_headers || selectedFlow.response_body) ? (
+                    <pre className="text-[11px] text-zinc-300 font-mono whitespace-pre-wrap break-all">
+                      {selectedFlow.response_headers && Object.entries(selectedFlow.response_headers)
+                        .map(([k, v]) => `${k}: ${v}\n`).join('')}
+                      {selectedFlow.response_body && `\n${selectedFlow.response_body.slice(0, 20000)}`}
+                    </pre>
+                  ) : (
+                    <p className="text-[11px] text-zinc-600">No captured response body. Press <span className="text-blue-400">Send</span> to fetch it live.</p>
+                  )}
+                </>
+              )}
             </div>
           </>
         ) : (

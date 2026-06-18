@@ -1,8 +1,10 @@
 import { useState } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import { cn } from '@/lib/utils'
+import { parseRequestForSession } from '@/lib/session-import'
 import { useAppStore } from '@/stores/app-store'
 import { useLicenseStore } from '@/stores/license-store'
+import { toast } from '@/stores/toast-store'
 import {
   LayoutDashboard,
   Globe,
@@ -24,6 +26,7 @@ import {
   Lock,
   Crown,
   Zap,
+  Newspaper,
 } from 'lucide-react'
 
 const navSections = [
@@ -34,6 +37,7 @@ const navSections = [
       { path: '/proxy',          icon: Globe,         label: 'Proxy',           requiresProject: true  },
       { path: '/scanner',        icon: ScanSearch,    label: 'Scanner',         requiresProject: true  },
       { path: '/security-tools', icon: ShieldCheck,   label: 'Attacks',         requiresProject: true  },
+      { path: '/wordpress',      icon: Newspaper,     label: 'WordPress',       requiresProject: true, pro: true },
       { path: '/exploit',        icon: Swords,        label: 'Exploit',         requiresProject: true  },
       { path: '/pipelines',      icon: Zap,           label: 'Pipelines',       requiresProject: true  },
       { path: '/brute-force',    icon: KeyRound,      label: 'Brute Force',     requiresProject: true, pro: true },
@@ -137,8 +141,24 @@ export function Sidebar() {
   const navigate = useNavigate()
   const isPro = useLicenseStore((s) => s.status?.tier === 'pro')
   const [sessionOpen, setSessionOpen] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
+  const [importText, setImportText] = useState('')
   const hasSession = !!(sessionCookies.trim() || sessionHeaders.trim())
   const hasProject = !!activeProject
+
+  const handleImport = () => {
+    const parsed = parseRequestForSession(importText)
+    if (!parsed.cookies && !parsed.headers) {
+      toast.error('Nothing found', 'Paste a full request including its Cookie / Authorization headers')
+      return
+    }
+    if (parsed.cookies) setSessionCookies(parsed.cookies)
+    if (parsed.headers) setSessionHeaders(parsed.headers)
+    setImportText('')
+    setImportOpen(false)
+    const dropped = parsed.droppedCookies.length ? ` (dropped ${parsed.droppedCookies.length} tracking)` : ''
+    toast.success('Session filled', `${parsed.keptCookies.length} cookies, ${parsed.keptHeaders.length} headers${dropped}`)
+  }
 
   return (
     <aside
@@ -239,6 +259,30 @@ export function Sidebar() {
 
             {sessionOpen && (
               <div className="mt-2 space-y-2">
+                <button
+                  onClick={() => setImportOpen(v => !v)}
+                  className="text-[9px] text-cyan-500 hover:text-cyan-400 transition-colors"
+                >
+                  {importOpen ? '− Hide import' : '+ Import from request'}
+                </button>
+                {importOpen && (
+                  <div className="space-y-1">
+                    <textarea
+                      placeholder={"Paste a raw HTTP request here.\nAuth cookies + headers are extracted,\ntracking is dropped."}
+                      value={importText}
+                      onChange={e => setImportText(e.target.value)}
+                      rows={4}
+                      className="w-full text-[10px] bg-zinc-900/60 border border-zinc-800 rounded px-2 py-1 text-zinc-300 placeholder:text-zinc-700 focus:outline-none focus:border-zinc-600 font-mono resize-none"
+                    />
+                    <button
+                      onClick={handleImport}
+                      disabled={!importText.trim()}
+                      className="w-full text-[10px] font-semibold px-2 py-1 rounded border border-cyan-700 text-cyan-400 hover:bg-cyan-950/40 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                    >
+                      Parse &amp; fill
+                    </button>
+                  </div>
+                )}
                 <div className="space-y-1">
                   <label className="text-[8px] text-zinc-600 uppercase tracking-widest">Cookies</label>
                   <input

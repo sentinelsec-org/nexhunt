@@ -136,12 +136,13 @@ export interface EndpointResult {
   status_code: number | null
   title: string | null
   content_type: string | null
+  content_length: number | null
 }
 
 export interface PipelineEvent {
   phase: 'katana' | 'dalfox' | 'sqli_probe' | 'js_scan' | 'js_parse' | 'bucket_check'
   pipeline?: 'xss' | 'sqli' | 'js_scan'
-  event: 'started' | 'url_found' | 'completed' | 'failed' | 'finding' | 'js_file'
+  event: 'started' | 'url_found' | 'completed' | 'failed' | 'finding' | 'js_file' | 'cached'
   message?: string
   url?: string
   has_params?: boolean

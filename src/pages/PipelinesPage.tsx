@@ -6,13 +6,13 @@ import { ScopeSelector } from '@/components/ui/scope-selector'
 import { api } from '@/api/http-client'
 import { toast } from '@/stores/toast-store'
 import { cn } from '@/lib/utils'
-import { usePipelineStore } from '@/stores/pipeline-store'
-import { useScannerStore } from '@/stores/scanner-store'
+import { usePipelineStore, type PipelineRun } from '@/stores/pipeline-store'
+
 import { useReconStore } from '@/stores/recon-store'
 import { useAppStore } from '@/stores/app-store'
 import {
   Play, Loader2, Database, Zap, Bug, Trash2, FileCode,
-  ChevronDown, Server, Settings2,
+  ChevronDown, Server, Settings2, CheckSquare, Square as SquareIcon,
 } from 'lucide-react'
 
 const ACCENTS = {
@@ -36,6 +36,8 @@ const ACCENTS = {
 export function PipelinesPage() {
   const { globalTarget, setGlobalTarget, getSessionOpts } = useAppStore()
   const [pipelineTarget, setPipelineTargetLocal] = useState(globalTarget)
+  const [selectedHosts, setSelectedHosts] = useState<string[]>([])
+  const [multiProgress, setMultiProgress] = useState<{ current: number; total: number } | null>(null)
 
   useEffect(() => {
     if (globalTarget && !pipelineTarget) setPipelineTargetLocal(globalTarget)
@@ -47,38 +49,64 @@ export function PipelinesPage() {
   }
 
   const { runs, activeRunId, startRun, clearRuns } = usePipelineStore()
-  const { findings } = useScannerStore()
   const logRef = useRef<HTMLPreElement>(null)
-  const activeRun = runs.find(r => r.id === activeRunId)
+  const [viewRunId, setViewRunId] = useState<string | null>(null)
+
+  // Auto-follow the newest run when it starts, but don't override manual selection
+  useEffect(() => {
+    if (activeRunId) setViewRunId(activeRunId)
+  }, [activeRunId])
+
+  const viewRun = runs.find(r => r.id === (viewRunId ?? activeRunId)) ?? runs[0] ?? null
 
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight
-  }, [activeRun?.log.length])
+  }, [viewRun?.log.length])
 
-  const xssFindings = findings.filter(f => f.tool === 'dalfox')
+  // Returns the list of targets to scan — selected hosts if any, otherwise the manual input
+  const getTargets = () =>
+    selectedHosts.length > 0 ? selectedHosts : pipelineTarget.trim() ? [pipelineTarget.trim()] : []
+
+  // Run a pipeline fn sequentially over all targets, tracking progress
+  const runOnTargets = async (
+    setRunning: (v: boolean) => void,
+    runFn: (target: string) => Promise<void>,
+  ) => {
+    const targets = getTargets()
+    if (targets.length === 0) return
+    setRunning(true)
+    if (targets.length > 1) setMultiProgress({ current: 1, total: targets.length })
+    try {
+      for (let i = 0; i < targets.length; i++) {
+        if (targets.length > 1) setMultiProgress({ current: i + 1, total: targets.length })
+        await runFn(targets[i])
+      }
+    } finally {
+      setRunning(false)
+      setMultiProgress(null)
+    }
+  }
 
   // ── XSS ──
   const [xssRunning, setXssRunning] = useState(false)
   const [xssOpts, setXssOpts] = useState({
     depth: '3', concurrency: '10', rate_limit: '150',
-    js_crawl: true, crawl_forms: true, restrict_scope: true, headless: false,
+    js_crawl: true, crawl_forms: true, restrict_scope: true, headless: false, force_recrawl: false,
     workers: '10', blind: '', cookie: '', parse_js: true,
   })
 
-  const handleXss = async () => {
-    if (!pipelineTarget.trim()) return
-    setXssRunning(true)
-    startRun('xss', pipelineTarget.trim())
+  const handleXss = () => runOnTargets(setXssRunning, async (target) => {
+    startRun('xss', target)
     try {
       const sess = getSessionOpts()
       await api.post('/api/pipeline/xss', {
-        target: pipelineTarget.trim(),
+        target,
         options: {
           depth: parseInt(xssOpts.depth) || 3,
           concurrency: parseInt(xssOpts.concurrency) || 10,
           rate_limit: parseInt(xssOpts.rate_limit) || 150,
           js_crawl: xssOpts.js_crawl, crawl_forms: xssOpts.crawl_forms,
-          restrict_scope: xssOpts.restrict_scope, headless: xssOpts.headless,
+          restrict_scope: xssOpts.restrict_scope, headless: xssOpts.headless, force_recrawl: xssOpts.force_recrawl,
           parse_js: xssOpts.parse_js, blind: xssOpts.blind || undefined,
           cookie: xssOpts.cookie || sess.session_cookies || undefined,
           workers: parseInt(xssOpts.workers) || 10,
@@ -86,31 +114,28 @@ export function PipelinesPage() {
         },
       }, 0)
     } catch (err) { toast.error('XSS pipeline failed', err) }
-    finally { setXssRunning(false) }
-  }
+  })
 
   // ── SQLi ──
   const [sqliRunning, setSqliRunning] = useState(false)
   const [sqliOpts, setSqliOpts] = useState({
     depth: '3', concurrency: '10', rate_limit: '150',
-    js_crawl: true, crawl_forms: true, restrict_scope: true, headless: false,
+    js_crawl: true, crawl_forms: true, restrict_scope: true, headless: false, force_recrawl: false,
     workers: '5', cookie: '', parse_js: true,
   })
 
-  const handleSqli = async () => {
-    if (!pipelineTarget.trim()) return
-    setSqliRunning(true)
-    startRun('sqli', pipelineTarget.trim())
+  const handleSqli = () => runOnTargets(setSqliRunning, async (target) => {
+    startRun('sqli', target)
     try {
       const sess = getSessionOpts()
       await api.post('/api/pipeline/sqli_probe', {
-        target: pipelineTarget.trim(),
+        target,
         options: {
           depth: parseInt(sqliOpts.depth) || 3,
           concurrency: parseInt(sqliOpts.concurrency) || 10,
           rate_limit: parseInt(sqliOpts.rate_limit) || 150,
           js_crawl: sqliOpts.js_crawl, crawl_forms: sqliOpts.crawl_forms,
-          restrict_scope: sqliOpts.restrict_scope, headless: sqliOpts.headless,
+          restrict_scope: sqliOpts.restrict_scope, headless: sqliOpts.headless, force_recrawl: sqliOpts.force_recrawl,
           parse_js: sqliOpts.parse_js,
           cookie: sqliOpts.cookie || sess.session_cookies || undefined,
           workers: parseInt(sqliOpts.workers) || 5,
@@ -118,42 +143,45 @@ export function PipelinesPage() {
         },
       }, 0)
     } catch (err) { toast.error('SQLi pipeline failed', err) }
-    finally { setSqliRunning(false) }
-  }
+  })
 
   // ── JS Secrets ──
   const [jsRunning, setJsRunning] = useState(false)
   const [jsOpts, setJsOpts] = useState({
     depth: '3', concurrency: '10', rate_limit: '150',
-    js_crawl: true, crawl_forms: true, restrict_scope: true, headless: false,
+    js_crawl: true, crawl_forms: true, restrict_scope: true, headless: false, force_recrawl: false,
     workers: '5', cookie: '',
   })
 
-  const handleJs = async () => {
-    if (!pipelineTarget.trim()) return
-    setJsRunning(true)
-    startRun('js_scan', pipelineTarget.trim())
+  const handleJs = () => runOnTargets(setJsRunning, async (target) => {
+    startRun('js_scan', target)
     try {
       const sess = getSessionOpts()
       await api.post('/api/pipeline/js_scan', {
-        target: pipelineTarget.trim(),
+        target,
         options: {
           depth: parseInt(jsOpts.depth) || 3,
           concurrency: parseInt(jsOpts.concurrency) || 10,
           rate_limit: parseInt(jsOpts.rate_limit) || 150,
           js_crawl: jsOpts.js_crawl, crawl_forms: jsOpts.crawl_forms,
-          restrict_scope: jsOpts.restrict_scope, headless: jsOpts.headless,
+          restrict_scope: jsOpts.restrict_scope, headless: jsOpts.headless, force_recrawl: jsOpts.force_recrawl,
           cookie: jsOpts.cookie || sess.session_cookies || undefined,
           workers: parseInt(jsOpts.workers) || 5,
           ...sess,
         },
       }, 0)
     } catch (err) { toast.error('JS scan pipeline failed', err) }
-    finally { setJsRunning(false) }
-  }
+  })
 
   const anyRunning = xssRunning || sqliRunning || jsRunning
-  const noTarget = !pipelineTarget.trim()
+  const targets = getTargets()
+  const noTarget = targets.length === 0
+
+  const runLabel = (base: string) => {
+    if (selectedHosts.length > 1) return `${base} — ${selectedHosts.length} hosts`
+    if (selectedHosts.length === 1) return `${base} — 1 host`
+    return base
+  }
 
   return (
     <WorkspaceShell title="Pipelines" subtitle="Automated bug bounty chains — crawl, mine and probe in one run">
@@ -163,14 +191,38 @@ export function PipelinesPage() {
           <div className="text-[10px] font-semibold tracking-wider text-zinc-500 uppercase mb-2">Target</div>
           <div className="flex flex-col sm:flex-row gap-2">
             <div className="sm:w-56 shrink-0"><ScopeSelector onSelect={setPipelineTarget} selectedTarget={pipelineTarget} /></div>
-            <div className="sm:w-56 shrink-0"><LiveHostPicker selected={pipelineTarget} onSelect={setPipelineTarget} /></div>
+            <div className="sm:w-64 shrink-0">
+              <LiveHostPicker
+                selectedHosts={selectedHosts}
+                onToggle={(url) => setSelectedHosts(prev =>
+                  prev.includes(url) ? prev.filter(h => h !== url) : [...prev, url]
+                )}
+                onSelectAll={(all) => setSelectedHosts(all)}
+                onClear={() => setSelectedHosts([])}
+              />
+            </div>
             <Input
               placeholder="https://target.com"
-              className="flex-1 bg-zinc-950 text-sm font-mono"
+              className={cn('flex-1 bg-zinc-950 text-sm font-mono', selectedHosts.length > 0 && 'opacity-40')}
               value={pipelineTarget}
               onChange={e => setPipelineTarget(e.target.value)}
+              disabled={selectedHosts.length > 0}
             />
           </div>
+          {/* Progress indicator when running multi-host */}
+          {multiProgress && (
+            <div className="mt-2 flex items-center gap-2">
+              <div className="flex-1 bg-zinc-800 rounded-full h-1">
+                <div
+                  className="bg-cyan-500 h-1 rounded-full transition-all duration-500"
+                  style={{ width: `${(multiProgress.current / multiProgress.total) * 100}%` }}
+                />
+              </div>
+              <span className="text-[10px] text-zinc-400 shrink-0">
+                Host {multiProgress.current} / {multiProgress.total}
+              </span>
+            </div>
+          )}
         </div>
 
         {/* Pipeline gallery */}
@@ -182,7 +234,7 @@ export function PipelinesPage() {
             chain="Katana → mine JS → Dalfox"
             desc="Crawls the target, mines endpoints from JS and inline scripts, then runs Dalfox on every parameterized URL. Deduplicates by endpoint so the same path is not scanned twice."
             running={xssRunning}
-            runLabel="Run XSS Pipeline"
+            runLabel={runLabel('Run XSS Pipeline')}
             disabled={noTarget}
             onRun={handleXss}
           >
@@ -203,7 +255,7 @@ export function PipelinesPage() {
             chain="Katana → mine JS → 3-layer probe"
             desc="Probes every parameter with error-based, boolean-based and time-based detection (MySQL, PostgreSQL, MSSQL). Numeric params first. Detection only — confirma con SQLMap antes de reportar."
             running={sqliRunning}
-            runLabel="Run SQLi Probe"
+            runLabel={runLabel('Run SQLi Probe')}
             disabled={noTarget}
             onRun={handleSqli}
           >
@@ -223,7 +275,7 @@ export function PipelinesPage() {
             chain="Katana → fetch .js → grep secrets"
             desc="Downloads every .js file and inline script, then greps for API keys, JWTs, AWS creds, GraphQL and internal endpoints. Handles minified bundles and filters low-entropy placeholders."
             running={jsRunning}
-            runLabel="Run JS Scanner"
+            runLabel={runLabel('Run JS Scanner')}
             disabled={noTarget}
             onRun={handleJs}
           >
@@ -239,77 +291,141 @@ export function PipelinesPage() {
         {/* Run console */}
         <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-4 space-y-3">
           <div className="flex items-center justify-between">
-            <div className="text-[10px] font-semibold tracking-wider text-zinc-500 uppercase">Live run</div>
-            <Button variant="ghost" size="sm" className="text-zinc-600 hover:text-red-400 text-xs" onClick={clearRuns} disabled={anyRunning}>
+            <div className="text-[10px] font-semibold tracking-wider text-zinc-500 uppercase">Run console</div>
+            <Button variant="ghost" size="sm" className="text-zinc-600 hover:text-red-400 text-xs" onClick={() => { clearRuns(); setViewRunId(null) }} disabled={anyRunning}>
               <Trash2 size={12} className="mr-1" /> Clear history
             </Button>
           </div>
 
-          {activeRun && (
+          {/* Run tabs — one per host, persisted across runs */}
+          {runs.length > 0 && (
+            <div className="flex gap-1 flex-wrap">
+              {[...runs].reverse().map(run => {
+                const isActive = run.id === activeRunId
+                const isViewing = run.id === viewRun?.id
+                const hostShort = run.target.replace(/^https?:\/\//, '').split('/')[0]
+                const typeLabel = run.type === 'xss' ? 'XSS' : run.type === 'sqli' ? 'SQLi' : 'JS'
+                return (
+                  <button
+                    key={run.id}
+                    onClick={() => setViewRunId(run.id)}
+                    className={cn(
+                      'flex items-center gap-1.5 px-2.5 py-1 rounded text-[10px] border transition-colors shrink-0',
+                      isViewing
+                        ? 'bg-zinc-800 border-zinc-600 text-zinc-200'
+                        : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:border-zinc-600 hover:text-zinc-300'
+                    )}
+                  >
+                    <span className={cn('font-mono font-bold text-[9px]',
+                      typeLabel === 'XSS' ? 'text-orange-400' :
+                      typeLabel === 'SQLi' ? 'text-red-400' : 'text-blue-400'
+                    )}>{typeLabel}</span>
+                    <span className="truncate max-w-[120px]">{hostShort}</span>
+                    {run.findingsCount > 0 && (
+                      <span className="bg-red-600 text-white rounded-full px-1 text-[8px] font-bold shrink-0">{run.findingsCount}</span>
+                    )}
+                    {run.phase === 'completed' && run.findingsCount === 0 && <span className="text-green-500 text-[9px]">✓</span>}
+                    {run.phase === 'failed' && <span className="text-red-400 text-[9px]">✗</span>}
+                    {isActive && run.phase !== 'completed' && run.phase !== 'failed' && (
+                      <Loader2 size={8} className="animate-spin text-zinc-400 shrink-0" />
+                    )}
+                  </button>
+                )
+              })}
+            </div>
+          )}
+
+          {/* Phase pipeline for viewed run */}
+          {viewRun && (
             <div className="flex items-center gap-2 bg-zinc-950 rounded-lg px-4 py-2 text-xs flex-wrap">
-              <PhaseStep label="Katana" active={activeRun.phase === 'katana'} done={activeRun.phase !== 'katana' && activeRun.phase !== 'idle'} />
+              <PhaseStep label="Katana" active={viewRun.phase === 'katana'} done={viewRun.phase !== 'katana' && viewRun.phase !== 'idle'} />
               <span className="text-zinc-700">→</span>
-              {activeRun.type === 'xss' && <>
-                <PhaseStep label="Filter + mine" active={activeRun.phase === 'js_parse'} done={activeRun.candidates.length > 0 && activeRun.phase !== 'js_parse'} />
+              {viewRun.type === 'xss' && <>
+                <PhaseStep label="Filter + mine" active={viewRun.phase === 'js_parse'} done={viewRun.candidates.length > 0 && viewRun.phase !== 'js_parse'} />
                 <span className="text-zinc-700">→</span>
-                <PhaseStep label="Dalfox" active={activeRun.phase === 'dalfox'} done={activeRun.phase === 'completed'} />
+                <PhaseStep label="Dalfox" active={viewRun.phase === 'dalfox'} done={viewRun.phase === 'completed'} />
               </>}
-              {activeRun.type === 'sqli' && <>
-                <PhaseStep label="Filter + mine" active={activeRun.phase === 'js_parse'} done={activeRun.candidates.length > 0 && activeRun.phase !== 'js_parse'} />
+              {viewRun.type === 'sqli' && <>
+                <PhaseStep label="Filter + mine" active={viewRun.phase === 'js_parse'} done={viewRun.candidates.length > 0 && viewRun.phase !== 'js_parse'} />
                 <span className="text-zinc-700">→</span>
-                <PhaseStep label="SQLi Probe" active={activeRun.phase === 'sqli_probe'} done={activeRun.phase === 'completed'} />
+                <PhaseStep label="SQLi Probe" active={viewRun.phase === 'sqli_probe'} done={viewRun.phase === 'completed'} />
               </>}
-              {activeRun.type === 'js_scan' && <>
-                <PhaseStep label="Filter .js" active={false} done={activeRun.candidates.length > 0} />
+              {viewRun.type === 'js_scan' && <>
+                <PhaseStep label="fetch .js" active={false} done={viewRun.candidates.length > 0} />
                 <span className="text-zinc-700">→</span>
-                <PhaseStep label="Grep secrets" active={activeRun.phase === 'js_scan'} done={activeRun.phase === 'completed'} />
+                <PhaseStep label="Grep secrets" active={viewRun.phase === 'js_scan'} done={viewRun.phase === 'completed'} />
               </>}
-              {activeRun.phase === 'completed' && <span className="ml-auto text-green-400 font-medium">✓ Done</span>}
-              {activeRun.phase === 'failed' && <span className="ml-auto text-red-400 font-medium">✗ Failed</span>}
+              <div className="ml-auto flex items-center gap-3">
+                <span className="text-[9px] text-zinc-600">{viewRun.katanaUrls.length} URLs</span>
+                <span className="text-[9px] text-zinc-600">{viewRun.candidates.length} {viewRun.type === 'js_scan' ? 'JS files' : 'candidates'}</span>
+                {viewRun.phase === 'completed' && <span className="text-green-400 font-medium text-[10px]">✓ Done</span>}
+                {viewRun.phase === 'failed' && <span className="text-red-400 font-medium text-[10px]">✗ Failed</span>}
+              </div>
             </div>
           )}
 
-          {activeRun && (
-            <div className="flex gap-3">
-              <StatCard label="URLs found" value={activeRun.katanaUrls.length} color="text-blue-400" />
-              <StatCard label={activeRun.type === 'js_scan' ? 'JS files' : 'Candidates'} value={activeRun.candidates.length} color="text-yellow-400" />
-              <StatCard
-                label={activeRun.type === 'xss' ? 'XSS findings' : activeRun.type === 'sqli' ? 'SQLi hints' : 'Secrets found'}
-                value={activeRun.findingsCount}
-                color="text-red-400"
-              />
-            </div>
-          )}
-
-          <div className="rounded-lg border border-zinc-800 bg-black p-4 overflow-auto h-72">
-            <pre ref={logRef} className="text-xs font-mono whitespace-pre-wrap leading-relaxed">
-              {activeRun
-                ? activeRun.log.map((line, i) => (
+          {/* Log terminal */}
+          <div className="rounded-lg border border-zinc-800 bg-black overflow-auto h-64">
+            <pre ref={logRef} className="text-xs font-mono whitespace-pre-wrap leading-relaxed p-4">
+              {viewRun
+                ? viewRun.log.map((line, i) => (
                     <span key={i} className={cn('block',
-                      line.includes('[XSS FOUND]') || line.includes('[SQL ERROR]') ? 'text-red-400 font-bold' :
-                      line.includes('[BOOLEAN]') || line.includes('[TIME-BASED]') ? 'text-red-400 font-bold' :
-                      line.includes('[SECRET]') ? 'text-yellow-400 font-bold' :
-                      line.includes('[Katana]') || line.includes('[JS]') ? 'text-blue-400 font-semibold' :
+                      // XSS / SQLi findings
+                      line.includes('[XSS FOUND]') ? 'text-orange-300 font-bold' :
+                      line.includes('[SQL ERROR]') || line.includes('[BOOLEAN]') || line.includes('[TIME-BASED]') ? 'text-red-300 font-bold' :
+                      // JS scan severity levels
+                      line.includes('[CRITICAL]') ? 'text-red-400 font-bold' :
+                      line.includes('[HIGH]') ? 'text-orange-400 font-semibold' :
+                      line.includes('[MEDIUM]') ? 'text-yellow-400' :
+                      line.includes('[LOW]') ? 'text-zinc-400' :
+                      line.includes('[INFO]') ? 'text-zinc-500' :
+                      // Structural lines
+                      line.includes('[Katana]') ? 'text-blue-400 font-semibold' :
+                      line.includes('[JS]') || line.includes('[Buckets]') ? 'text-cyan-400 font-semibold' :
+                      line.includes('[SQLi]') || line.includes('[Dalfox]') ? 'text-purple-400 font-semibold' :
                       line.includes('[✓]') ? 'text-green-400 font-semibold' :
-                      line.includes('ERROR') ? 'text-red-400' : 'text-zinc-400'
+                      line.includes('[•]') ? 'text-zinc-300 font-semibold' :
+                      line.includes('ERROR') || line.includes('failed') ? 'text-red-400' :
+                      line.includes('  [param]') ? 'text-zinc-600' :
+                      line.includes('  [•]') ? 'text-zinc-600' :
+                      'text-zinc-400'
                     )}>{line}</span>
                   ))
                 : <span className="text-zinc-700">No pipeline running. Pick a pipeline above and hit Run.</span>}
             </pre>
           </div>
 
-          {xssFindings.length > 0 && (
-            <div className="rounded-lg border border-red-500/30 bg-red-950/20 p-3 space-y-2">
-              <div className="text-xs font-semibold text-red-400 flex items-center gap-1.5">
-                <Bug size={12} /> XSS Findings ({xssFindings.length})
+          {/* Findings panel for viewed run */}
+          {viewRun && viewRun.findings.length > 0 && (
+            <div className="rounded-lg border border-zinc-700 bg-zinc-950 overflow-hidden">
+              <div className="flex items-center justify-between px-3 py-2 border-b border-zinc-800">
+                <span className="text-[10px] font-semibold text-zinc-300 flex items-center gap-1.5">
+                  <Bug size={11} />
+                  Findings — {viewRun.target.replace(/^https?:\/\//, '').split('/')[0]}
+                  <span className="bg-red-600 text-white rounded-full px-1.5 text-[9px] font-bold ml-1">{viewRun.findings.length}</span>
+                </span>
               </div>
-              {xssFindings.slice(0, 6).map((f, i) => (
-                <div key={i} className="text-[10px] space-y-0.5">
-                  <div className="text-red-300 font-mono truncate">{f.url}</div>
-                  {f.parameter && <div className="text-zinc-500">param: <span className="text-yellow-400">{f.parameter}</span></div>}
-                </div>
-              ))}
-              {xssFindings.length > 6 && <div className="text-[10px] text-zinc-600">+ {xssFindings.length - 6} more → Scanner → Findings</div>}
+              <div className="divide-y divide-zinc-800/60 max-h-48 overflow-y-auto">
+                {viewRun.findings.map((f, i) => (
+                  <div key={i} className="flex items-start gap-2.5 px-3 py-2 hover:bg-zinc-900 transition-colors">
+                    <span className={cn('text-[9px] font-bold uppercase px-1.5 py-0.5 rounded border shrink-0 mt-0.5',
+                      f.severity === 'critical' ? 'text-red-400 bg-red-950/50 border-red-800' :
+                      f.severity === 'high'     ? 'text-orange-400 bg-orange-950/50 border-orange-800' :
+                      f.severity === 'medium'   ? 'text-yellow-400 bg-yellow-950/50 border-yellow-800' :
+                      f.severity === 'low'      ? 'text-zinc-400 bg-zinc-900 border-zinc-700' :
+                                                  'text-zinc-500 bg-zinc-900 border-zinc-800'
+                    )}>{f.severity}</span>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[10px] font-semibold text-zinc-200">{f.label}</span>
+                        {f.param && <span className="text-[9px] text-zinc-500">param: <span className="text-yellow-400 font-mono">{f.param}</span></span>}
+                      </div>
+                      {f.url && <div className="text-[9px] text-zinc-500 font-mono truncate mt-0.5">{f.url}</div>}
+                      {f.text && <div className="text-[9px] text-zinc-400 font-mono truncate mt-0.5">{f.text}</div>}
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </div>
@@ -364,6 +480,121 @@ function PipelineCard({ accent, icon, title, chain, desc, running, runLabel, dis
   )
 }
 
+// ─── Live host multi-picker ───────────────────────────────────────────────────
+
+function LiveHostPicker({ selectedHosts, onToggle, onSelectAll, onClear }: {
+  selectedHosts: string[]
+  onToggle: (url: string) => void
+  onSelectAll: (all: string[]) => void
+  onClear: () => void
+}) {
+  const { liveHosts } = useReconStore()
+  const [open, setOpen] = useState(false)
+  const [filter, setFilter] = useState('')
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [open])
+
+  if (liveHosts.length === 0) return null
+
+  const visible = liveHosts.filter(h => !filter || h.url.toLowerCase().includes(filter.toLowerCase()))
+  const allVisibleSelected = visible.length > 0 && visible.every(h => selectedHosts.includes(h.url))
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        onClick={() => setOpen(v => !v)}
+        className={cn(
+          'w-full flex items-center justify-between gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs transition-colors',
+          selectedHosts.length > 0
+            ? 'border-cyan-600 bg-cyan-950/30 text-cyan-300 hover:border-cyan-500'
+            : 'border-green-700/50 bg-green-950/20 text-green-400 hover:border-green-600 hover:bg-green-950/30'
+        )}
+      >
+        <div className="flex items-center gap-1.5">
+          <Server size={11} />
+          {selectedHosts.length > 0
+            ? <span>{selectedHosts.length} host{selectedHosts.length > 1 ? 's' : ''} selected</span>
+            : <span>{liveHosts.length} live hosts</span>}
+        </div>
+        <ChevronDown size={11} className={cn('transition-transform', open && 'rotate-180')} />
+      </button>
+
+      {open && (
+        <div className="absolute top-full left-0 right-0 mt-1 z-50 rounded-lg border border-zinc-700 bg-zinc-900 shadow-xl shadow-black/50 overflow-hidden" style={{ minWidth: '280px' }}>
+          {/* Header: search + select all / clear */}
+          <div className="p-1.5 border-b border-zinc-800 space-y-1.5">
+            <input
+              autoFocus type="text" placeholder="Filter hosts..."
+              value={filter} onChange={e => setFilter(e.target.value)}
+              className="w-full text-[10px] bg-zinc-950 border border-zinc-800 rounded px-2 py-1 text-zinc-300 placeholder:text-zinc-700 focus:outline-none"
+            />
+            <div className="flex gap-1.5">
+              <button
+                onClick={() => allVisibleSelected ? onClear() : onSelectAll(visible.map(h => h.url))}
+                className="flex items-center gap-1 px-2 py-0.5 rounded text-[9px] border border-zinc-700 text-zinc-400 hover:border-zinc-500 hover:text-zinc-300 transition-colors"
+              >
+                {allVisibleSelected
+                  ? <><SquareIcon size={9} /> Deselect all</>
+                  : <><CheckSquare size={9} /> Select all ({visible.length})</>}
+              </button>
+              {selectedHosts.length > 0 && (
+                <button
+                  onClick={onClear}
+                  className="px-2 py-0.5 rounded text-[9px] border border-zinc-700 text-red-400 hover:border-red-600 transition-colors"
+                >
+                  Clear ({selectedHosts.length})
+                </button>
+              )}
+            </div>
+          </div>
+          {/* Host list */}
+          <div className="max-h-52 overflow-y-auto">
+            {visible.map((h, i) => {
+              const checked = selectedHosts.includes(h.url)
+              return (
+                <button
+                  key={i}
+                  onClick={() => onToggle(h.url)}
+                  className={cn(
+                    'w-full flex items-center gap-2 px-2.5 py-1.5 text-left hover:bg-zinc-800 transition-colors',
+                    checked && 'bg-cyan-950/20'
+                  )}
+                >
+                  <input
+                    type="checkbox" checked={checked} readOnly
+                    className="w-3 h-3 accent-cyan-500 shrink-0 pointer-events-none"
+                  />
+                  <span className={cn('text-[10px] font-mono font-bold shrink-0',
+                    h.status_code && h.status_code < 300 ? 'text-green-400' :
+                    h.status_code && h.status_code < 400 ? 'text-yellow-400' : 'text-orange-400'
+                  )}>
+                    {h.status_code ?? '?'}
+                  </span>
+                  <span className="text-[10px] text-zinc-300 font-mono truncate flex-1">{h.url}</span>
+                  {h.title && <span className="text-[9px] text-zinc-600 truncate max-w-[80px] shrink-0">{h.title}</span>}
+                </button>
+              )
+            })}
+            {visible.length === 0 && (
+              <div className="px-3 py-4 text-center text-[10px] text-zinc-600">No hosts match</div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
 function CrawlOpts({ opts, set, accent }: {
   opts: any; set: (fn: (p: any) => any) => void; accent: string
 }) {
@@ -380,7 +611,9 @@ function CrawlOpts({ opts, set, accent }: {
         <Check label="-aff (forms)" checked={opts.crawl_forms} onChange={v => set(p => ({ ...p, crawl_forms: v }))} accent={accent} />
         <Check label="scope restrict" checked={opts.restrict_scope} onChange={v => set(p => ({ ...p, restrict_scope: v }))} accent={accent} />
         <Check label="-hl (headless)" checked={opts.headless} onChange={v => set(p => ({ ...p, headless: v }))} accent={accent} />
+        <Check label="force re-crawl" checked={opts.force_recrawl} onChange={v => set(p => ({ ...p, force_recrawl: v }))} accent={accent} />
       </div>
+      <p className="text-[9px] text-zinc-600">Crawls are cached ~30 min per target+config and reused across pipelines. Tick force re-crawl to bypass.</p>
     </div>
   )
 }
@@ -428,77 +661,6 @@ function StatCard({ label, value, color }: { label: string; value: number; color
     <div className="flex-1 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-center">
       <div className={cn('text-lg font-bold font-mono', color)}>{value}</div>
       <div className="text-[10px] text-zinc-600">{label}</div>
-    </div>
-  )
-}
-
-function LiveHostPicker({ selected, onSelect }: { selected: string; onSelect: (url: string) => void }) {
-  const { liveHosts } = useReconStore()
-  const [open, setOpen] = useState(false)
-  const [filter, setFilter] = useState('')
-  const ref = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!open) return
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
-    }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [open])
-
-  if (liveHosts.length === 0) return null
-
-  return (
-    <div className="relative" ref={ref}>
-      <button
-        onClick={() => setOpen(v => !v)}
-        className="w-full flex items-center justify-between gap-1.5 px-2.5 py-1.5 rounded-lg border border-green-700/50 bg-green-950/20 text-xs text-green-400 hover:border-green-600 hover:bg-green-950/30 transition-colors"
-      >
-        <div className="flex items-center gap-1.5">
-          <Server size={11} />
-          <span>{liveHosts.length} live hosts</span>
-          {selected && liveHosts.some(h => h.url === selected) && (
-            <span className="text-[9px] text-green-600">· selected</span>
-          )}
-        </div>
-        <ChevronDown size={11} className={cn('transition-transform', open && 'rotate-180')} />
-      </button>
-
-      {open && (
-        <div className="absolute top-full left-0 right-0 mt-1 z-50 rounded-lg border border-zinc-700 bg-zinc-900 shadow-xl shadow-black/50 overflow-hidden">
-          <div className="p-1.5 border-b border-zinc-800">
-            <input
-              autoFocus type="text" placeholder="Filter hosts..."
-              value={filter} onChange={e => setFilter(e.target.value)}
-              className="w-full text-[10px] bg-zinc-950 border border-zinc-800 rounded px-2 py-1 text-zinc-300 placeholder:text-zinc-700 focus:outline-none"
-            />
-          </div>
-          <div className="max-h-48 overflow-y-auto">
-            {liveHosts
-              .filter(h => !filter || h.url.toLowerCase().includes(filter.toLowerCase()))
-              .map((h, i) => (
-                <button
-                  key={i}
-                  onClick={() => { onSelect(h.url); setOpen(false); setFilter('') }}
-                  className={cn(
-                    'w-full flex items-center gap-2 px-2.5 py-1.5 text-left hover:bg-zinc-800 transition-colors',
-                    selected === h.url && 'bg-zinc-800'
-                  )}
-                >
-                  <span className={cn('text-[10px] font-mono font-bold shrink-0',
-                    h.status_code && h.status_code < 300 ? 'text-green-400' :
-                    h.status_code && h.status_code < 400 ? 'text-yellow-400' : 'text-orange-400'
-                  )}>
-                    {h.status_code}
-                  </span>
-                  <span className="text-[10px] text-zinc-300 font-mono truncate flex-1">{h.url}</span>
-                  {h.title && <span className="text-[9px] text-zinc-600 truncate max-w-[80px] shrink-0">{h.title}</span>}
-                </button>
-              ))}
-          </div>
-        </div>
-      )}
     </div>
   )
 }

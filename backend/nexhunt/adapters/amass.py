@@ -8,7 +8,11 @@ class AmassAdapter(ToolAdapter):
     result_type = "subdomain"
 
     async def run(self, target: str, options: dict) -> AsyncIterator[dict]:
-        cmd = [self.binary_name, "enum", "-passive", "-d", target, "-silent"]
+        if options.get("active") or options.get("brute"):
+            # Active resolution + DNS brute-force — finds hosts hidden behind wildcard certs
+            cmd = [self.binary_name, "enum", "-active", "-brute", "-d", target, "-silent"]
+        else:
+            cmd = [self.binary_name, "enum", "-passive", "-d", target, "-silent"]
         cmd = self._with_extra_args(cmd, options)
 
         async for line in self._run_subprocess(cmd, timeout=600):

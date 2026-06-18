@@ -23,13 +23,16 @@ done
 VERSION="$(python3 -c "import sys; sys.path.insert(0,'$ROOT/backend'); from nexhunt.version import __version__; print(__version__)")"
 TAG="v${VERSION}"
 ARCHIVE="nexhunt-${VERSION}.tar.gz"
+DEB_ASSET=""
 
 ok()   { echo "  [ok] $1"; }
 step() { echo; echo "==> $1"; }
 die()  { echo "ERROR: $1" >&2; exit 1; }
 
-command -v gh &>/dev/null || die "gh CLI not found. Install from https://cli.github.com"
-gh auth status &>/dev/null || die "Not authenticated with gh. Run: gh auth login"
+if [ "$DRY_RUN" -eq 0 ]; then
+  command -v gh &>/dev/null || die "gh CLI not found. Install from https://cli.github.com"
+  gh auth status &>/dev/null || die "Not authenticated with gh. Run: gh auth login"
+fi
 
 step "Checking version ${VERSION}"
 if git tag --list | grep -qx "$TAG"; then
@@ -43,6 +46,7 @@ fi
 
 [ -f "$DIST/$ARCHIVE" ] || die "Archive not found: $DIST/$ARCHIVE. Run build-prod.sh first."
 [ -f "$DIST/SHA256SUMS" ] || die "SHA256SUMS not found in $DIST."
+DEB_ASSET="$(find "$DIST" -maxdepth 1 -type f -name "nexhunt_${VERSION}_*.deb" | head -1 || true)"
 
 step "Generating release notes"
 NOTES_FILE="$(mktemp /tmp/relnotes.XXXXXX.md)"
@@ -54,13 +58,13 @@ cat > "$NOTES_FILE" <<NOTES
 
 ### Installation
 \`\`\`bash
-curl -fsSL https://sentinelsec.online/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/sentinelsec-org/nexhunt/main/install.sh | sudo bash
 \`\`\`
 
-Or download the tarball and run \`install.sh\` manually.
+Or download the .deb or tarball manually from this release.
 
 ---
-_NexHunt by [Sentinel Security](https://sentinelsec.online)_
+_NexHunt by [Sentinel Security](https://nexhunt.myshopify.com)_
 NOTES
 
 # Open editor if available
@@ -69,10 +73,11 @@ if [ -n "${EDITOR:-}" ] && [ "$DRY_RUN" -eq 0 ]; then
 fi
 
 if [ "$DRY_RUN" -eq 1 ]; then
-  step "DRY RUN — would create:"
+  step "DRY RUN - would create:"
   echo "  Tag:     $TAG"
   echo "  Archive: $DIST/$ARCHIVE ($(du -sh "$DIST/$ARCHIVE" | cut -f1))"
   echo "  Sums:    $DIST/SHA256SUMS"
+  [ -n "$DEB_ASSET" ] && echo "  Deb:     $DEB_ASSET ($(du -sh "$DEB_ASSET" | cut -f1))"
   cat "$NOTES_FILE"
   rm -f "$NOTES_FILE"
   exit 0
@@ -84,14 +89,15 @@ git push origin "$TAG"
 ok "Tag pushed"
 
 step "Creating GitHub Release"
+ASSETS=("$DIST/$ARCHIVE" "$DIST/SHA256SUMS")
+[ -n "$DEB_ASSET" ] && ASSETS+=("$DEB_ASSET")
 gh release create "$TAG" \
   --title "NexHunt ${VERSION}" \
   --notes-file "$NOTES_FILE" \
-  "$DIST/$ARCHIVE" \
-  "$DIST/SHA256SUMS"
+  "${ASSETS[@]}"
 
 rm -f "$NOTES_FILE"
-ok "Release published: https://github.com/sentinelsec/nexhunt/releases/tag/${TAG}"
+ok "Release published: https://github.com/sentinelsec-org/nexhunt/releases/tag/${TAG}"
 
 echo
 echo "Release ${VERSION} is live. Clients will see the update on next check."

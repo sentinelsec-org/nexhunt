@@ -36,6 +36,7 @@ interface ReconState {
   addUrls: (results: UrlResult[]) => void
   addPorts: (results: PortResult[]) => void
   addLiveHosts: (results: LiveHostResult[]) => void
+  removeLiveHost: (url: string) => void
   addScreenshots: (results: ScreenshotResult[]) => void
   addEndpoints: (results: EndpointResult[]) => void
   setCveResult: (result: ReconState['cveResult']) => void
@@ -67,13 +68,18 @@ export const useReconStore = create<ReconState>((set) => ({
       ...results.filter(r => !state.subdomains.some(s => s.subdomain === r.subdomain))
     ]
   })),
-  addUrls: (results) => set((state) => ({ urls: [...state.urls, ...results] })),
+  addUrls: (results) => set((state) => ({
+    urls: [...state.urls, ...results.filter(r => !state.urls.some(u => u.url === r.url))]
+  })),
   addPorts: (results) => set((state) => ({ ports: [...state.ports, ...results] })),
   addLiveHosts: (results) => set((state) => ({
     liveHosts: [
       ...state.liveHosts,
       ...results.filter(r => !state.liveHosts.some(h => h.url === r.url))
     ]
+  })),
+  removeLiveHost: (url) => set((state) => ({
+    liveHosts: state.liveHosts.filter(h => h.url !== url)
   })),
   addScreenshots: (results) => set((state) => ({
     screenshots: [

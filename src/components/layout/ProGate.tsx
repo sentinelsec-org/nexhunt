@@ -13,7 +13,7 @@ const BENEFITS = [
   'Bulk scanning, JWT and business-logic suites',
 ]
 
-const UPGRADE_FALLBACK = 'https://sentinelsec.online/pricing'
+const UPGRADE_FALLBACK = 'https://nexhunt.myshopify.com/products/nexhunt-pro'
 
 /**
  * Full-page gate for PRO-only routes. Renders an upsell instead of the page on free tier.

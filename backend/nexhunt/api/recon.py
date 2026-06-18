@@ -250,6 +250,52 @@ async def run_httpx(req: ReconRequest):
     return _start_recon("httpx", req.target, req.options)
 
 
+class LiveHostAddRequest(_BaseModel):
+    url: str
+    project_id: str = ""
+
+
+@router.post("/live-host")
+async def add_live_host(req: LiveHostAddRequest):
+    """Manually add a live host (e.g. one found in a captured request)."""
+    from urllib.parse import urlparse
+    url = req.url.strip()
+    if not url:
+        return {"error": "No URL provided"}
+    if not url.startswith(("http://", "https://")):
+        url = "https://" + url
+    host = urlparse(url).netloc or url
+    result = {
+        "url": url, "host": host, "status_code": None, "title": "",
+        "technologies": [], "content_type": "", "ip": "",
+    }
+    await _save_recon_result("live_host", req.project_id or "", result)
+    await ws_manager.broadcast("recon_results", {"tool": "manual", "type": "live_host", "results": [result]})
+    return {"status": "added", "url": url}
+
+
+@router.delete("/live-host")
+async def delete_live_host(url: str):
+    """Permanently delete a stored live host by its URL (data is a JSON blob, so filter in Python)."""
+    from nexhunt.database import DefaultSession
+    from nexhunt.models.recon_result import ReconResult
+    from sqlalchemy import select, delete as sa_delete
+    deleted = 0
+    async with DefaultSession() as session:
+        rows = await session.execute(
+            select(ReconResult).where(ReconResult.type == "live_host")
+        )
+        for r in rows.scalars().all():
+            try:
+                if json.loads(r.data).get("url") == url:
+                    await session.execute(sa_delete(ReconResult).where(ReconResult.id == r.id))
+                    deleted += 1
+            except Exception:
+                continue
+        await session.commit()
+    return {"status": "deleted", "url": url, "count": deleted}
+
+
 @router.post("/httpx-probe")
 async def run_httpx_probe(req: HttpxProbeRequest):
     """Probe a list of discovered subdomains with httpx to find live hosts."""
@@ -434,60 +480,99 @@ async def run_full_recon(req: ReconRequest):
 ENDPOINT_WORDLISTS: dict[str, list[str]] = {
     "api": [
         "/swagger", "/swagger-ui.html", "/swagger-ui/", "/swagger-ui/index.html",
-        "/api/swagger", "/api/swagger-ui.html", "/api/docs", "/api/doc",
+        "/swagger/index.html", "/swagger-resources", "/swagger.json", "/swagger.yaml",
+        "/api/swagger", "/api/swagger-ui.html", "/api/swagger.json",
+        "/api/docs", "/api/doc", "/api-docs", "/api-docs/", "/v2/api-docs", "/v3/api-docs",
         "/api/v1/docs", "/api/v2/docs", "/api/v3/docs",
-        "/openapi.json", "/openapi.yaml", "/api/openapi.json",
+        "/openapi.json", "/openapi.yaml", "/api/openapi.json", "/openapi/v3",
         "/v1/swagger.json", "/v2/swagger.json", "/v3/swagger.json",
-        "/docs", "/redoc",
-        "/graphql", "/graphiql", "/playground", "/api/graphql",
-        "/api", "/api/v1", "/api/v2", "/api/v3",
-        "/api/health", "/health", "/healthz", "/ping", "/status",
-        "/api/endpoints", "/api/routes", "/api/users", "/api/me",
+        "/docs", "/redoc", "/rapidoc", "/api/explorer",
+        "/graphql", "/graphiql", "/playground", "/api/graphql", "/graphql/console", "/v1/graphql",
+        "/api", "/api/v1", "/api/v2", "/api/v3", "/rest", "/rest/v1",
+        "/api/health", "/health", "/healthz", "/livez", "/readyz", "/ping", "/status", "/api/status",
+        "/api/endpoints", "/api/routes", "/api/users", "/api/me", "/api/version", "/version",
+        "/wsdl", "/services", "/soap",
     ],
     "wordpress": [
-        "/wp-admin", "/wp-admin/", "/wp-login.php",
-        "/wp-json/", "/wp-json/wp/v2/users", "/wp-json/wp/v2/posts",
-        "/wp-content/uploads/", "/wp-includes/",
-        "/xmlrpc.php", "/wp-admin/admin-ajax.php",
-        "/wp-cron.php", "/wp-content/debug.log",
-        "/wp-sitemap.xml", "/wp-config.php.bak",
+        "/wp-admin", "/wp-admin/", "/wp-login.php", "/wp-admin/install.php",
+        "/wp-json/", "/wp-json/wp/v2/users", "/wp-json/wp/v2/posts", "/wp-json/wp/v2/pages",
+        "/wp-json/oembed/1.0/embed",
+        "/wp-content/uploads/", "/wp-content/plugins/", "/wp-content/themes/", "/wp-includes/",
+        "/xmlrpc.php", "/wp-admin/admin-ajax.php", "/wp-trackback.php",
+        "/wp-cron.php", "/wp-content/debug.log", "/wp-content/uploads/dump.sql",
+        "/wp-sitemap.xml", "/wp-config.php.bak", "/wp-config.php~", "/wp-config.php.save",
+        "/wp-config-sample.php", "/readme.html", "/license.txt",
     ],
     "admin": [
-        "/admin", "/admin/", "/admin/login", "/admin/dashboard",
+        "/admin", "/admin/", "/admin/login", "/admin/dashboard", "/admin/index.php",
+        "/admin.php", "/admin/admin.php", "/adminer.php", "/adminer",
         "/administrator", "/administrator/index.php",
-        "/panel", "/control", "/cpanel", "/manage",
-        "/manager", "/management", "/backend", "/backend/",
-        "/superadmin", "/cms", "/console", "/dashboard",
-        "/portal", "/secure", "/staff", "/maintenance",
+        "/panel", "/control", "/cpanel", "/manage", "/admin/config",
+        "/manager", "/manager/html", "/management", "/backend", "/backend/",
+        "/superadmin", "/cms", "/console", "/dashboard", "/admin-console",
+        "/portal", "/secure", "/staff", "/maintenance", "/webadmin", "/sysadmin",
+        "/admin/users", "/admin/settings",
     ],
     "sensitive": [
-        "/.env", "/.env.local", "/.env.production", "/.env.backup",
-        "/.git/HEAD", "/.git/config", "/.gitignore",
-        "/config.json", "/config.yaml", "/config.yml",
-        "/.aws/credentials", "/secrets.json",
-        "/backup.zip", "/backup.tar.gz", "/dump.sql", "/database.sql",
-        "/.DS_Store", "/web.config", "/.htaccess",
-        "/robots.txt", "/sitemap.xml",
-        "/server-status", "/.well-known/security.txt",
+        "/.env", "/.env.local", "/.env.dev", "/.env.development", "/.env.production",
+        "/.env.staging", "/.env.test", "/.env.backup", "/.env.bak", "/.env.save",
+        "/.git/HEAD", "/.git/config", "/.git/index", "/.git/logs/HEAD", "/.gitignore",
+        "/.svn/entries", "/.svn/wc.db", "/.hg/", "/.bzr/",
+        "/config.json", "/config.yaml", "/config.yml", "/config.php", "/configuration.php",
+        "/settings.py", "/settings.json", "/appsettings.json", "/application.properties", "/application.yml",
+        "/.aws/credentials", "/.aws/config", "/secrets.json", "/credentials.json",
+        "/.npmrc", "/.dockercfg", "/.docker/config.json",
+        "/.DS_Store", "/web.config", "/.htaccess", "/.htpasswd",
+        "/server-status", "/server-info", "/.well-known/security.txt",
+        "/robots.txt", "/sitemap.xml", "/crossdomain.xml", "/.well-known/openid-configuration",
+        "/id_rsa", "/.ssh/id_rsa",
+    ],
+    "backups": [
+        "/backup", "/backup/", "/backups/", "/backup.zip", "/backup.tar.gz", "/backup.tar",
+        "/backup.sql", "/backup.bak", "/site-backup.zip", "/www.zip", "/web.zip", "/html.zip",
+        "/dump.sql", "/database.sql", "/db.sql", "/db_backup.sql", "/mysql.sql",
+        "/old/", "/old.zip", "/bak/", "/_old/",
+        "/index.php.bak", "/index.html.bak", "/index.bak",
+        "/archive.zip", "/release.zip", "/app.zip", "/source.zip", "/data.zip",
     ],
     "spring": [
-        "/actuator", "/actuator/health", "/actuator/env",
-        "/actuator/mappings", "/actuator/beans", "/actuator/info",
-        "/actuator/logfile", "/actuator/httptrace", "/actuator/sessions",
-        "/heapdump", "/jolokia", "/jolokia/list",
-        "/api/actuator", "/management/health",
+        "/actuator", "/actuator/health", "/actuator/env", "/actuator/configprops",
+        "/actuator/mappings", "/actuator/beans", "/actuator/info", "/actuator/metrics",
+        "/actuator/logfile", "/actuator/httptrace", "/actuator/threaddump", "/actuator/sessions",
+        "/actuator/heapdump", "/actuator/loggers", "/actuator/gateway/routes", "/actuator/scheduledtasks",
+        "/heapdump", "/threaddump", "/env", "/trace", "/dump", "/beans", "/mappings",
+        "/jolokia", "/jolokia/list", "/jolokia/read",
+        "/api/actuator", "/management/health", "/management", "/management/env",
     ],
     "php": [
-        "/info.php", "/phpinfo.php", "/test.php",
-        "/phpmyadmin", "/phpmyadmin/", "/pma", "/pma/", "/myadmin",
-        "/.env.example", "/artisan",
+        "/info.php", "/phpinfo.php", "/test.php", "/i.php", "/php.php", "/x.php",
+        "/phpmyadmin", "/phpmyadmin/", "/phpMyAdmin/", "/pma", "/pma/", "/myadmin", "/dbadmin",
+        "/.env.example", "/artisan", "/composer.json", "/composer.lock",
         "/storage/logs/laravel.log", "/index.php?debug=true",
+        "/telescope", "/telescope/requests", "/_ignition/health-check", "/_debugbar",
     ],
     "login": [
-        "/login", "/login/", "/signin", "/sign-in", "/sign_in",
-        "/auth", "/auth/login", "/oauth", "/sso",
-        "/user/login", "/account/login", "/accounts/login",
-        "/session/new", "/users/sign_in",
+        "/login", "/login/", "/login.php", "/signin", "/sign-in", "/sign_in",
+        "/auth", "/auth/login", "/oauth", "/oauth/authorize", "/sso", "/saml/login",
+        "/user/login", "/account/login", "/accounts/login", "/users/login",
+        "/session/new", "/users/sign_in", "/api/login", "/api/auth/login",
+        "/register", "/signup", "/sign-up", "/password/reset", "/forgot-password",
+        "/logout", "/2fa", "/mfa",
+    ],
+    "devops": [
+        "/.dockerignore", "/Dockerfile", "/docker-compose.yml", "/docker-compose.yaml",
+        "/.gitlab-ci.yml", "/.travis.yml", "/.circleci/config.yml", "/Jenkinsfile",
+        "/azure-pipelines.yml", "/bitbucket-pipelines.yml",
+        "/kubernetes/", "/k8s/", "/.kube/config", "/helm/",
+        "/terraform.tfstate", "/.terraform/", "/ansible.cfg", "/playbook.yml",
+        "/Makefile", "/package.json", "/yarn.lock", "/package-lock.json",
+    ],
+    "debug": [
+        "/debug", "/debug/", "/debug/vars", "/debug/pprof/", "/debug/pprof/goroutine",
+        "/__debug__/", "/_debug", "/_profiler",
+        "/elmah.axd", "/trace.axd", "/glimpse.axd",
+        "/test", "/test/", "/testing", "/dev", "/dev/", "/staging",
+        "/metrics", "/prometheus", "/grafana", "/status.php", "/phpinfo",
     ],
 }
 
@@ -510,7 +595,7 @@ async def check_endpoints(req: EndpointCheckRequest):
     paths: list[str] = []
     for cat in categories:
         paths.extend(ENDPOINT_WORDLISTS.get(cat, []))
-    paths = list(dict.fromkeys(paths))[:100]  # deduplicate, cap at 100
+    paths = list(dict.fromkeys(paths))[:500]  # deduplicate, cap at 500
 
     job_id = str(uuid.uuid4())
     task = asyncio.create_task(
@@ -551,6 +636,7 @@ async def _run_endpoint_check(job_id: str, targets: list[str], paths: list[str],
             "-title",
             "-status-code",
             "-content-type",
+            "-cl",
             "-timeout", "8",
             "-threads", "50",
             "-no-color",
@@ -584,6 +670,7 @@ async def _run_endpoint_check(job_id: str, targets: list[str], paths: list[str],
                     "status_code": status,
                     "title": data.get("title", ""),
                     "content_type": data.get("content-type", data.get("content_type", "")),
+                    "content_length": data.get("content_length", data.get("content-length")),
                 }
                 await ws_manager.broadcast("recon_results", {
                     "tool": "endpoint_check",
@@ -619,3 +706,107 @@ async def _run_endpoint_check(job_id: str, targets: list[str], paths: list[str],
     await ws_manager.broadcast("tool_status", {
         "tool": "endpoint_check", "event": "completed", "job_id": job_id, "result_count": count,
     })
+
+
+# ── Wayback CDX API scan ────────────────────────────────────────────────────────
+
+class WaybackCdxRequest(_BaseModel):
+    target: str
+    status_codes: list[str] = []       # e.g. ["200"] or ["200","301"] or [] = all
+    methods: list[str] = []            # e.g. ["POST"] or [] = all
+    extensions: list[str] = []         # e.g. [".env",".bak"] or [] = all
+    limit: int = 500
+    project_id: str = ""
+
+
+@router.post("/wayback-cdx")
+async def wayback_cdx_scan(req: WaybackCdxRequest):
+    """
+    Query the Wayback Machine CDX API directly — no binary required.
+    Deduplicates via collapse=urlkey and applies optional filters.
+    Results streamed via WebSocket channel 'recon_results' type 'url'.
+    """
+    import httpx
+
+    target = req.target.strip()
+    if not target:
+        return {"error": "No target"}
+
+    # Build CDX params
+    params: dict = {
+        "url": f"{target}/*",
+        "output": "json",
+        "fl": "original,statuscode,mimetype,timestamp",
+        "collapse": "urlkey",
+        "limit": str(min(req.limit, 20000)),
+    }
+    filters = []
+    if req.status_codes:
+        filters.append("statuscode:" + "|".join(req.status_codes))
+    if req.methods:
+        filters.append("requestmethod:" + "|".join(m.upper() for m in req.methods))
+    if filters:
+        params["filter"] = filters  # httpx sends multiple values as repeated keys
+
+    cdx_url = "https://web.archive.org/cdx/search/cdx"
+
+    await ws_manager.broadcast("tool_status", {
+        "tool": "waybackurls", "event": "started",
+        "message": f"Querying CDX API for {target} (limit {req.limit})...",
+    })
+
+    results = []
+    try:
+        async with httpx.AsyncClient(timeout=60) as client:
+            resp = await client.get(cdx_url, params=params)
+            resp.raise_for_status()
+            rows = resp.json()
+
+        # First row is the header ["original","statuscode","mimetype","timestamp"]
+        header = rows[0] if rows and isinstance(rows[0], list) and rows[0][0] == "original" else None
+        data_rows = rows[1:] if header else rows
+
+        for row in data_rows:
+            if not row:
+                continue
+            url = row[0] if len(row) > 0 else ""
+            status = row[1] if len(row) > 1 else None
+            mime = row[2] if len(row) > 2 else ""
+            if not url.startswith("http"):
+                continue
+
+            # Extension filter (client-side, CDX doesn't support it natively)
+            if req.extensions:
+                path = url.split("?")[0].split("#")[0].lower()
+                if not any(path.endswith(ext.lower()) for ext in req.extensions):
+                    continue
+
+            result = {
+                "url": url,
+                "source": "wayback-cdx",
+                "status_code": int(status) if status and status.isdigit() else None,
+                "content_type": mime or None,
+            }
+            results.append(result)
+            await _save_recon_result("url", req.project_id or target, result)
+
+        # Broadcast all at once
+        await ws_manager.broadcast("recon_results", {
+            "tool": "waybackurls",
+            "type": "url",
+            "results": results,
+        })
+
+    except Exception as e:
+        logger.error(f"CDX scan error: {e}")
+        await ws_manager.broadcast("tool_status", {
+            "tool": "waybackurls", "event": "failed", "error": str(e),
+        })
+        return {"error": str(e)}
+
+    await ws_manager.broadcast("tool_status", {
+        "tool": "waybackurls", "event": "completed",
+        "result_count": len(results),
+        "message": f"CDX scan done — {len(results)} unique URLs",
+    })
+    return {"count": len(results), "results": results}

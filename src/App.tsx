@@ -21,12 +21,14 @@ import { MethodologyPage } from '@/pages/MethodologyPage'
 import { WorkspacePage } from '@/pages/WorkspacePage'
 import { SecurityToolsPage } from '@/pages/SecurityToolsPage'
 import { BruteForcePage } from '@/pages/BruteForcePage'
+import { WordPressPage } from '@/pages/WordPressPage'
 import { useAppStore } from '@/stores/app-store'
 import { useProxyStore } from '@/stores/proxy-store'
 import { useScannerStore } from '@/stores/scanner-store'
 import { useReconStore } from '@/stores/recon-store'
 import type { LiveHostResult } from '@/stores/recon-store'
 import { usePipelineStore } from '@/stores/pipeline-store'
+import { useWordPressStore } from '@/stores/wordpress-store'
 import { useLicenseStore } from '@/stores/license-store'
 import { wsClient } from '@/api/ws-client'
 import { api } from '@/api/http-client'
@@ -161,6 +163,15 @@ function App() {
         if (s.event === 'completed' || s.event === 'failed' || s.event === 'cancelled') setJobId(s.tool, null)
       }
 
+      // Track WordPress (wpscan) running state + job ID via WS
+      if (status.tool === 'wpscan') {
+        const s = data as { tool: string; event: string; job_id?: string }
+        if (s.event === 'started') useWordPressStore.getState().setRunning(true, s.job_id ?? null)
+        if (s.event === 'completed' || s.event === 'failed' || s.event === 'cancelled') {
+          useWordPressStore.getState().setRunning(false, null)
+        }
+      }
+
       // Track recon tool running state + job IDs via WS
       const reconTools = ['subfinder', 'amass', 'httpx', 'httpx-probe', 'httpx-probe-all', 'nmap', 'waybackurls', 'gau', 'katana', 'katana-headless', 'linkfinder', 'paramspider', 'arjun', 'full_recon', 'endpoint_check']
       if (reconTools.includes(status.tool)) {
@@ -175,8 +186,16 @@ function App() {
       handlePipelineEvent(data as PipelineEvent)
     })
 
+    const unsubWordpress = wsClient.subscribe('wordpress', (data) => {
+      useWordPressStore.getState().handleResult(data)
+    })
+
     const unsubToolOutput = wsClient.subscribe('tool_output', (data) => {
       const d = data as { tool: string; line: string }
+      if (d.tool === 'wpscan') {
+        useWordPressStore.getState().appendLog(d.line)
+        return
+      }
       if (d.tool && d.line) appendToolOutput(d.tool, d.line)
     })
 
@@ -198,6 +217,7 @@ function App() {
       unsubRecon()
       unsubStatus()
       unsubPipeline()
+      unsubWordpress()
       unsubToolOutput()
       unsubIntruder()
       wsClient.disconnect()
@@ -221,6 +241,7 @@ function App() {
             <Route path="/recon" element={<ProjectGate><ReconPage /></ProjectGate>} />
             <Route path="/scanner" element={<ProjectGate><ScannerPage /></ProjectGate>} />
             <Route path="/security-tools" element={<ProjectGate><SecurityToolsPage /></ProjectGate>} />
+            <Route path="/wordpress" element={<ProjectGate><ProGate feature="WordPress pentest suite"><WordPressPage /></ProGate></ProjectGate>} />
             <Route path="/exploit" element={<ProjectGate><ExploitPage /></ProjectGate>} />
             <Route path="/pipelines" element={<ProjectGate><PipelinesPage /></ProjectGate>} />
             <Route path="/brute-force" element={<ProjectGate><ProGate feature="Brute force"><BruteForcePage /></ProGate></ProjectGate>} />
