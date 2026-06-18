@@ -722,6 +722,60 @@ async def _run_endpoint_check(job_id: str, targets: list[str], paths: list[str],
     })
 
 
+# ── crt.sh certificate transparency search ──────────────────────────────────────
+
+class CrtshRequest(_BaseModel):
+    target: str
+    project_id: str = ""
+
+
+@router.post("/crtsh")
+async def crtsh_scan(req: CrtshRequest):
+    """
+    Query crt.sh (certificate transparency logs) for subdomains found in
+    issued TLS certificates — no binary required, passive, free.
+    """
+    import httpx
+
+    target = req.target.strip().lower()
+    if not target:
+        return {"error": "No target"}
+
+    await ws_manager.broadcast("tool_status", {"tool": "crtsh", "event": "started"})
+
+    results = []
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.get("https://crt.sh/", params={"q": f"%.{target}", "output": "json"})
+            resp.raise_for_status()
+            rows = resp.json()
+
+        seen = set()
+        for row in rows:
+            for sub in row.get("name_value", "").split("\n"):
+                sub = sub.strip().lower().lstrip("*.")
+                if not sub or sub in seen:
+                    continue
+                if sub != target and not sub.endswith("." + target):
+                    continue  # cert SANs can include unrelated domains
+                seen.add(sub)
+                result = {"subdomain": sub, "source": "crt.sh", "ip": None, "status_code": None}
+                results.append(result)
+                await _save_recon_result("subdomain", target, result, req.project_id or None)
+    except Exception as e:
+        logger.error(f"crt.sh scan error: {e}")
+        await ws_manager.broadcast("tool_status", {"tool": "crtsh", "event": "failed", "error": str(e)})
+        return {"error": str(e)}
+
+    await ws_manager.broadcast("recon_results", {
+        "tool": "crtsh", "type": "subdomain", "results": results, "project_id": req.project_id or "",
+    })
+    await ws_manager.broadcast("tool_status", {
+        "tool": "crtsh", "event": "completed", "result_count": len(results),
+    })
+    return {"count": len(results), "results": results}
+
+
 # ── Wayback CDX API scan ────────────────────────────────────────────────────────
 
 class WaybackCdxRequest(_BaseModel):

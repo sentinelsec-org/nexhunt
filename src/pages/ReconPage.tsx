@@ -73,6 +73,7 @@ const BB_STAGES = [
     tools: [
       { id: 'subfinder', label: 'Subfinder', desc: 'Passive enumeration via APIs (fast)', installed: true },
       { id: 'amass', label: 'Amass', desc: 'Deep passive + active OSINT enumeration', installed: true },
+      { id: 'crtsh', label: 'crt.sh', desc: 'Certificate transparency logs — passive, no binary needed', installed: true },
     ],
   },
   {
@@ -335,6 +336,12 @@ export function ReconPage() {
     if (!target.trim()) return
     try {
       const opts: Record<string, string> = { ...(toolOptions[toolId] || {}), ...getSessionOpts() }
+
+      // crt.sh — direct API call, no binary
+      if (toolId === 'crtsh') {
+        await api.post('/api/recon/crtsh', { target: target.trim(), project_id: activeProject ?? '' })
+        return
+      }
 
       // Waybackurls CDX mode — call CDX API directly instead of binary
       if (toolId === 'waybackurls' && opts.cdx_mode === 'true') {
