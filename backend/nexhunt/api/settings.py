@@ -35,6 +35,8 @@ def _load_persisted():
                 settings.wpscan_api_token = data["wpscan_api_token"]
             if data.get("shodan_api_key"):
                 settings.shodan_api_key = data["shodan_api_key"]
+            if data.get("brave_search_api_key"):
+                settings.brave_search_api_key = data["brave_search_api_key"]
     except Exception:
         pass
 
@@ -54,7 +56,9 @@ def _persist():
             "ngrok_authtoken": settings.ngrok_authtoken,
             "wpscan_api_token": settings.wpscan_api_token,
             "shodan_api_key": settings.shodan_api_key,
+            "brave_search_api_key": settings.brave_search_api_key,
         }, f, indent=2)
+    os.chmod(_SETTINGS_FILE, 0o600)
 
 
 # Load persisted settings at import time (called on app startup)
@@ -72,6 +76,7 @@ class SettingsUpdate(BaseModel):
     ngrok_authtoken: str | None = None
     wpscan_api_token: str | None = None
     shodan_api_key: str | None = None
+    brave_search_api_key: str | None = None
 
 
 def _mask(secret: str) -> str:
@@ -98,6 +103,8 @@ async def get_settings():
         "wpscan_api_token_set": bool(settings.wpscan_api_token),
         "shodan_api_key_masked": _mask(settings.shodan_api_key),
         "shodan_api_key_set": bool(settings.shodan_api_key),
+        "brave_search_api_key_masked": _mask(settings.brave_search_api_key),
+        "brave_search_api_key_set": bool(settings.brave_search_api_key),
     }
 
 
@@ -123,5 +130,7 @@ async def update_settings(data: SettingsUpdate):
         settings.wpscan_api_token = data.wpscan_api_token
     if data.shodan_api_key is not None:
         settings.shodan_api_key = data.shodan_api_key
+    if data.brave_search_api_key is not None:
+        settings.brave_search_api_key = data.brave_search_api_key
     _persist()
     return {"status": "updated"}

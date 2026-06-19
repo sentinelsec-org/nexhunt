@@ -62,6 +62,9 @@ class Settings(BaseSettings):
     # Shodan — passive global exposure search
     shodan_api_key: str = ""
 
+    # Brave Search — structured web results for Exposure Intel
+    brave_search_api_key: str = ""
+
     class Config:
         env_prefix = "NEXHUNT_"
 

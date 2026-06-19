@@ -58,6 +58,8 @@ export function SettingsPage() {
   const [wpscanTokenSet, setWpscanTokenSet] = useState(false)
   const [shodanKey, setShodanKey] = useState('')
   const [shodanKeySet, setShodanKeySet] = useState(false)
+  const [braveSearchKey, setBraveSearchKey] = useState('')
+  const [braveSearchKeySet, setBraveSearchKeySet] = useState(false)
   const [saved, setSaved] = useState(false)
 
   const fetchTools = async () => {
@@ -81,6 +83,7 @@ export function SettingsPage() {
       if (s.ngrok_authtoken_set) setNgrokToken('')
       if (s.wpscan_api_token_set) setWpscanTokenSet(true)
       if (s.shodan_api_key_set) setShodanKeySet(true)
+      if (s.brave_search_api_key_set) setBraveSearchKeySet(true)
     }).catch(() => {})
     useLicenseStore.getState().fetchStatus()
   }, [])
@@ -91,16 +94,18 @@ export function SettingsPage() {
         proxy_port: parseInt(proxyPort),
         ai_provider: aiProvider,
         ai_model: aiModel,
-        ai_groq_key: groqKey,
+        ai_groq_key: groqKey || undefined,
         ai_api_key: aiApiKey || undefined,
         ai_base_url: aiBaseUrl || undefined,
         language,
         ngrok_authtoken: ngrokToken || undefined,
         wpscan_api_token: wpscanToken || undefined,
         shodan_api_key: shodanKey || undefined,
+        brave_search_api_key: braveSearchKey || undefined,
       })
       if (wpscanToken) setWpscanTokenSet(true)
       if (shodanKey) setShodanKeySet(true)
+      if (braveSearchKey) setBraveSearchKeySet(true)
       setSaved(true)
       setTimeout(() => setSaved(false), 2000)
     } catch (err) {
@@ -352,6 +357,25 @@ export function SettingsPage() {
                 placeholder={shodanKeySet ? 'configured — leave blank to keep' : 'your Shodan API key'}
                 value={shodanKey}
                 onChange={e => setShodanKey(e.target.value)}
+              />
+            </div>
+
+            {/* Brave Search */}
+            <div className="border-t border-zinc-800 pt-4 space-y-2">
+              <label className="text-xs text-zinc-400 font-semibold flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-green-500" /> Brave Search API Key
+                {braveSearchKeySet && <span className="text-[10px] text-green-500 font-normal">· configured</span>}
+              </label>
+              <p className="text-[11px] text-zinc-600">
+                Loads filtered, direct web URLs inside <strong className="text-zinc-400">Exposure Intel</strong>.
+                Create a key at <span className="text-blue-400">api-dashboard.search.brave.com</span>.
+              </p>
+              <Input
+                type="password"
+                className="bg-zinc-900 font-mono text-sm"
+                placeholder={braveSearchKeySet ? 'configured — leave blank to keep' : 'your Brave Search API key'}
+                value={braveSearchKey}
+                onChange={e => setBraveSearchKey(e.target.value)}
               />
             </div>
 

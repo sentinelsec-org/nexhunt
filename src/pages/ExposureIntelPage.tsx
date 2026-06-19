@@ -15,13 +15,17 @@ import {
 
 type Mode = 'global' | 'project'
 type Category = 'api_docs' | 'sql_errors' | 'known_vuln' | 'default_logins' | 'admin_panels' | 'debug' | 'secrets' | 'custom'
-type ResultView = 'shodan' | 'dorks' | 'project'
+type ResultView = 'web' | 'shodan' | 'dorks' | 'project'
 
 interface DorkResult { query: string; google_url: string; bing_url: string }
 interface ShodanResult {
   ip: string; port: number; transport: string; hostnames: string[]; domains: string[]
   org: string; product: string; version: string; title: string; server: string
   country: string; city: string; vulns: string[]; timestamp: string
+}
+interface WebResult {
+  url: string; title: string; description: string; hostname: string
+  signals: string[]; source_query: string
 }
 interface ProjectResult {
   url: string; source_host: string; category: string; severity: string
@@ -50,20 +54,28 @@ export function ExposureIntelPage() {
   const [technology, setTechnology] = useState('')
   const [domain, setDomain] = useState('')
   const [shodanConfigured, setShodanConfigured] = useState(false)
+  const [braveConfigured, setBraveConfigured] = useState(false)
   const [loading, setLoading] = useState(false)
   const [resultView, setResultView] = useState<ResultView>('shodan')
   const [dorks, setDorks] = useState<DorkResult[]>([])
   const [shodanResults, setShodanResults] = useState<ShodanResult[]>([])
   const [shodanTotal, setShodanTotal] = useState(0)
   const [shodanQuery, setShodanQuery] = useState('')
+  const [shodanQueries, setShodanQueries] = useState<string[]>([])
   const [shodanError, setShodanError] = useState('')
+  const [webResults, setWebResults] = useState<WebResult[]>([])
+  const [webQueries, setWebQueries] = useState<string[]>([])
+  const [webError, setWebError] = useState('')
   const [projectResults, setProjectResults] = useState<ProjectResult[]>([])
   const [projectStats, setProjectStats] = useState({ hosts: 0, tested: 0 })
   const [copied, setCopied] = useState<string | null>(null)
 
   useEffect(() => {
     api.get<any>('/api/exposure-intel/presets')
-      .then(data => setShodanConfigured(!!data.shodan_configured))
+      .then(data => {
+        setShodanConfigured(!!data.shodan_configured)
+        setBraveConfigured(!!data.brave_configured)
+      })
       .catch(() => {})
   }, [])
 
@@ -79,17 +91,22 @@ export function ExposureIntelPage() {
   })
 
   const runGlobalSearch = async () => {
-    setLoading(true); setShodanError(''); setProjectResults([])
+    setLoading(true); setShodanError(''); setWebError(''); setProjectResults([])
     try {
       const dorkPromise = api.post<DorkResult[]>('/api/exposure-intel/dorks', payload())
       const shodanPromise = api.post<any>('/api/exposure-intel/shodan/search', payload())
-      const [dorkData, shodanData] = await Promise.all([dorkPromise, shodanPromise])
+      const webPromise = api.post<any>('/api/exposure-intel/web/search', payload())
+      const [dorkData, shodanData, webData] = await Promise.all([dorkPromise, shodanPromise, webPromise])
       setDorks(dorkData)
       setShodanResults(shodanData.results || [])
       setShodanTotal(shodanData.total || 0)
       setShodanQuery(shodanData.query || '')
+      setShodanQueries(shodanData.queries || [])
       setShodanError(shodanData.error || '')
-      setResultView(shodanData.results?.length ? 'shodan' : 'dorks')
+      setWebResults(webData.results || [])
+      setWebQueries(webData.queries || [])
+      setWebError(webData.error || '')
+      setResultView(webData.results?.length ? 'web' : shodanData.results?.length ? 'shodan' : 'dorks')
     } catch (error) {
       toast.error('Exposure search failed', error)
     } finally { setLoading(false) }
@@ -134,10 +151,10 @@ export function ExposureIntelPage() {
             <ModeButton active={mode === 'global'} icon={<Globe2 size={14} />} label="Global Search" onClick={() => setMode('global')} />
             <ModeButton active={mode === 'project'} icon={<FolderSearch size={14} />} label="Project Hosts" onClick={() => setMode('project')} />
           </div>
-          <div className="flex items-center gap-2 text-[11px]">
-            <span className={cn('w-1.5 h-1.5 rounded-full', shodanConfigured ? 'bg-green-500' : 'bg-amber-500')} />
-            <span className="text-zinc-500">Shodan {shodanConfigured ? 'connected' : 'not configured'}</span>
-            {!shodanConfigured && <button className="text-blue-400 hover:underline" onClick={() => location.hash = '#/settings'}>Open Settings</button>}
+          <div className="flex items-center gap-3 text-[11px]">
+            <SourceStatus label="Brave URLs" configured={braveConfigured} />
+            <SourceStatus label="Shodan" configured={shodanConfigured} />
+            {(!shodanConfigured || !braveConfigured) && <button className="text-blue-400 hover:underline" onClick={() => location.hash = '#/settings'}>Open Settings</button>}
           </div>
         </div>
 
@@ -204,20 +221,22 @@ export function ExposureIntelPage() {
         </section>
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-px rounded-lg border border-zinc-800 bg-zinc-800 overflow-hidden">
-          <Stat value={shodanTotal ? shodanTotal.toLocaleString() : '—'} label="Shodan matches" />
-          <Stat value={shodanResults.length.toString()} label="Loaded results" />
+          <Stat value={webResults.length.toString()} label="Direct URLs" />
+          <Stat value={shodanResults.length.toString()} label="Shodan results" />
           <Stat value={dorks.length.toString()} label="Search dorks" />
           <Stat value={mode === 'project' ? projectStats.tested.toString() : liveHosts.length.toString()} label={mode === 'project' ? 'Endpoints tested' : 'Project live hosts'} />
         </div>
 
         <section className="rounded-xl border border-zinc-800 bg-zinc-900/40 overflow-hidden min-h-[360px]">
           <div className="flex items-center gap-1 px-3 border-b border-zinc-800 bg-zinc-950/60 overflow-x-auto">
+            <ResultTab active={resultView === 'web'} label="Direct URLs" count={webResults.length} onClick={() => setResultView('web')} />
             <ResultTab active={resultView === 'shodan'} label="Shodan" count={shodanResults.length} onClick={() => setResultView('shodan')} />
             <ResultTab active={resultView === 'dorks'} label="Google / Bing dorks" count={dorks.length} onClick={() => setResultView('dorks')} />
             {mode === 'project' && <ResultTab active={resultView === 'project'} label="Project endpoints" count={projectResults.length} onClick={() => setResultView('project')} />}
           </div>
 
-          {resultView === 'shodan' && <ShodanResults results={shodanResults} query={shodanQuery} error={shodanError} configured={shodanConfigured} openExternal={openExternal} copyText={copyText} copied={copied} />}
+          {resultView === 'web' && <WebResults results={webResults} queries={webQueries} error={webError} configured={braveConfigured} openExternal={openExternal} />}
+          {resultView === 'shodan' && <ShodanResults results={shodanResults} query={shodanQuery} queries={shodanQueries} error={shodanError} configured={shodanConfigured} openExternal={openExternal} copyText={copyText} copied={copied} />}
           {resultView === 'dorks' && <DorkResults results={dorks} openExternal={openExternal} copyText={copyText} copied={copied} />}
           {resultView === 'project' && <ProjectResults results={projectResults} openExternal={openExternal} />}
         </section>
@@ -234,6 +253,9 @@ export function ExposureIntelPage() {
 function ModeButton({ active, icon, label, onClick }: { active: boolean; icon: React.ReactNode; label: string; onClick: () => void }) {
   return <button onClick={onClick} className={cn('flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium', active ? 'bg-zinc-800 text-zinc-100' : 'text-zinc-500 hover:text-zinc-300')}>{icon}{label}</button>
 }
+function SourceStatus({ label, configured }: { label: string; configured: boolean }) {
+  return <span className="flex items-center gap-1.5 text-zinc-500"><span className={cn('w-1.5 h-1.5 rounded-full', configured ? 'bg-green-500' : 'bg-amber-500')} />{label}</span>
+}
 function Stat({ value, label }: { value: string; label: string }) {
   return <div className="bg-zinc-950 px-4 py-3"><div className="font-mono text-lg font-semibold text-zinc-200">{value}</div><div className="text-[10px] text-zinc-600">{label}</div></div>
 }
@@ -241,15 +263,18 @@ function ResultTab({ active, label, count, onClick }: { active: boolean; label: 
   return <button onClick={onClick} className={cn('flex items-center gap-2 px-3 py-2.5 border-b-2 text-xs whitespace-nowrap', active ? 'border-green-500 text-green-400' : 'border-transparent text-zinc-500 hover:text-zinc-300')}><span>{label}</span>{count > 0 && <span className="rounded bg-zinc-800 px-1.5 py-0.5 text-[9px] text-zinc-400">{count}</span>}</button>
 }
 
-function ShodanResults({ results, query, error, configured, openExternal, copyText, copied }: { results: ShodanResult[]; query: string; error: string; configured: boolean; openExternal: (url: string) => void; copyText: (v: string) => void; copied: string | null }) {
+function ShodanResults({ results, query, queries, error, configured, openExternal, copyText, copied }: { results: ShodanResult[]; query: string; queries: string[]; error: string; configured: boolean; openExternal: (url: string) => void; copyText: (v: string) => void; copied: string | null }) {
   if (error) return <div className="min-h-[310px] flex flex-col items-center justify-center text-center px-6">
     <div className="text-zinc-700 mb-3"><Radar size={24} /></div>
     <div className="text-sm font-medium text-zinc-300">{configured ? 'Shodan API could not complete the search' : 'Connect Shodan for API results'}</div>
     <div className="text-xs text-zinc-600 mt-1 max-w-md">{error}</div>
-    {query && <>
-      <code className="mt-4 max-w-2xl text-[10px] text-green-400 bg-black/50 border border-zinc-800 rounded px-3 py-2 break-all">{query}</code>
-      <Button size="sm" variant="outline" className="mt-3" onClick={() => openExternal(`https://www.shodan.io/search?query=${encodeURIComponent(query)}`)}>Open in Shodan Web <ExternalLink size={11} className="ml-1" /></Button>
-    </>}
+    {!!queries.length && <div className="mt-4 w-full max-w-2xl space-y-2">
+      {queries.map((item, index) => <div key={item} className="flex items-center gap-2 rounded border border-zinc-800 bg-black/40 px-3 py-2 text-left">
+        <code className="flex-1 min-w-0 text-[10px] text-green-400 break-all">{item}</code>
+        <button title="Copy query" onClick={() => copyText(item)} className="p-1 text-zinc-500 hover:text-zinc-200">{copied === item ? <Check size={12} /> : <Copy size={12} />}</button>
+        <Button size="sm" variant="outline" className="h-7 shrink-0 text-[10px]" onClick={() => openExternal(`https://www.shodan.io/search?query=${encodeURIComponent(item)}`)}>Open {index + 1}<ExternalLink size={10} className="ml-1" /></Button>
+      </div>)}
+    </div>}
   </div>
   if (!results.length) return <EmptyState icon={<Radar size={24} />} title="No Shodan results loaded" body="Choose a vulnerability signal and run a global search." />
   return <div>
@@ -265,6 +290,24 @@ function ShodanResults({ results, query, error, configured, openExternal, copyTe
         </div>
       })}
     </div>
+  </div>
+}
+
+function WebResults({ results, queries, error, configured, openExternal }: { results: WebResult[]; queries: string[]; error: string; configured: boolean; openExternal: (url: string) => void }) {
+  if (error && !results.length) return <div className="min-h-[310px] flex flex-col items-center justify-center text-center px-6">
+    <div className="text-zinc-700 mb-3"><Server size={24} /></div>
+    <div className="text-sm font-medium text-zinc-300">{configured ? 'Web search could not load direct URLs' : 'Connect Brave Search for direct URLs'}</div>
+    <div className="text-xs text-zinc-600 mt-1 max-w-lg">{error}</div>
+    {!!queries.length && <code className="mt-4 max-w-2xl text-[10px] text-zinc-500 bg-black/50 border border-zinc-800 rounded px-3 py-2 break-all">{queries[0]}</code>}
+  </div>
+  if (!results.length) return <EmptyState icon={<Server size={24} />} title="No direct URLs matched" body="The search engine results were filtered to remove articles, tutorials, and documentation pages." />
+  return <div className="divide-y divide-zinc-800/70">
+    {results.map((result, index) => <button key={`${result.url}:${index}`} onClick={() => openExternal(result.url)} className="w-full text-left grid grid-cols-[minmax(150px,.45fr)_minmax(260px,1.3fr)_minmax(130px,.45fr)_auto] gap-4 items-center px-4 py-3 hover:bg-zinc-900/60">
+      <div className="font-mono text-[11px] text-green-400 truncate">{result.hostname}</div>
+      <div className="min-w-0"><div className="text-xs text-zinc-200 truncate">{result.title || result.url}</div><div className="text-[10px] text-zinc-600 truncate mt-0.5">{result.url}</div></div>
+      <div className="flex gap-1 flex-wrap">{result.signals.slice(0, 3).map(signal => <span key={signal} className="rounded border border-zinc-700 bg-zinc-900 px-1.5 py-0.5 text-[9px] text-zinc-500">{signal}</span>)}</div>
+      <ExternalLink size={13} className="text-zinc-600" />
+    </button>)}
   </div>
 }
 
