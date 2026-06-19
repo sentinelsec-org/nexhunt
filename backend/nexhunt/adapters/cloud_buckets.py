@@ -29,7 +29,18 @@ _SUFFIXES = (
 
 
 def _bucket_names(company: str) -> list[str]:
-    name = re.sub(r'\.(com|net|org|io|co|app|dev|xyz|me|co\.uk)$', '', company.lower())
+    company = company.strip().lower()
+    # If a full URL/path was passed, derive permutations from the hostname, not
+    # the whole URL (otherwise we get garbage like "https---storage-googleapis...").
+    if "://" in company or "/" in company:
+        from urllib.parse import urlparse
+        parsed = urlparse(company if "://" in company else "http://" + company)
+        company = parsed.hostname or company
+    # A provider host (the bucket is in the path/subdomain, mined separately) has
+    # no meaningful company name to permute — skip guessing on it.
+    if any(h in company for h in ("amazonaws.com", "googleapis.com", "blob.core.windows.net", "digitaloceanspaces.com")):
+        return []
+    name = re.sub(r'\.(com|net|org|io|co|app|dev|xyz|me|co\.uk)$', '', company)
     name = re.sub(r'^www\.', '', name)
     name = re.sub(r'[^a-z0-9-]', '-', name).strip('-')
     short = name.replace('-', '')
@@ -333,6 +344,10 @@ class CloudBucketsAdapter(ToolAdapter):
             mined: set[tuple] = set()
             text = ""
             from urllib.parse import urljoin
+
+            # The target itself may already be a bucket URL (e.g. someone pastes
+            # storage.googleapis.com/cdn-ehub) — mine it directly.
+            text += target + "\n"
 
             # Recon seed URLs: the URL strings themselves may be bucket links, and any .js
             # among them is worth reading for more references.
