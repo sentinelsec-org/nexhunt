@@ -11,13 +11,13 @@ import { cn } from '@/lib/utils'
 import {
   Play, Square, Loader2, Terminal, Copy, Check,
   Globe, Lock, Cloud, GitBranch, Radio, Info, X, BookOpen, Sparkles,
-  FolderGit2, Server, ChevronDown, Share2, FileCode2, Crown, Maximize2,
+  FolderGit2, Server, ChevronDown, Share2, FileCode2, Crown, Maximize2, Crosshair, Rocket,
 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import type { Finding } from '@/types'
 
-type ToolId = 'cors' | 'bypass_403' | 'cloud_buckets' | 'exposed_files' | 'graphql_audit' | 'viewstate_audit' | 'github_scanner' | 'interactsh'
+type ToolId = 'cors' | 'bypass_403' | 'cloud_buckets' | 'exposed_files' | 'graphql_audit' | 'viewstate_audit' | 'github_scanner' | 'interactsh' | 'exploit_intel'
 type ViewMode = 'findings' | 'terminal'
 
 // PRO-only tools in prod.
@@ -156,6 +156,21 @@ const TOOLS: ToolDef[] = [
     endpoint: '/api/tools/github',
   },
   {
+    id: 'exploit_intel',
+    label: 'Exploit Intel',
+    icon: Crosshair,
+    tagline: 'Tech versions -> Exploit-DB + Metasploit + auto MSF setup',
+    what: 'Takes the technologies fingerprinted on your live hosts (or a product/CVE you type) and looks up known public exploits in Exploit-DB (searchsploit) and Metasploit, then prepares a ready-to-run MSF resource script for each matched module.',
+    impact: 'Turns "Apache 2.4.49 / Log4j / Confluence 7.13" into a shortlist of real, downloadable exploits and one-click Metasploit setups. Closes the gap between "I know the version" and "here is the exploit and the msfconsole session".',
+    desc: 'Auto-collects the tech stack from your Recon live hosts (httpx tech-detect), or take a single product string / CVE you type. For each, it runs searchsploit (local Exploit-DB) and searches the Metasploit module DB by product name and by CVE. Each hit is a finding: Exploit-DB entries include the EDB-ID and the searchsploit -m / -x commands; Metasploit modules get a "Run in Metasploit" button that writes a resource script (RHOSTS/RPORT/LHOST pre-set) and opens msfconsole with it. Version matching is a lead, not a confirmation - verify before firing. Requires searchsploit + metasploit-framework.',
+    inputLabel: 'Product + version or CVE (optional - auto-uses live host tech)',
+    placeholder: 'Apache 2.4.49  /  CVE-2021-44228  /  Confluence 7.13',
+    color: 'text-rose-400',
+    border: 'border-rose-500/30',
+    bg: 'bg-rose-950/15',
+    endpoint: '/api/tools/exploit-intel',
+  },
+  {
     id: 'interactsh',
     label: 'OOB / Interactsh',
     icon: Radio,
@@ -197,11 +212,14 @@ const TOOL_BINARY: Partial<Record<ToolId, string>> = {
 export function SecurityToolsPage() {
   const [activeTab, setActiveTab] = useState<ToolId>('cors')
   const [targets, setTargets] = useState<Record<ToolId, string>>({
-    cors: '', bypass_403: '', cloud_buckets: '', exposed_files: '', graphql_audit: '', viewstate_audit: '', github_scanner: '', interactsh: '',
+    cors: '', bypass_403: '', cloud_buckets: '', exposed_files: '', graphql_audit: '', viewstate_audit: '', github_scanner: '', interactsh: '', exploit_intel: '',
   })
   const [graphqlSampleIds, setGraphqlSampleIds] = useState('')
   const [graphqlExtraQueries, setGraphqlExtraQueries] = useState('')
   const [cloudTestWrite, setCloudTestWrite] = useState(false)
+  const [msfRhosts, setMsfRhosts] = useState('')
+  const [msfLhost, setMsfLhost] = useState('')
+  const [msfLaunching, setMsfLaunching] = useState(false)
   const [view, setView] = useState<ViewMode>('findings')
   const [selected, setSelected] = useState<Finding | null>(null)
   const [copied, setCopied] = useState(false)
@@ -256,14 +274,23 @@ export function SecurityToolsPage() {
   const optsFor = (id: ToolId) => {
     if (id === 'cloud_buckets')
       return { ...getSessionOpts(), seed_urls: urls.map(u => u.url).filter(Boolean).slice(0, 800), test_write: cloudTestWrite }
+    if (id === 'exploit_intel')
+      return { ...getSessionOpts(), techs: [...new Set(liveHosts.flatMap(h => h.technologies ?? []).filter(Boolean))].slice(0, 100) }
     if (id === 'graphql_audit')
       return { ...getSessionOpts(), sample_ids: graphqlSampleIds, extra_queries: graphqlExtraQueries }
     return getSessionOpts()
   }
 
+  const exploitIntelTechCount = [...new Set(liveHosts.flatMap(h => h.technologies ?? []).filter(Boolean))].length
+
   const handleRun = async () => {
     const target = targets[activeTab].trim()
-    if (!target && activeTab !== 'interactsh') {
+    // exploit_intel can run with no typed target if live hosts have detected tech.
+    if (activeTab === 'exploit_intel' && !target && exploitIntelTechCount === 0) {
+      toast.error('Nothing to look up', 'Type a product/CVE, or probe live hosts in Recon first so tech is detected.')
+      return
+    }
+    if (!target && activeTab !== 'interactsh' && activeTab !== 'exploit_intel') {
       toast.error('Enter a target first', null)
       return
     }
@@ -277,6 +304,32 @@ export function SecurityToolsPage() {
   const handleStop = async () => {
     if (!jobId) return
     try { await api.delete(`/api/tools/jobs/${jobId}`) } catch {}
+  }
+
+  const handleMsfLaunch = async (module: string) => {
+    if (!msfRhosts.trim()) {
+      toast.error('Set a target host (RHOSTS)', 'Enter the IP/host to exploit before launching.')
+      return
+    }
+    setMsfLaunching(true)
+    try {
+      const res = await api.post<{ status: string; command?: string; rc_path?: string; note?: string }>(
+        '/api/tools/exploit-intel/msf-launch',
+        { module, rhosts: msfRhosts.trim(), lhost: msfLhost.trim() },
+      )
+      if (res.status === 'launched') {
+        toast.success('Metasploit launched', `${module} in a new terminal (${res.rc_path})`)
+      } else if (res.status === 'manual') {
+        navigator.clipboard.writeText(res.command || '').catch(() => {})
+        toast.success('Resource script ready', `${res.note} Command copied: ${res.command}`)
+      } else {
+        toast.error('Launch failed', (res as any).error || 'Unknown error')
+      }
+    } catch (err) {
+      toast.error('Failed to launch Metasploit', err)
+    } finally {
+      setMsfLaunching(false)
+    }
   }
 
   const handleBulkScan = async () => {
@@ -447,7 +500,7 @@ export function SecurityToolsPage() {
               ) : (
                 <button
                   onClick={handleRun}
-                  disabled={(!targets[activeTab].trim() && activeTab !== 'interactsh') || proGated}
+                  disabled={(!targets[activeTab].trim() && activeTab !== 'interactsh' && !(activeTab === 'exploit_intel' && exploitIntelTechCount > 0)) || proGated}
                   className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border border-green-700/70 text-green-400 hover:bg-green-950/30 disabled:opacity-40 disabled:cursor-not-allowed transition-colors shrink-0"
                 >
                   {proGated ? <Crown size={11} /> : <Play size={11} />} {proGated ? 'PRO' : 'Run'}
@@ -533,6 +586,15 @@ export function SecurityToolsPage() {
                     on guessed names.
                   </span>
                 </label>
+              </div>
+            )}
+
+            {/* Exploit Intel: show how many techs will be auto-looked-up */}
+            {activeTab === 'exploit_intel' && (
+              <div className="text-[10px] text-zinc-500 leading-relaxed">
+                {exploitIntelTechCount > 0
+                  ? <>Will look up <span className="text-rose-400 font-medium">{exploitIntelTechCount}</span> technolog{exploitIntelTechCount === 1 ? 'y' : 'ies'} detected on your live hosts{targets.exploit_intel.trim() ? ', plus what you typed' : ''}.</>
+                  : <>No tech detected yet — probe live hosts in Recon (HTTPX), or just type a product/CVE above.</>}
               </div>
             )}
           </div>
@@ -680,6 +742,37 @@ export function SecurityToolsPage() {
                       </pre>
                     </div>
                   )}
+                  {selected.tool === 'exploit_intel' && selected.template_id?.startsWith('msf:') && (
+                    <div className="space-y-1.5 rounded-md border border-rose-800/50 bg-rose-950/20 p-2">
+                      <div className="text-[10px] text-rose-300 font-medium flex items-center gap-1.5">
+                        <Rocket size={11} /> Run in Metasploit
+                      </div>
+                      <div className="text-[9px] text-zinc-500 font-mono break-all">{selected.template_id.slice(4)}</div>
+                      <input
+                        value={msfRhosts}
+                        onChange={e => setMsfRhosts(e.target.value)}
+                        placeholder="RHOSTS — target IP/host"
+                        className="w-full text-[10px] bg-zinc-950 border border-zinc-800 rounded px-2 py-1 text-zinc-300 placeholder:text-zinc-700 focus:outline-none focus:border-rose-700"
+                      />
+                      <input
+                        value={msfLhost}
+                        onChange={e => setMsfLhost(e.target.value)}
+                        placeholder="LHOST — your IP (for reverse shells, optional)"
+                        className="w-full text-[10px] bg-zinc-950 border border-zinc-800 rounded px-2 py-1 text-zinc-300 placeholder:text-zinc-700 focus:outline-none focus:border-rose-700"
+                      />
+                      <button
+                        onClick={() => handleMsfLaunch(selected.template_id!.slice(4))}
+                        disabled={msfLaunching}
+                        className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 text-[10px] rounded border border-rose-700 text-rose-300 hover:bg-rose-950/40 disabled:opacity-50 transition-colors"
+                      >
+                        {msfLaunching ? <Loader2 size={10} className="animate-spin" /> : <Rocket size={10} />}
+                        Launch msfconsole with this module
+                      </button>
+                      <div className="text-[9px] text-zinc-600 leading-relaxed">
+                        Opens msfconsole with the module + options pre-set and stops at "show options". Review, then type "exploit". Active testing only on authorized targets.
+                      </div>
+                    </div>
+                  )}
                   <div className="flex gap-2 pt-1">
                     <button
                       onClick={() => { addToWorkspace(selected); navigate('/workspace') }}
@@ -764,6 +857,7 @@ export function SecurityToolsPage() {
               {activeTab === 'viewstate_audit' && <ViewStateGuide />}
               {activeTab === 'github_scanner' && <GithubGuide />}
               {activeTab === 'interactsh' && <InteractshGuide />}
+              {activeTab === 'exploit_intel' && <ExploitIntelGuide />}
             </div>
             <div className="shrink-0 px-5 py-3 border-t border-zinc-800 bg-zinc-900 flex justify-end">
               <button
@@ -1211,6 +1305,34 @@ function InteractshGuide() {
         </div>
       </GuideSection>
       <Tip>SSRF to cloud metadata (169.254.169.254) via the OOB host is a P1. If you get a DNS callback but not HTTP, check for SSRF+DNS-only. Still worth reporting.</Tip>
+    </>
+  )
+}
+
+function ExploitIntelGuide() {
+  return (
+    <>
+      <GuideSection title="Requires: searchsploit + metasploit-framework">
+        <code className="block text-[10px] text-green-400 bg-zinc-900 rounded px-2 py-1 font-mono">
+          sudo apt install exploitdb metasploit-framework
+        </code>
+        <p className="text-[10px] text-zinc-500 leading-relaxed mt-1">
+          Run <code className="text-green-400">msfconsole</code> once so it builds its module cache (the first run is slow).
+        </p>
+      </GuideSection>
+      <GuideSection title="How it works">
+        <div className="space-y-1.5 text-[10px] text-zinc-500 leading-relaxed">
+          <p><span className="text-rose-400 font-semibold">Input:</span> leave the box empty to auto-use every technology fingerprinted on your Recon live hosts, or type a product + version ("Apache 2.4.49") or a CVE ("CVE-2021-44228").</p>
+          <p><span className="text-rose-400 font-semibold">Exploit-DB:</span> runs searchsploit per tech. Each hit shows the EDB-ID, type and the commands to pull (<code className="text-green-400">searchsploit -m ID</code>) and read (<code className="text-green-400">searchsploit -x ID</code>) it.</p>
+          <p><span className="text-rose-400 font-semibold">Metasploit:</span> searches the module DB by product name and by CVE. Exploit modules rank highest. Each one gets a "Run in Metasploit" button.</p>
+        </div>
+      </GuideSection>
+      <GuideSection title="Run in Metasploit">
+        <div className="space-y-1 text-[10px] text-zinc-500 leading-relaxed">
+          <p>Open a Metasploit finding, set RHOSTS (target) and optionally LHOST (your IP for reverse shells), then Launch. It writes a resource script with everything pre-set and opens msfconsole stopped at <code className="text-green-400">show options</code> — review, then type <code className="text-green-400">exploit</code>.</p>
+        </div>
+      </GuideSection>
+      <Tip>Version matching is a LEAD, not proof. A banner version can be patched/backported and still report old. Confirm the module's check (<code className="text-green-400">check</code> in msf) or verify manually before firing — and only against authorized targets.</Tip>
     </>
   )
 }

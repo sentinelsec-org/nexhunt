@@ -12,7 +12,7 @@ from nexhunt.licensing.guard import require_pro
 
 from nexhunt.database import init_db
 from nexhunt.version import __version__
-from nexhunt.api import proxy, recon, scanner, exploit, copilot, project, tools, settings, websocket, pipeline, js_scanner, terminal, bizlogic, cve, jwt_attacks, security_tools, license, update, bruteforce, wordlists, wordpress
+from nexhunt.api import proxy, recon, scanner, exploit, copilot, project, tools, settings, websocket, pipeline, js_scanner, terminal, bizlogic, cve, jwt_attacks, security_tools, license, update, bruteforce, wordlists, wordpress, exposure_intel
 
 logging.basicConfig(
     level=logging.INFO,
@@ -80,6 +80,7 @@ app.include_router(pipeline.router, dependencies=[Depends(require_pro("Automated
 app.include_router(jwt_attacks.router, dependencies=[Depends(require_pro("JWT attack suite"))])
 app.include_router(bizlogic.router, dependencies=[Depends(require_pro("Business logic suite"))])
 app.include_router(wordpress.router, dependencies=[Depends(require_pro("WordPress pentest suite"))])
+app.include_router(exposure_intel.router, dependencies=[Depends(require_pro("Exposure Intelligence"))])
 
 
 # Serve screenshots as static files

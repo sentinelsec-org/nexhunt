@@ -22,6 +22,7 @@ import { WorkspacePage } from '@/pages/WorkspacePage'
 import { SecurityToolsPage } from '@/pages/SecurityToolsPage'
 import { BruteForcePage } from '@/pages/BruteForcePage'
 import { WordPressPage } from '@/pages/WordPressPage'
+import { ExposureIntelPage } from '@/pages/ExposureIntelPage'
 import { useAppStore } from '@/stores/app-store'
 import { useProxyStore } from '@/stores/proxy-store'
 import { useScannerStore } from '@/stores/scanner-store'
@@ -160,7 +161,7 @@ function App() {
         else if (status.event === 'completed' || status.event === 'failed') setScreenshotRunning(false)
       }
       // Track scanner + exploit tool running state + job IDs via WS
-      const scannerTools = ['nuclei', 'ffuf', 'nikto', 'gobuster', 'dirsearch', 'sqlmap', 'dalfox', 'xsstrike', 'commix', 'cors', 'bypass_403', 'cloud_buckets', 'github_scanner', 'interactsh']
+      const scannerTools = ['nuclei', 'ffuf', 'nikto', 'gobuster', 'dirsearch', 'sqlmap', 'dalfox', 'xsstrike', 'commix', 'cors', 'bypass_403', 'cloud_buckets', 'github_scanner', 'interactsh', 'exploit_intel']
       if (scannerTools.includes(status.tool)) {
         const s = data as { tool: string; event: string; job_id?: string }
         setScanRunning(s.tool, s.event === 'started')
@@ -240,6 +241,7 @@ function App() {
             <Route path="/dashboard" element={<DashboardPage />} />
             <Route path="/projects" element={<ProjectsPage />} />
             <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/exposure-intel" element={<ProGate feature="Exposure Intelligence"><ExposureIntelPage /></ProGate>} />
 
             {/* Project-required pages — blocked by ProjectGate when no project is active */}
             <Route path="/proxy" element={<ProjectGate><ProxyPage /></ProjectGate>} />

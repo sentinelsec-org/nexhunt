@@ -11,7 +11,7 @@
 
 **Bug Bounty Automation Platform for Linux**
 
-[![Version](https://img.shields.io/badge/version-1.2.0--beta-amber?style=flat-square)](https://github.com/sentinelsec-org/nexhunt/releases)
+[![Version](https://img.shields.io/badge/version-1.2.1--beta-amber?style=flat-square)](https://github.com/sentinelsec-org/nexhunt/releases)
 [![Platform](https://img.shields.io/badge/platform-Linux-green?style=flat-square)]()
 [![License](https://img.shields.io/badge/license-Free%20%2F%20PRO-blue?style=flat-square)](https://nexhunt.myshopify.com/products/nexhunt-pro)
 [![Made by](https://img.shields.io/badge/by-Sentinel%20Security-green?style=flat-square)](https://nexhunt.myshopify.com)
@@ -19,6 +19,8 @@
 **[Download Free](https://github.com/sentinelsec-org/nexhunt/releases/latest)** · **[Get PRO](https://nexhunt.myshopify.com/products/nexhunt-pro)** · **[nexhunt.myshopify.com](https://nexhunt.myshopify.com)**
 
 > ⚠️ **Beta release** — actively developed. Core features are stable. New tools and improvements drop regularly.
+
+> **Public release repository:** installers, documentation, and screenshots live here. Application source is maintained privately.
 
 </div>
 
@@ -35,6 +37,19 @@ It runs **locally on your Linux machine**. No cloud, no data sent anywhere (exce
 ---
 
 ## 🗺️ The full workflow, in one app
+
+### 🌐 Exposure Intelligence *(PRO)*
+
+![NexHunt Exposure Intelligence global search with vulnerability presets, technology filters, Shodan results, and Google/Bing dorks.](docs/screenshots/exposure-intel.png)
+
+Search public exposure signals without leaving NexHunt. Start globally, or pivot into the live hosts already stored in a project.
+
+- **Global vulnerability search** — choose Swagger/OpenAPI exposure, SQL error disclosure, known CVEs, default-login risks, debug surfaces, or leaked configuration
+- **Shodan integration** — combine presets with technology, country, port, domain, organization, or raw Shodan filters
+- **Google and Bing dorks** — generated automatically and opened in your browser; no search-engine scraping
+- **Technology filters** — WordPress, nginx, Apache, Jenkins, Grafana, Kubernetes, Elasticsearch, or any custom product string
+- **Project host mode** — probe curated high-value paths only on live hosts already saved under the selected project
+- **Safe by default** — global mode is passive; NexHunt never tries default passwords or exploits indexed systems
 
 ### 🔍 Reconnaissance
 
@@ -149,6 +164,7 @@ The free tier is genuinely useful. No time limits, no feature degradation, no na
 | Proxy capture + request editor + repeater | ✅ | ✅ |
 | Findings database + projects + methodology | ✅ | ✅ |
 | Built-in terminal + session management | ✅ | ✅ |
+| **Exposure Intelligence** (Shodan, dorks, scoped endpoint discovery) | ❌ | ✅ |
 | **AI Copilot** (analysis, tips, report generation) | ❌ | ✅ |
 | **Automated pipelines** (full XSS/SQLi/JS chain) | ❌ | ✅ |
 | **Bulk scanning** (nuclei-bulk, full recon on all hosts) | ❌ | ✅ |
@@ -169,7 +185,7 @@ The free tier is genuinely useful. No time limits, no feature degradation, no na
 ### One-liner
 
 ```bash
-curl -fsSL https://github.com/sentinelsec-org/nexhunt/releases/download/v1.2.0/nexhunt-1.2.0.tar.gz | tar xz && sudo bash install.sh
+curl -fsSL https://raw.githubusercontent.com/sentinelsec-org/nexhunt/main/install.sh | sudo bash
 ```
 
 The installer:
@@ -244,6 +260,6 @@ NexHunt is proprietary software. The **free tier** is free to use indefinitely f
 
 Built with 🖤 by **[Sentinel Security](https://nexhunt.myshopify.com)**
 
-*NexHunt v1.2.0 beta — Linux*
+*NexHunt v1.2.1 beta — Linux*
 
 </div>

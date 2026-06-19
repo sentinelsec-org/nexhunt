@@ -27,6 +27,7 @@ import {
   Crown,
   Zap,
   Newspaper,
+  Search,
 } from 'lucide-react'
 
 const navSections = [
@@ -34,6 +35,7 @@ const navSections = [
     title: 'Workflow',
     items: [
       { path: '/recon',          icon: Radar,        label: 'Recon',           requiresProject: true  },
+      { path: '/exposure-intel', icon: Search,       label: 'Exposure Intel', requiresProject: false, pro: true },
       { path: '/proxy',          icon: Globe,         label: 'Proxy',           requiresProject: true  },
       { path: '/scanner',        icon: ScanSearch,    label: 'Scanner',         requiresProject: true  },
       { path: '/security-tools', icon: ShieldCheck,   label: 'Attacks',         requiresProject: true  },

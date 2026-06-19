@@ -170,6 +170,58 @@ async def run_interactsh(req: ToolRequest):
     return _start_tool("interactsh", req.target, req.options, req.project_id or None)
 
 
+@router.post("/exploit-intel")
+async def run_exploit_intel(req: ToolRequest):
+    return _start_tool("exploit_intel", req.target, req.options, req.project_id or None)
+
+
+class MsfLaunchRequest(BaseModel):
+    module: str
+    rhosts: str = ""
+    rport: str = ""
+    lhost: str = ""
+    lport: str = "4444"
+
+
+@router.post("/exploit-intel/msf-launch")
+async def msf_launch(req: MsfLaunchRequest):
+    """Write a Metasploit resource script for a module and open msfconsole with it."""
+    import shutil, tempfile, subprocess
+    from nexhunt.adapters.exploit_intel import build_rc
+
+    if not req.module:
+        return {"error": "No module specified"}
+    if not shutil.which("msfconsole"):
+        return {"error": "msfconsole not installed"}
+
+    rc = build_rc(req.module, req.rhosts or "TARGET_HOST", req.rport, req.lhost, req.lport)
+    fd, rc_path = tempfile.mkstemp(suffix=".rc", prefix="nexhunt_msf_")
+    with os.fdopen(fd, "w") as f:
+        f.write(rc)
+
+    launch_cmd = f"msfconsole -r {rc_path}"
+    term = shutil.which("x-terminal-emulator") or shutil.which("qterminal") or shutil.which("xterm")
+    if term and os.environ.get("DISPLAY"):
+        try:
+            subprocess.Popen(
+                [term, "-e", "bash", "-c", f"{launch_cmd}; exec bash"],
+                start_new_session=True,
+            )
+            return {"status": "launched", "module": req.module, "rc_path": rc_path, "command": launch_cmd}
+        except Exception as e:
+            logger.warning(f"msf terminal launch failed: {e}")
+
+    # No GUI terminal available — hand back the script + command to run manually.
+    return {
+        "status": "manual",
+        "module": req.module,
+        "rc_path": rc_path,
+        "command": launch_cmd,
+        "rc": rc,
+        "note": "No GUI terminal detected. Run the command above in your terminal.",
+    }
+
+
 @router.delete("/jobs/{job_id}")
 async def cancel_tool_job(job_id: str):
     task = _TOOL_JOBS.get(job_id)
@@ -191,6 +243,8 @@ async def check_tools_installed():
         "ffuf": shutil.which("ffuf") is not None,
         "dirsearch": shutil.which("dirsearch") is not None,
         "nikto": shutil.which("nikto") is not None,
+        "searchsploit": shutil.which("searchsploit") is not None,
+        "msfconsole": shutil.which("msfconsole") is not None,
     }
     return {"installed": tools}
 

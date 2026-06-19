@@ -11,7 +11,7 @@
 
 **Plataforma de Automatización para Bug Bounty en Linux**
 
-[![Version](https://img.shields.io/badge/version-1.2.0--beta-amber?style=flat-square)](https://github.com/sentinelsec-org/nexhunt/releases)
+[![Version](https://img.shields.io/badge/version-1.2.1--beta-amber?style=flat-square)](https://github.com/sentinelsec-org/nexhunt/releases)
 [![Platform](https://img.shields.io/badge/plataforma-Linux-green?style=flat-square)]()
 [![License](https://img.shields.io/badge/licencia-Free%20%2F%20PRO-blue?style=flat-square)](https://nexhunt.myshopify.com/products/nexhunt-pro)
 [![Made by](https://img.shields.io/badge/by-Sentinel%20Security-green?style=flat-square)](https://nexhunt.myshopify.com)
@@ -19,6 +19,8 @@
 **[Descargar Gratis](https://github.com/sentinelsec-org/nexhunt/releases/latest)** · **[Obtener PRO](https://nexhunt.myshopify.com/products/nexhunt-pro)** · **[nexhunt.myshopify.com](https://nexhunt.myshopify.com)**
 
 > ⚠️ **Versión Beta** — en desarrollo activo. Las funciones principales son estables. Mejoras y nuevas herramientas se publican regularmente.
+
+> **Repositorio público de releases:** acá se publican instaladores, documentación y capturas. El código fuente se mantiene privado.
 
 </div>
 
@@ -45,6 +47,19 @@ Corre **localmente en tu máquina Linux**. Sin nube, sin datos enviados a ningú
 ---
 
 ## 🗺️ El flujo completo, en una sola app
+
+### 🌐 Exposure Intelligence *(PRO)*
+
+![Buscador global de vulnerabilidades de NexHunt con presets, filtros por tecnologia, Shodan y Google/Bing dorks.](docs/screenshots/exposure-intel.png)
+
+Busca señales de exposición pública sin salir de NexHunt, tanto globalmente como dentro de los live hosts de tus proyectos.
+
+- **Buscador global** — Swagger/OpenAPI expuesto, errores SQL, CVEs conocidos, riesgo de logins por defecto, debug y configuraciones filtradas
+- **Integración Shodan** — combina presets con tecnología, país, puerto, dominio, organización o filtros manuales
+- **Google y Bing dorks** — se generan automáticamente y se abren en tu navegador, sin scrapear buscadores
+- **Filtro tecnológico libre** — WordPress, nginx, Apache, Jenkins, Grafana, Kubernetes, Elasticsearch o cualquier producto
+- **Modo Project Hosts** — prueba rutas de alto valor únicamente sobre live hosts guardados en el proyecto activo
+- **Seguro por defecto** — el modo global es pasivo; NexHunt no prueba contraseñas ni explota sistemas indexados
 
 ### 🔍 Reconocimiento
 
@@ -149,6 +164,7 @@ El tier gratuito es genuinamente útil. Sin límites de tiempo, sin degradación
 | Proxy captura + editor + repeater | ✅ | ✅ |
 | BD de hallazgos + proyectos + metodología | ✅ | ✅ |
 | Terminal integrada + gestión de sesión | ✅ | ✅ |
+| **Exposure Intelligence** (Shodan, dorks y endpoints del proyecto) | ❌ | ✅ |
 | **AI Copilot** (análisis, sugerencias, generación de reportes) | ❌ | ✅ |
 | **Pipelines automatizados** (cadena completa XSS/SQLi/JS) | ❌ | ✅ |
 | **Escaneo masivo** (nuclei-bulk, recon completo en todos los hosts) | ❌ | ✅ |
@@ -169,7 +185,7 @@ El tier gratuito es genuinamente útil. Sin límites de tiempo, sin degradación
 ### One-liner
 
 ```bash
-curl -fsSL https://github.com/sentinelsec-org/nexhunt/releases/download/v1.2.0/nexhunt-1.2.0.tar.gz | tar xz && sudo bash install.sh
+curl -fsSL https://raw.githubusercontent.com/sentinelsec-org/nexhunt/main/install.sh | sudo bash
 ```
 
 El instalador:
@@ -244,6 +260,6 @@ NexHunt es software propietario. El **tier gratuito** es libre de usar indefinid
 
 Hecho con 🖤 por **[Sentinel Security](https://nexhunt.myshopify.com)**
 
-*NexHunt v1.2.0 beta — Linux*
+*NexHunt v1.2.1 beta — Linux*
 
 </div>

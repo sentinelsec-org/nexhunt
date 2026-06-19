@@ -56,6 +56,8 @@ export function SettingsPage() {
   const [ngrokToken, setNgrokToken] = useState('')
   const [wpscanToken, setWpscanToken] = useState('')
   const [wpscanTokenSet, setWpscanTokenSet] = useState(false)
+  const [shodanKey, setShodanKey] = useState('')
+  const [shodanKeySet, setShodanKeySet] = useState(false)
   const [saved, setSaved] = useState(false)
 
   const fetchTools = async () => {
@@ -78,6 +80,7 @@ export function SettingsPage() {
       if (s.language) setLanguage(s.language)
       if (s.ngrok_authtoken_set) setNgrokToken('')
       if (s.wpscan_api_token_set) setWpscanTokenSet(true)
+      if (s.shodan_api_key_set) setShodanKeySet(true)
     }).catch(() => {})
     useLicenseStore.getState().fetchStatus()
   }, [])
@@ -94,8 +97,10 @@ export function SettingsPage() {
         language,
         ngrok_authtoken: ngrokToken || undefined,
         wpscan_api_token: wpscanToken || undefined,
+        shodan_api_key: shodanKey || undefined,
       })
       if (wpscanToken) setWpscanTokenSet(true)
+      if (shodanKey) setShodanKeySet(true)
       setSaved(true)
       setTimeout(() => setSaved(false), 2000)
     } catch (err) {
@@ -328,6 +333,25 @@ export function SettingsPage() {
                 placeholder={wpscanTokenSet ? 'configured — leave blank to keep' : 'your WPScan API token'}
                 value={wpscanToken}
                 onChange={e => setWpscanToken(e.target.value)}
+              />
+            </div>
+
+            {/* Shodan */}
+            <div className="border-t border-zinc-800 pt-4 space-y-2">
+              <label className="text-xs text-zinc-400 font-semibold flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-green-500" /> Shodan API Key
+                {shodanKeySet && <span className="text-[10px] text-green-500 font-normal">· configured</span>}
+              </label>
+              <p className="text-[11px] text-zinc-600">
+                Enables passive global exposure searches in <strong className="text-zinc-400">Exposure Intel</strong>.
+                Create a key at <span className="text-blue-400">account.shodan.io</span>.
+              </p>
+              <Input
+                type="password"
+                className="bg-zinc-900 font-mono text-sm"
+                placeholder={shodanKeySet ? 'configured — leave blank to keep' : 'your Shodan API key'}
+                value={shodanKey}
+                onChange={e => setShodanKey(e.target.value)}
               />
             </div>
 

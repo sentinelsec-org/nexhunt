@@ -33,6 +33,8 @@ def _load_persisted():
                 settings.ngrok_authtoken = data["ngrok_authtoken"]
             if data.get("wpscan_api_token"):
                 settings.wpscan_api_token = data["wpscan_api_token"]
+            if data.get("shodan_api_key"):
+                settings.shodan_api_key = data["shodan_api_key"]
     except Exception:
         pass
 
@@ -51,6 +53,7 @@ def _persist():
             "language": settings.language,
             "ngrok_authtoken": settings.ngrok_authtoken,
             "wpscan_api_token": settings.wpscan_api_token,
+            "shodan_api_key": settings.shodan_api_key,
         }, f, indent=2)
 
 
@@ -68,6 +71,7 @@ class SettingsUpdate(BaseModel):
     language: str | None = None
     ngrok_authtoken: str | None = None
     wpscan_api_token: str | None = None
+    shodan_api_key: str | None = None
 
 
 def _mask(secret: str) -> str:
@@ -92,6 +96,8 @@ async def get_settings():
         "ngrok_authtoken_set": bool(settings.ngrok_authtoken),
         "wpscan_api_token_masked": _mask(settings.wpscan_api_token),
         "wpscan_api_token_set": bool(settings.wpscan_api_token),
+        "shodan_api_key_masked": _mask(settings.shodan_api_key),
+        "shodan_api_key_set": bool(settings.shodan_api_key),
     }
 
 
@@ -115,5 +121,7 @@ async def update_settings(data: SettingsUpdate):
         settings.ngrok_authtoken = data.ngrok_authtoken
     if data.wpscan_api_token is not None:
         settings.wpscan_api_token = data.wpscan_api_token
+    if data.shodan_api_key is not None:
+        settings.shodan_api_key = data.shodan_api_key
     _persist()
     return {"status": "updated"}

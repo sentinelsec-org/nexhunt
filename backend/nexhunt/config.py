@@ -59,6 +59,9 @@ class Settings(BaseSettings):
     # WPScan — WordPress vulnerability database API token (wpscan.com)
     wpscan_api_token: str = ""
 
+    # Shodan — passive global exposure search
+    shodan_api_key: str = ""
+
     class Config:
         env_prefix = "NEXHUNT_"
 
