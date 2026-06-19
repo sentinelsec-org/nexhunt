@@ -85,9 +85,9 @@ const TOOLS: ToolDef[] = [
     label: 'Cloud Buckets',
     icon: Cloud,
     tagline: '~66 name variants across S3, GCS, Azure, DO',
-    what: 'Finds the target\'s cloud storage buckets two ways — reading real references out of its HTML/JS, and guessing names from the company/domain — then checks each across S3, GCS, Azure and DigitalOcean for public access.',
-    impact: 'A public-read bucket exposes whatever the company stored there — backups, source, customer data, credentials. A public-write bucket is worse: you can overwrite assets the site serves (defacement / supply-chain). The finding includes the command to list and pull it.',
-    desc: 'If you give it a domain/URL it first fetches the homepage and its linked JS and extracts buckets referenced directly in the code (s3.amazonaws.com, storage.googleapis.com, *.blob.core.windows.net, *.digitaloceanspaces.com) — these are real, in-use buckets. Then it also derives ~66 likely names (acme-prod, acme-backup, acme-data...). All are checked in parallel; 200 = public (listing parsed in + "aws s3 ls" repro), 403 = private. Use "Derive buckets from N domains" to sweep every host from Recon.',
+    what: 'Finds the target\'s cloud storage buckets two ways — reading real references out of its HTML/JS, and guessing names from the company/domain — then checks each across S3, GCS, Azure and DigitalOcean for public access, paginates the full listing, flags sensitive files, and probes ACL/policy documents.',
+    impact: 'A public-read bucket exposes whatever the company stored there — backups, source, customer data, credentials. A public-write bucket is worse: you can overwrite assets the site serves (defacement / supply-chain). Findings are split by severity: public listing, sensitive files found inside it, exposed ACL/policy grants, and (opt-in) a proven write takeover.',
+    desc: 'If you give it a domain/URL it first fetches the homepage and its linked JS and extracts buckets referenced directly in the code (s3.amazonaws.com, storage.googleapis.com, *.blob.core.windows.net, *.digitaloceanspaces.com) — these are real, in-use buckets. Then it also derives ~66 likely names (acme-prod, acme-backup, acme-data...). All are checked in parallel; 200 = public (full paginated listing, flags .env/.sql/.pem/credential-looking filenames as a separate critical finding), 403 = private. It also fetches ?acl/?policy directly (S3/GCS/DO) since those can be public even when listing is blocked. Enable "Test write access" to actively prove a write takeover (PUT+delete a marker object) on buckets referenced by the target. Use "Derive buckets from N domains" to sweep every host from Recon.',
     inputLabel: 'Company name or domain',
     placeholder: 'acme-corp or acme.com',
     color: 'text-blue-400',
@@ -201,6 +201,7 @@ export function SecurityToolsPage() {
   })
   const [graphqlSampleIds, setGraphqlSampleIds] = useState('')
   const [graphqlExtraQueries, setGraphqlExtraQueries] = useState('')
+  const [cloudTestWrite, setCloudTestWrite] = useState(false)
   const [view, setView] = useState<ViewMode>('findings')
   const [selected, setSelected] = useState<Finding | null>(null)
   const [copied, setCopied] = useState(false)
@@ -254,7 +255,7 @@ export function SecurityToolsPage() {
   // Per-tool extra options on top of the session (cookies/headers).
   const optsFor = (id: ToolId) => {
     if (id === 'cloud_buckets')
-      return { ...getSessionOpts(), seed_urls: urls.map(u => u.url).filter(Boolean).slice(0, 800) }
+      return { ...getSessionOpts(), seed_urls: urls.map(u => u.url).filter(Boolean).slice(0, 800), test_write: cloudTestWrite }
     if (id === 'graphql_audit')
       return { ...getSessionOpts(), sample_ids: graphqlSampleIds, extra_queries: graphqlExtraQueries }
     return getSessionOpts()
@@ -509,13 +510,29 @@ export function SecurityToolsPage() {
               </div>
             )}
 
-            {/* Cloud: provider tags */}
+            {/* Cloud: provider tags + write-test toggle */}
             {activeTab === 'cloud_buckets' && (
-              <div className="flex gap-1.5 items-center">
-                <span className="text-[9px] text-zinc-600">Providers:</span>
-                {['AWS S3', 'GCS', 'Azure'].map(p => (
-                  <span key={p} className="text-[9px] px-1.5 py-0.5 rounded border border-blue-700/50 text-blue-400/80">{p}</span>
-                ))}
+              <div className="space-y-1.5">
+                <div className="flex gap-1.5 items-center">
+                  <span className="text-[9px] text-zinc-600">Providers:</span>
+                  {['AWS S3', 'GCS', 'Azure'].map(p => (
+                    <span key={p} className="text-[9px] px-1.5 py-0.5 rounded border border-blue-700/50 text-blue-400/80">{p}</span>
+                  ))}
+                </div>
+                <label className="flex items-start gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={cloudTestWrite}
+                    onChange={e => setCloudTestWrite(e.target.checked)}
+                    className="w-3 h-3 mt-0.5 accent-red-500"
+                  />
+                  <span className="text-[10px] text-zinc-400">
+                    <span className="text-red-400 font-medium">Test write access</span> — attempts to PUT (then delete) a
+                    harmless marker file on buckets actually referenced by the target, to prove a write takeover instead
+                    of just reporting "exists". Active probe against real infra; only runs on referenced buckets, never
+                    on guessed names.
+                  </span>
+                </label>
               </div>
             )}
           </div>
@@ -857,8 +874,8 @@ function CloudGuide() {
       <GuideSection title="Status codes">
         <div className="space-y-1 text-[10px]">
           {[
-            ['200', 'text-green-400', 'Public read. High severity. The object listing is parsed into the finding; download and triage.'],
-            ['403', 'text-orange-400', 'Bucket exists but private. Info severity. Confirm ownership; try region/auth tricks.'],
+            ['200', 'text-green-400', 'Public read. High severity. Full listing is paginated (not just the first page) and parsed into the finding; download and triage.'],
+            ['403', 'text-orange-400', 'Bucket exists but private. Info/low severity. Confirm ownership; try region/auth tricks.'],
             ['404 / DNS fail', 'text-zinc-500', 'Bucket does not exist. Skipped.'],
           ].map(([code, color, desc]) => (
             <div key={code} className="flex gap-2 items-start">
@@ -868,11 +885,17 @@ function CloudGuide() {
           ))}
         </div>
       </GuideSection>
-      <GuideSection title="When you find a public bucket">
+      <GuideSection title="Beyond public/private">
+        <div className="space-y-1.5 text-[10px] text-zinc-500 leading-relaxed">
+          <p><span className="text-red-400 font-semibold">Sensitive files (critical):</span> any listed object name matching .env, .sql/.sqlite, .zip/.tar, .pem/.key, id_rsa, credential/secret/password, wp-config.php, .git, dumps... gets its own finding so you don't have to scroll the whole listing.</p>
+          <p><span className="text-orange-400 font-semibold">ACL/policy exposure (high/critical):</span> ?acl and ?policy are fetched directly on S3/GCS/DO — these can be public even when plain listing returns 403, and a WRITE/FULL_CONTROL grant or a wildcard policy Principal is flagged on its own.</p>
+          <p><span className="text-red-400 font-semibold">Write-test (opt-in, critical):</span> tick "Test write access" before running to actually PUT (then delete) a marker file on buckets referenced by the target — proves takeover instead of guessing from the ACL. Active probe against real infra, so it only runs on referenced buckets, never on guessed names.</p>
+        </div>
+      </GuideSection>
+      <GuideSection title="Manual follow-up">
         <div className="space-y-1 text-[10px] text-zinc-500 leading-relaxed">
-          <p>1. List it: <code className="text-green-400">aws s3 ls s3://BUCKET --no-sign-request</code> (GCS: <code className="text-green-400">gsutil ls gs://BUCKET</code>).</p>
-          <p>2. Pull it: <code className="text-green-400">aws s3 sync s3://BUCKET . --no-sign-request</code> and grep for keys, .env, dumps, PII.</p>
-          <p>3. Test write: <code className="text-green-400">aws s3 cp poc.txt s3://BUCKET --no-sign-request</code> — a writable bucket can mean defacement or supply-chain (overwriting served JS).</p>
+          <p>List it: <code className="text-green-400">aws s3 ls s3://BUCKET --no-sign-request</code> (GCS: <code className="text-green-400">gsutil ls gs://BUCKET</code>).</p>
+          <p>Pull it: <code className="text-green-400">aws s3 sync s3://BUCKET . --no-sign-request</code> and grep for keys, .env, dumps, PII.</p>
         </div>
       </GuideSection>
       <Tip>A public bucket with backups, keys or user data is usually a P1. A world-writable bucket that serves the site's assets can be even worse — you control what visitors load.</Tip>
