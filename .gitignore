@@ -1,0 +1,8 @@
+*
+!.gitignore
+!README.md
+!README.es.md
+!install.sh
+!docs/
+!docs/screenshots/
+!docs/screenshots/*.png
