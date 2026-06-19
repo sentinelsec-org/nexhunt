@@ -97,6 +97,47 @@ def _list_cmd(provider: str, bucket: str, url: str) -> str:
     return f"curl -ks '{url}'"
 
 
+def _dl_cmd(provider: str, bucket: str) -> str:
+    """Command to mirror the whole bucket locally."""
+    if provider == "s3":
+        return f"aws s3 sync s3://{bucket} ./{bucket} --no-sign-request"
+    if provider == "gcs":
+        return f"gsutil -m cp -r gs://{bucket} ./{bucket}"
+    return f"# enumerate keys from the listing and curl each"
+
+
+def _object_url(provider: str, bucket: str, key: str) -> str:
+    """Direct downloadable URL for a single object."""
+    if provider == "s3":
+        return f"https://{bucket}.s3.amazonaws.com/{key}"
+    if provider == "gcs":
+        return f"https://storage.googleapis.com/{bucket}/{key}"
+    if provider == "azure":
+        return f"https://{bucket}.blob.core.windows.net/{bucket}/{key}"
+    if provider == "do":
+        return f"https://{bucket}.nyc3.digitaloceanspaces.com/{key}"
+    return key
+
+
+def _format_listing(provider: str, bucket: str, names: list[str], max_chars: int = 16000) -> str:
+    """Full object listing as direct URLs, capped to fit the finding evidence."""
+    if not names:
+        return "\n(bucket is public but listing returned no objects)"
+    lines = [f"\nObjects ({len(names)}) — direct links:"]
+    shown = 0
+    used = 0
+    for n in names:
+        line = "  " + _object_url(provider, bucket, n)
+        if used + len(line) > max_chars:
+            break
+        lines.append(line)
+        used += len(line) + 1
+        shown += 1
+    if shown < len(names):
+        lines.append(f"  ... +{len(names) - shown} more (use the sync command below to pull everything)")
+    return "\n".join(lines)
+
+
 async def _paginate_s3style(client, base_url: str, keys: list[str], truncated: bool) -> list[str]:
     """S3/GCS/DO share the same ListBucketResult XML — page via ?marker= (capped ~10k keys)."""
     marker = keys[-1] if keys else None
@@ -241,8 +282,11 @@ async def probe_bucket(client, provider: str, bucket: str, source: str = "refere
     code = resp.status_code
     if code in (404, 400, 410):
         return []
-    ref = source == "referenced"
-    tag = " (referenced in app)" if ref else ""
+    # "referenced" (mined from the app) and "target" (typed directly) are both
+    # explicit intent — eligible for the active write-test and high-confidence framing.
+    explicit = source in ("referenced", "target")
+    tag = {"referenced": " (referenced in app)", "target": " (your target)"}.get(source, "")
+    ref = explicit
     out = [{"_raw": True, "line": f"  [{provider.upper()}] {bucket} -> {code}{tag}"}]
 
     if code == 200:
@@ -262,16 +306,18 @@ async def probe_bucket(client, provider: str, bucket: str, source: str = "refere
         sev, title = "high", f"[Cloud] Public {provider.upper()} bucket: {bucket}"
         desc = (f"Bucket '{bucket}' on {provider.upper()} is publicly readable — "
                 f"anyone can list and download its objects ({len(names)} found)."
-                + (" This bucket is referenced directly in the target's pages/JS." if ref else ""))
-        listing = (f"\nObjects listed ({len(names)}): " + ", ".join(names[:8])
-                   + (" ..." if len(names) > 8 else "")) if names else ""
+                + (" This bucket is referenced directly in the target's pages/JS." if source == "referenced" else "")
+                + (" Next: review the object links in the evidence, pull anything sensitive, and (if you own scope) re-run with Test write access on to check for takeover." if explicit else ""))
+        listing = _format_listing(provider, bucket, names)
         out.append({
             "_raw": False, "id": None,
             "title": title, "severity": sev, "vuln_type": "cloud-misconfiguration",
             "url": url, "parameter": None,
             "evidence": (
                 f"Provider: {provider.upper()}\nBucket: {bucket}\nSource: {source}\nURL: {url}\nStatus: {code}"
-                f"{listing}\nList contents:\n  {_list_cmd(provider, bucket, url)}"
+                f"{listing}"
+                f"\n\nList:     {_list_cmd(provider, bucket, url)}"
+                f"\nDownload: {_dl_cmd(provider, bucket)}"
             ),
             "description": desc,
             "tool": "cloud_buckets", "template_id": f"cloud-{provider}-{code}", "status": "new",
@@ -282,7 +328,11 @@ async def probe_bucket(client, provider: str, bucket: str, source: str = "refere
                 "title": f"[Cloud] Sensitive files exposed in public bucket: {bucket}",
                 "severity": "critical", "vuln_type": "cloud-misconfiguration",
                 "url": url, "parameter": None,
-                "evidence": f"Provider: {provider.upper()}\nBucket: {bucket}\nSensitive object(s): " + ", ".join(sensitive),
+                "evidence": (
+                    f"Provider: {provider.upper()}\nBucket: {bucket}\n"
+                    f"Sensitive object(s) ({len(sensitive)}) — download directly:\n"
+                    + "\n".join("  " + _object_url(provider, bucket, n) for n in sensitive)
+                ),
                 "description": (
                     f"{len(sensitive)} object name(s) in this public bucket match known-sensitive patterns "
                     "(env files, SQL/DB dumps, archives, private keys, credentials...). Pull and review them."
@@ -331,8 +381,15 @@ class CloudBucketsAdapter(ToolAdapter):
         test_write = bool(options.get("test_write"))
         names = _bucket_names(target)
 
-        # source: "guessed" (name permutations) or "referenced" (found in the app's HTML/JS)
-        tasks: list[tuple] = [(p, b, bucket_test_url(p, b), "guessed")
+        # A bare name typed directly (no dots, no path) is the user's explicit
+        # bucket target — treat it like a referenced bucket (full triage +
+        # write-test), unlike speculative permutations of a company name.
+        t = target.strip().lower()
+        explicit_bucket = t if (t and "://" not in t and "/" not in t and "." not in t and 3 <= len(t) <= 63) else None
+
+        # source: "guessed" (name permutations), "target" (typed directly),
+        # or "referenced" (found in the app's HTML/JS)
+        tasks: list[tuple] = [(p, b, bucket_test_url(p, b), "target" if b == explicit_bucket else "guessed")
                               for b in names for p in providers if bucket_test_url(p, b)]
 
         # URLs already discovered by Recon/crawler (passed from the frontend).
