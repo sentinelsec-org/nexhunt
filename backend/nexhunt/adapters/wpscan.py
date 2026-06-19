@@ -163,7 +163,8 @@ class WpscanAdapter(ToolAdapter):
                 # skip noise that is not an actual item name
                 if name.lower().startswith(("url:", "started", "interesting", "finished",
                                             "requests done", "cached requests", "data sent",
-                                            "data received", "memory used", "elapsed time")):
+                                            "data received", "memory used", "elapsed time",
+                                            "wpscan db api")):
                     continue
                 if section == "plugin":
                     yield {"kind": "plugin", "name": name, "url": target}
