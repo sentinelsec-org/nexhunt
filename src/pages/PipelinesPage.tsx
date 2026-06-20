@@ -10,9 +10,11 @@ import { usePipelineStore, type PipelineRun } from '@/stores/pipeline-store'
 
 import { useReconStore } from '@/stores/recon-store'
 import { useAppStore } from '@/stores/app-store'
+import { useLicenseStore } from '@/stores/license-store'
 import {
   Play, Loader2, Database, Zap, Bug, Trash2, FileCode,
   ChevronDown, Server, Settings2, CheckSquare, Square as SquareIcon,
+  Sparkles, X,
 } from 'lucide-react'
 
 const ACCENTS = {
@@ -49,8 +51,30 @@ export function PipelinesPage() {
   }
 
   const { runs, activeRunId, startRun, clearRuns } = usePipelineStore()
+  const { liveHosts } = useReconStore()
+  const { isPro } = useLicenseStore()
   const logRef = useRef<HTMLPreElement>(null)
   const [viewRunId, setViewRunId] = useState<string | null>(null)
+
+  // AI secret analysis modal state
+  const [secretAi, setSecretAi] = useState<{ title: string; loading: boolean; result: string } | null>(null)
+
+  const analyzeSecret = async (f: { label: string; url?: string; match?: string; context?: string; line?: number }) => {
+    setSecretAi({ title: f.label, loading: true, result: '' })
+    try {
+      const res = await api.post<{ response: string }>('/api/copilot/analyze-secret', {
+        js_url: f.url ?? '',
+        label: f.label,
+        match: f.match ?? f.label,
+        context: f.context ?? '',
+        line: f.line,
+        live_hosts: liveHosts.slice(0, 25),
+      })
+      setSecretAi({ title: f.label, loading: false, result: res.response })
+    } catch (err) {
+      setSecretAi({ title: f.label, loading: false, result: `Error: ${err}` })
+    }
+  }
 
   // Auto-follow the newest run when it starts, but don't override manual selection
   useEffect(() => {
@@ -423,6 +447,16 @@ export function PipelinesPage() {
                       {f.url && <div className="text-[9px] text-zinc-500 font-mono truncate mt-0.5">{f.url}</div>}
                       {f.text && <div className="text-[9px] text-zinc-400 font-mono truncate mt-0.5">{f.text}</div>}
                     </div>
+                    {/* AI analysis for JS secrets (PRO) — explains what the secret is + what to test */}
+                    {f.match && isPro() && (
+                      <button
+                        onClick={() => analyzeSecret(f)}
+                        title="Ask AI what this secret is and what to test"
+                        className="shrink-0 flex items-center gap-1 px-1.5 py-1 rounded border border-purple-800/60 text-purple-300 hover:bg-purple-950/40 text-[9px] transition-colors mt-0.5"
+                      >
+                        <Sparkles size={10} /> AI
+                      </button>
+                    )}
                   </div>
                 ))}
               </div>
@@ -430,6 +464,32 @@ export function PipelinesPage() {
           )}
         </div>
       </div>
+
+      {/* AI secret analysis modal */}
+      {secretAi && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
+          onClick={() => setSecretAi(null)}
+        >
+          <div
+            className="w-full max-w-3xl max-h-[85vh] flex flex-col rounded-xl border border-purple-800/50 bg-zinc-950 shadow-2xl overflow-hidden"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-5 py-3 border-b border-zinc-800 bg-zinc-900 shrink-0">
+              <div className="flex items-center gap-2 min-w-0">
+                <Sparkles size={14} className="text-purple-400 shrink-0" />
+                <span className="text-sm font-semibold text-zinc-100 truncate">AI analysis — {secretAi.title}</span>
+              </div>
+              <button onClick={() => setSecretAi(null)} className="text-zinc-600 hover:text-zinc-300 shrink-0"><X size={14} /></button>
+            </div>
+            <div className="overflow-auto p-5 text-[12px] leading-relaxed text-zinc-300 whitespace-pre-wrap">
+              {secretAi.loading
+                ? <span className="flex items-center gap-2 text-zinc-500"><Loader2 size={13} className="animate-spin" /> Analyzing the secret, its file and host context...</span>
+                : secretAi.result}
+            </div>
+          </div>
+        </div>
+      )}
     </WorkspaceShell>
   )
 }

@@ -9,6 +9,10 @@ export interface PipelineFinding {
   text: string
   url?: string
   param?: string
+  // Raw fields kept for JS-secret AI analysis (full value, surrounding code, line).
+  match?: string
+  context?: string
+  line?: number
 }
 
 export interface PipelineRun {
@@ -190,6 +194,7 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
               severity: sev, label: f.label ?? 'secret',
               text: `${f.match?.slice(0, 80) ?? ''}`,
               url: f.js_url,
+              match: f.match, context: f.context, line: f.line,
             }]
             updated.log.push(
               `  [${f.severity?.toUpperCase()}] ${f.label} in ${f.js_url} :${f.line} — ${f.match?.slice(0, 60)}`
