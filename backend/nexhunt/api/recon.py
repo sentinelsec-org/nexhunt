@@ -618,6 +618,85 @@ async def check_endpoints(req: EndpointCheckRequest):
     return {"status": "started", "job_id": job_id, "tool": "endpoint_check", "url_count": len(req.targets) * len(paths)}
 
 
+async def _probe_soft404_baselines(httpx_bin: str, bases: list[str]) -> dict:
+    """Learn each host's catch-all (soft-404) signature by requesting random
+    non-existent paths. Returns {netloc: {status, title, lengths:[...]}}.
+
+    SPAs and catch-all servers answer 200 with the app shell for ANY path, so a
+    plain status-code match flags everything. We fingerprint that shell (status +
+    title, with length as fallback) so real endpoints can be told apart."""
+    import tempfile, os
+    from urllib.parse import urlparse
+    sentinels: list[str] = []
+    for b in bases:
+        for _ in range(2):
+            sentinels.append(f"{b.rstrip('/')}/nexhunt404-{uuid.uuid4().hex[:14]}")
+    if not sentinels:
+        return {}
+
+    fd, tf = tempfile.mkstemp(suffix=".txt", prefix="nexhunt_b404_")
+    baselines: dict = {}
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write("\n".join(sentinels))
+        cmd = [
+            httpx_bin, "-l", tf, "-json", "-silent", "-follow-redirects",
+            "-mc", "200,201,204,301,302,401,403,405,500",
+            "-title", "-status-code", "-cl", "-timeout", "8", "-threads", "50", "-no-color",
+        ]
+        proc = await asyncio.create_subprocess_exec(
+            *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
+        )
+        assert proc.stdout
+        async for raw in proc.stdout:
+            line = raw.decode("utf-8", errors="replace").strip()
+            if not line:
+                continue
+            try:
+                d = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            host = urlparse(d.get("url", "")).netloc
+            if not host:
+                continue
+            status = d.get("status-code") or d.get("status_code")
+            title = d.get("title", "") or ""
+            clen = d.get("content_length", d.get("content-length"))
+            b = baselines.setdefault(host, {"status": status, "title": title, "lengths": []})
+            if isinstance(clen, int):
+                b["lengths"].append(clen)
+        await proc.wait()
+    finally:
+        if os.path.exists(tf):
+            try:
+                os.unlink(tf)
+            except OSError:
+                pass
+    return baselines
+
+
+def _is_soft404(result: dict, baselines: dict) -> bool:
+    """True if a result matches its host's catch-all signature (false positive)."""
+    from urllib.parse import urlparse
+    b = baselines.get(urlparse(result.get("url", "")).netloc)
+    if not b:
+        return False
+    if result.get("status_code") != b.get("status"):
+        return False
+    # A non-empty shared title is the strongest catch-all signal (SPAs keep one
+    # title for every route even when the body length varies).
+    btitle = (b.get("title") or "").strip()
+    if btitle:
+        return (result.get("title") or "").strip() == btitle
+    # No title to key on — fall back to a body-length match within tolerance.
+    clen = result.get("content_length")
+    lengths = b.get("lengths") or []
+    if not isinstance(clen, int) or not lengths:
+        return False
+    tol = max(64, int(max(lengths) * 0.05))
+    return (min(lengths) - tol) <= clen <= (max(lengths) + tol)
+
+
 async def _run_endpoint_check(job_id: str, targets: list[str], paths: list[str], project_id: str | None):
     import shutil, tempfile, os
     httpx_bin = shutil.which("httpx")
@@ -629,11 +708,25 @@ async def _run_endpoint_check(job_id: str, targets: list[str], paths: list[str],
         return
 
     # Build full URL list: strip trailing slash from targets, prepend paths
+    bases = [t.rstrip("/") for t in targets[:50]]  # max 50 live hosts
     urls: list[str] = []
-    for t in targets[:50]:  # max 50 live hosts
-        base = t.rstrip("/")
+    for base in bases:
         for p in paths:
             urls.append(base + p)
+
+    # Learn each host's catch-all (soft-404) signature up front so SPA/catch-all
+    # hosts that answer 200 to everything don't flood the results with junk.
+    await ws_manager.broadcast("tool_output", {
+        "tool": "endpoint_check", "line": "  Calibrating soft-404 baseline (random paths per host)...",
+    })
+    baselines = await _probe_soft404_baselines(httpx_bin, bases)
+    catch_all = [h for h, b in baselines.items() if (b.get("title") or "").strip() or b.get("lengths")]
+    if catch_all:
+        await ws_manager.broadcast("tool_output", {
+            "tool": "endpoint_check",
+            "line": f"  Catch-all detected on {len(catch_all)} host(s) — filtering responses that match the app shell.",
+        })
+    filtered = 0
 
     fd, tmpfile = tempfile.mkstemp(suffix=".txt", prefix="nexhunt_ep_")
     try:
@@ -685,6 +778,10 @@ async def _run_endpoint_check(job_id: str, targets: list[str], paths: list[str],
                     "content_type": data.get("content-type", data.get("content_type", "")),
                     "content_length": data.get("content_length", data.get("content-length")),
                 }
+                # Drop responses that just echo the host's catch-all app shell.
+                if _is_soft404(result, baselines):
+                    filtered += 1
+                    continue
                 await ws_manager.broadcast("recon_results", {
                     "tool": "endpoint_check",
                     "type": "endpoint",
@@ -717,6 +814,11 @@ async def _run_endpoint_check(job_id: str, targets: list[str], paths: list[str],
                 pass
         _RECON_JOBS.pop(job_id, None)
 
+    if filtered:
+        await ws_manager.broadcast("tool_output", {
+            "tool": "endpoint_check",
+            "line": f"  Filtered {filtered} catch-all/soft-404 response(s); {count} real endpoint(s) kept.",
+        })
     await ws_manager.broadcast("tool_status", {
         "tool": "endpoint_check", "event": "completed", "job_id": job_id, "result_count": count,
     })
