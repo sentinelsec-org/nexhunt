@@ -2,6 +2,7 @@ import logging
 from fastapi import APIRouter
 from pydantic import BaseModel
 from nexhunt.services.copilot_service import copilot_service
+from nexhunt.config import settings
 
 router = APIRouter(prefix="/api/copilot", tags=["copilot"])
 logger = logging.getLogger(__name__)
@@ -137,8 +138,55 @@ async def analyze_secret(req: SecretAnalysisRequest):
             host_lines.append(f"- {h.get('url','')} [{h.get('status_code','?')}] techs=[{techs}]")
         hosts_block = "\n".join(host_lines) or "(no live-host context provided)"
 
-        lang = copilot_service._lang_instruction()
-        prompt = f"""A secret was flagged in a JavaScript file during a bug bounty recon.
+        es = settings.language == "es"
+        # Dedicated, focused system prompt — NOT the agentic copilot one, so the
+        # model never emits nexhunt-tool/investigate blocks or invents tools here.
+        if es:
+            system = (
+                "Eres un analista senior de seguridad especializado en triage de secretos y claves "
+                "filtradas en aplicaciones web. Tu trabajo es decirle al pentester, de forma precisa y "
+                "accionable, QUÉ es la clave encontrada y QUÉ hacer con ella.\n\n"
+                "Reglas estrictas:\n"
+                "- Responde SIEMPRE en español (términos técnicos, nombres de claves y comandos en inglés cuando sea estándar).\n"
+                "- NO inventes herramientas ni comandos. Usa solo comandos reales (curl, la CLI oficial del proveedor, etc.).\n"
+                "- NUNCA escribas bloques ```nexhunt-tool``` ni ```nexhunt-investigate```. Esto es un análisis único, no un agente.\n"
+                "- Distingue honestamente claves PÚBLICAS de cliente (p. ej. Google Maps browser key, Stripe publishable pk_, Firebase config, claves con prefijo público) de SECRETOS reales. No exageres severidad en claves diseñadas para ser públicas.\n"
+                "- Sé específico a ESTA clave y ESTE archivo. Nada de consejos genéricos."
+            )
+            prompt = f"""Se marcó un posible secreto en un archivo JavaScript durante recon de bug bounty.
+
+## La coincidencia
+- Etiqueta de tipo: {req.label or 'desconocido'}
+- Encontrado en: {req.js_url or 'desconocido'} (línea {req.line if req.line is not None else '?'})
+- Valor: {req.match}
+- Código alrededor: {req.context or 'n/a'}
+
+## Hosts vivos / tecnologías del engagement
+{hosts_block}
+
+## Archivo JS completo (o la región relevante)
+```
+{file_excerpt or '(sin contenido del archivo)'}
+```
+
+Analiza esto de forma concreta y práctica. Responde con estas secciones:
+1. **¿Qué es?** Identifica el tipo de clave/secreto y el servicio/proveedor exacto (por su formato/prefijo y por cómo se usa en el archivo).
+2. **¿Es probablemente real y sensible, o un falso positivo / identificador público de cliente?** Sé honesto.
+3. **Impacto si es válida:** qué podría hacer realmente un atacante.
+4. **Qué probar ahora — pasos concretos:** llamadas API / comandos curl / la CLI oficial exactos para validar la clave y ver qué desbloquea (scopes, datos accesibles, facturación). Referencia los hosts de arriba cuando aplique.
+5. **Severidad** y si conviene reportarlo / probablemente está en scope."""
+        else:
+            system = (
+                "You are a senior security analyst specialized in triaging leaked secrets and keys in web "
+                "applications. Your job is to tell the pentester precisely and actionably WHAT the found key "
+                "is and WHAT to do with it.\n\n"
+                "Strict rules:\n"
+                "- Never invent tools or commands. Use only real commands (curl, the provider's official CLI, etc.).\n"
+                "- NEVER output ```nexhunt-tool``` or ```nexhunt-investigate``` blocks. This is a one-shot analysis, not an agent.\n"
+                "- Honestly distinguish PUBLIC client-side keys (e.g. Google Maps browser key, Stripe publishable pk_, Firebase config) from real SECRETS. Do not overstate severity for keys designed to be public.\n"
+                "- Be specific to THIS key and THIS file. No generic advice."
+            )
+            prompt = f"""A secret was flagged in a JavaScript file during a bug bounty recon.
 
 ## The match
 - Type label: {req.label or 'unknown'}
@@ -154,16 +202,14 @@ async def analyze_secret(req: SecretAnalysisRequest):
 {file_excerpt or '(no file content)'}
 ```
 
-Analyze this concretely and practically. Answer:
-1. **What is it?** Identify the secret/key type and the exact service/provider it belongs to (from its format/prefix and how it's used in the file).
-2. **Is it likely live and sensitive, or a false positive / public client-side identifier?** Many keys in JS are meant to be public (e.g. Google Maps browser keys, Stripe publishable keys, Firebase config). Be honest about which this looks like.
-3. **Impact if valid:** what could an attacker actually do with it.
-4. **What to test next — concrete steps:** exact API calls / curl commands / tools to validate the key and probe what it unlocks (scopes, accessible data, billing). Reference the specific host(s) above where relevant.
-5. **Severity** and whether it's likely in-scope/worth reporting.
+Analyze concretely and practically with these sections:
+1. **What is it?** Identify the key/secret type and the exact service/provider (from format/prefix and how it's used).
+2. **Real and sensitive, or false positive / public client-side identifier?** Be honest.
+3. **Impact if valid:** what an attacker could actually do.
+4. **What to test next — concrete steps:** exact API calls / curl / official CLI to validate the key and probe what it unlocks (scopes, accessible data, billing). Reference the hosts above where relevant.
+5. **Severity** and whether it's worth reporting / likely in scope."""
 
-Be specific to THIS key and file. No generic advice.{lang}"""
-
-        response = await copilot_service._dispatch(prompt)
+        response = await copilot_service._dispatch(prompt, system=system)
         return {"response": response}
     except Exception as e:
         logger.error(f"Copilot analyze-secret error: {e}")

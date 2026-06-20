@@ -333,20 +333,22 @@ class CopilotService:
         key = (settings.ai_groq_key or settings.ai_api_key) if p == "groq" else settings.ai_api_key
         return (base, key)
 
-    async def _dispatch(self, message: str, history: list[dict] | None = None) -> str:
+    async def _dispatch(self, message: str, history: list[dict] | None = None, system: str | None = None) -> str:
+        # `system` overrides the default agentic SYSTEM_PROMPT for focused one-shot
+        # tasks (e.g. secret triage) that should not emit nexhunt-tool blocks.
         # Anthropic uses its own SDK.
         if settings.ai_provider == "claude" and settings.ai_api_key:
-            return await self._chat_claude(message, history)
+            return await self._chat_claude(message, history, system)
         # Any OpenAI-compatible provider (groq/gemini/cerebras/openrouter/deepseek/openai/custom).
         base_url, key = self._resolve_provider()
         if base_url and key:
-            return await self._chat_openai_compatible(base_url, key, message, history)
+            return await self._chat_openai_compatible(base_url, key, message, history, system)
         # Otherwise use Sentinel's hosted PRO Copilot, authorized by the license key.
         if settings.sentinel_ai_proxy_url:
-            return await self._chat_hosted(message, history)
+            return await self._chat_hosted(message, history, system)
         return "No AI provider configured. Set a provider + API key in Settings."
 
-    async def _chat_hosted(self, message: str, history: list[dict] | None = None) -> str:
+    async def _chat_hosted(self, message: str, history: list[dict] | None = None, system: str | None = None) -> str:
         """Call Sentinel's hosted Copilot proxy, authenticated by the license key."""
         import asyncio
         import httpx
@@ -357,7 +359,7 @@ class CopilotService:
         payload = {
             "license_key": key,
             "machine_id": fingerprint.get_machine_id(),
-            "system": SYSTEM_PROMPT + self._lang_instruction(),
+            "system": system if system is not None else (SYSTEM_PROMPT + self._lang_instruction()),
             "message": message[:16000],
             "history": [h for h in (history or [])[-20:] if h.get("role") in ("user", "assistant")],
             "max_tokens": 4096,
@@ -379,13 +381,13 @@ class CopilotService:
             logger.error(f"Hosted Copilot error: {e}")
             return "AI Copilot is temporarily unavailable. Try again shortly."
 
-    async def _chat_openai_compatible(self, base_url: str, key: str, message: str, history: list[dict] | None = None) -> str:
+    async def _chat_openai_compatible(self, base_url: str, key: str, message: str, history: list[dict] | None = None, system: str | None = None) -> str:
         """Chat via any OpenAI-compatible API (Groq, Gemini, Cerebras, OpenRouter, DeepSeek, OpenAI, custom)."""
         import asyncio
         try:
             from openai import AsyncOpenAI
             client = AsyncOpenAI(api_key=key, base_url=base_url, timeout=90.0)
-            system = SYSTEM_PROMPT + self._lang_instruction()
+            system = system if system is not None else (SYSTEM_PROMPT + self._lang_instruction())
             trimmed = message[:16000] if len(message) > 16000 else message
             resp = await asyncio.wait_for(
                 client.chat.completions.create(
@@ -403,14 +405,14 @@ class CopilotService:
             logger.error(f"AI provider ({settings.ai_provider}) error: {e}")
             return f"AI provider error ({settings.ai_provider}, model {settings.ai_model}): {e}"
 
-    async def _chat_claude(self, message: str, history: list[dict] | None = None) -> str:
+    async def _chat_claude(self, message: str, history: list[dict] | None = None, system: str | None = None) -> str:
         try:
             import anthropic
             client = anthropic.AsyncAnthropic(api_key=settings.ai_api_key)
             resp = await client.messages.create(
                 model="claude-sonnet-4-6",
                 max_tokens=8096,
-                system=SYSTEM_PROMPT,
+                system=system if system is not None else (SYSTEM_PROMPT + self._lang_instruction()),
                 messages=self._build_messages(history, message),
             )
             return resp.content[0].text
