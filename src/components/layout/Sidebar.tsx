@@ -116,11 +116,11 @@ function NavItem({
       to={path}
       className={({ isActive }) =>
         cn(
-          'flex items-center gap-2.5 rounded-md px-2.5 py-[7px] text-[13px] font-medium transition-colors',
+          'nav-item relative flex items-center gap-2.5 rounded-md px-2.5 py-[7px] text-[13px] font-medium transition-colors',
           locked
             ? 'text-zinc-700 cursor-default pointer-events-none'
             : isActive
-              ? 'bg-green-950/35 text-green-400 ring-1 ring-inset ring-green-900/50'
+              ? 'nav-item-active bg-green-950/35 text-green-400 ring-1 ring-inset ring-green-900/50'
               : 'text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800/40'
         )
       }
@@ -165,13 +165,13 @@ export function Sidebar() {
   return (
     <aside
       className={cn(
-        'flex flex-col border-r border-zinc-800/80 bg-zinc-950 transition-all duration-200',
+        'app-sidebar flex flex-col border-r border-zinc-800/80 bg-zinc-950 transition-all duration-200',
         sidebarCollapsed ? 'w-[52px]' : 'w-52'
       )}
     >
       {/* Brand */}
       <div className={cn(
-        'flex h-12 items-center border-b border-zinc-800/80',
+        'app-brand flex h-12 items-center border-b border-zinc-800/80',
         sidebarCollapsed ? 'justify-center px-2' : 'gap-2.5 px-3'
       )}>
         <NHLogo size={30} />
@@ -325,9 +325,9 @@ export function Sidebar() {
           to="/"
           className={({ isActive }) =>
             cn(
-              'flex items-center gap-2.5 rounded-md px-2.5 py-[7px] text-[13px] font-medium transition-colors',
+              'nav-item relative flex items-center gap-2.5 rounded-md px-2.5 py-[7px] text-[13px] font-medium transition-colors',
               isActive
-                ? 'bg-green-950/35 text-green-400 ring-1 ring-inset ring-green-900/50'
+                ? 'nav-item-active bg-green-950/35 text-green-400 ring-1 ring-inset ring-green-900/50'
                 : 'text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800/40'
             )
           }
@@ -339,9 +339,9 @@ export function Sidebar() {
           to="/dashboard"
           className={({ isActive }) =>
             cn(
-              'flex items-center gap-2.5 rounded-md px-2.5 py-[7px] text-[13px] font-medium transition-colors',
+              'nav-item relative flex items-center gap-2.5 rounded-md px-2.5 py-[7px] text-[13px] font-medium transition-colors',
               isActive
-                ? 'bg-green-950/35 text-green-400 ring-1 ring-inset ring-green-900/50'
+                ? 'nav-item-active bg-green-950/35 text-green-400 ring-1 ring-inset ring-green-900/50'
                 : 'text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800/40'
             )
           }
@@ -414,9 +414,9 @@ export function Sidebar() {
           to="/settings"
           className={({ isActive }) =>
             cn(
-              'flex items-center gap-2.5 rounded-md px-2.5 py-[7px] text-[13px] font-medium transition-colors',
+              'nav-item relative flex items-center gap-2.5 rounded-md px-2.5 py-[7px] text-[13px] font-medium transition-colors',
               isActive
-                ? 'bg-green-950/35 text-green-400 ring-1 ring-inset ring-green-900/50'
+                ? 'nav-item-active bg-green-950/35 text-green-400 ring-1 ring-inset ring-green-900/50'
                 : 'text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800/40'
             )
           }

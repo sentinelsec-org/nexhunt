@@ -311,15 +311,41 @@ class CopilotService:
             prompt = f"{ctx}\n\n---\n\nGenerate professional bug bounty reports for all critical and high severity findings. For each finding, include: severity, CVSS, description, steps to reproduce, impact, and remediation."
         return await self._dispatch(prompt)
 
-    def _build_messages(self, history: list[dict] | None, message: str) -> list[dict]:
-        msgs = []
-        for h in (history or [])[-20:]:
+    @staticmethod
+    def _clip_text(value: str, limit: int) -> str:
+        if len(value) <= limit:
+            return value
+        marker = "\n\n[... older context compacted to fit provider limits ...]\n\n"
+        head = max(800, (limit - len(marker)) // 3)
+        tail = max(1200, limit - len(marker) - head)
+        return value[:head] + marker + value[-tail:]
+
+    def _build_messages(self, history: list[dict] | None, message: str, char_budget: int | None = None) -> list[dict]:
+        if char_budget is None:
+            msgs = []
+            for h in (history or [])[-20:]:
+                role = h.get("role", "user")
+                if role not in ("user", "assistant"):
+                    continue
+                msgs.append({"role": role, "content": str(h.get("content", ""))[:2000]})
+            msgs.append({"role": "user", "content": message})
+            return msgs
+
+        # The latest request carries auto-context plus the actual user question at
+        # the end. Preserve both ends, then spend any remaining budget on recent history.
+        current = self._clip_text(message, max(4000, int(char_budget * 0.72)))
+        remaining = max(0, char_budget - len(current))
+        recent: list[dict] = []
+        for h in reversed((history or [])[-12:]):
             role = h.get("role", "user")
             if role not in ("user", "assistant"):
                 continue
-            msgs.append({"role": role, "content": str(h.get("content", ""))[:2000]})
-        msgs.append({"role": "user", "content": message})
-        return msgs
+            content = self._clip_text(str(h.get("content", "")), 1200)
+            if len(content) > remaining:
+                continue
+            recent.insert(0, {"role": role, "content": content})
+            remaining -= len(content)
+        return recent + [{"role": "user", "content": current}]
 
     def _resolve_provider(self) -> tuple[str | None, str | None]:
         """Return (base_url, api_key) for the configured OpenAI-compatible provider, or (None, None)."""
@@ -389,21 +415,52 @@ class CopilotService:
             from openai import AsyncOpenAI
             client = AsyncOpenAI(api_key=key, base_url=base_url, timeout=90.0)
             system = system if system is not None else (SYSTEM_PROMPT + self._lang_instruction())
-            trimmed = message[:16000] if len(message) > 16000 else message
-            resp = await asyncio.wait_for(
-                client.chat.completions.create(
-                    model=settings.ai_model,
-                    messages=[{"role": "system", "content": system}] + self._build_messages(history, trimmed),
-                    max_tokens=max_tokens,
-                    temperature=0.3,
-                ),
-                timeout=90.0,
-            )
+            is_groq = settings.ai_provider == "groq"
+            output_tokens = min(max_tokens, 1400) if is_groq else max_tokens
+            # Groq on-demand commonly has an 8k TPM ceiling. Reserve output plus
+            # a safety margin and estimate input at four characters per token.
+            char_budget = None
+            if is_groq:
+                char_budget = max(7000, (8000 - output_tokens - 700) * 4 - len(system))
+            messages = [{"role": "system", "content": system}] + self._build_messages(history, message, char_budget)
+
+            async def complete(msgs: list[dict], completion_tokens: int):
+                return await asyncio.wait_for(
+                    client.chat.completions.create(
+                        model=settings.ai_model,
+                        messages=msgs,
+                        max_tokens=completion_tokens,
+                        temperature=0.3,
+                    ),
+                    timeout=90.0,
+                )
+
+            try:
+                resp = await complete(messages, output_tokens)
+            except Exception as first_error:
+                detail = str(first_error).lower()
+                too_large = getattr(first_error, "status_code", None) == 413 or "request too large" in detail or "requested" in detail and "tokens per minute" in detail
+                if not is_groq or not too_large:
+                    raise
+                compact_system = (
+                    "You are NexHunt AI Copilot, a concise senior web security analyst. "
+                    "Answer the latest authorized-testing request directly, ground claims in the supplied evidence, "
+                    "distinguish confirmed issues from hypotheses, and finish with concrete next steps."
+                    + self._lang_instruction()
+                )
+                compact_user = self._clip_text(message, 9000)
+                resp = await complete([
+                    {"role": "system", "content": compact_system},
+                    {"role": "user", "content": compact_user},
+                ], min(output_tokens, 900))
             return resp.choices[0].message.content or ""
         except (TimeoutError, asyncio.TimeoutError):
             return "Request timed out. The provider is slow right now — try again or switch provider in Settings."
         except Exception as e:
             logger.error(f"AI provider ({settings.ai_provider}) error: {e}")
+            detail = str(e).lower()
+            if settings.ai_provider == "groq" and (getattr(e, "status_code", None) == 413 or "request too large" in detail):
+                return "Groq rejected the request because the free-tier TPM budget is exhausted. NexHunt already compacted and retried it; wait for the minute window to reset, shorten the pasted output, or choose another provider in Settings."
             return f"AI provider error ({settings.ai_provider}, model {settings.ai_model}): {e}"
 
     async def _chat_claude(self, message: str, history: list[dict] | None = None, system: str | None = None, max_tokens: int = 8096) -> str:

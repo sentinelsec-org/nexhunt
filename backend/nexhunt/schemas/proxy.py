@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class ProxySettings(BaseModel):
@@ -37,5 +37,6 @@ class IntruderConfig(BaseModel):
     use_https: bool = False
     attack_type: str = "sniper"   # sniper | cluster_bomb
     payloads: list[list[str]]     # one list per position
-    concurrency: int = 10
-    timeout: int = 10
+    concurrency: int = Field(default=10, ge=1, le=50)
+    timeout: int = Field(default=10, ge=1, le=120)
+    max_requests: int = Field(default=10000, ge=1, le=100000)

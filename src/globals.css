@@ -91,6 +91,44 @@ body {
   height: 100vh;
 }
 
+
+::selection {
+  background: rgba(0, 217, 166, 0.24);
+  color: #E8F0F7;
+}
+
+.workspace-shell { background: #090D11; }
+.workspace-main { box-shadow: inset 0 1px 0 rgba(138, 165, 190, 0.025); }
+
+.app-topbar {
+  backdrop-filter: blur(12px);
+  box-shadow: 0 1px 0 rgba(138, 165, 190, 0.025), 0 10px 28px rgba(0, 0, 0, 0.13);
+}
+
+.app-sidebar { box-shadow: 10px 0 28px rgba(0, 0, 0, 0.14); }
+.app-brand { box-shadow: inset 0 -1px 0 rgba(0, 217, 166, 0.025); }
+
+.nav-item::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 2px;
+  border-radius: 2px;
+  background: transparent;
+  transition: background-color 150ms ease, box-shadow 150ms ease;
+}
+
+.nav-item-active::before {
+  background: #00D9A6;
+  box-shadow: 0 0 8px rgba(0, 217, 166, 0.5);
+}
+
+table tbody tr {
+  transition: background-color 120ms ease, box-shadow 120ms ease;
+}
+
 #root {
   height: 100vh;
   display: flex;

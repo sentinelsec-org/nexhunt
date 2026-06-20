@@ -20,11 +20,12 @@ export function TopBar({ title, subtitle }: TopBarProps) {
   const hasData = liveHosts.length > 0 || subdomains.length > 0 || findings.length > 0
 
   return (
-    <header className="flex h-12 shrink-0 items-center justify-between border-b border-zinc-800/80 bg-zinc-950/70 px-5">
-      <div className="flex items-baseline gap-2.5">
-        <h1 className="text-[15px] font-semibold text-zinc-100 tracking-tight">{title}</h1>
+    <header className="app-topbar flex h-12 shrink-0 items-center justify-between border-b border-zinc-800/80 bg-zinc-950/80 px-5">
+      <div className="flex items-center gap-2.5 min-w-0">
+        <span className="h-4 w-0.5 rounded-full bg-green-500 shadow-[0_0_8px_rgba(0,217,166,0.45)]" />
+        <h1 className="text-[15px] font-semibold text-zinc-100 whitespace-nowrap">{title}</h1>
         {subtitle && (
-          <span className="text-[11px] text-zinc-600 font-normal">{subtitle}</span>
+          <span className="text-[11px] text-zinc-600 font-normal truncate">{subtitle}</span>
         )}
       </div>
 

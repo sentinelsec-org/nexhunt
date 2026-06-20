@@ -23,6 +23,48 @@ import {
 
 type Tab = 'history' | 'sitemap' | 'repeater' | 'intruder' | 'jwt'
 
+type PayloadSetConfig = {
+  type: 'builtin' | 'custom' | 'numbers'
+  builtinId: string
+  custom: string
+  numberStart: number
+  numberEnd: number
+  numberStep: number
+  numberPad: number
+  prefix: string
+  suffix: string
+  repeat: number
+}
+
+const newPayloadSet = (builtinId = 'fuzzing'): PayloadSetConfig => ({
+  type: 'builtin', builtinId, custom: '',
+  numberStart: 0, numberEnd: 100, numberStep: 1, numberPad: 0,
+  prefix: '', suffix: '', repeat: 1,
+})
+
+function payloadValues(config: PayloadSetConfig): string[] {
+  let values: string[] = []
+  if (config.type === 'builtin') {
+    values = PAYLOAD_SETS.find(item => item.id === config.builtinId)?.payloads ?? []
+  } else if (config.type === 'custom') {
+    values = config.custom.split(/\r?\n/).map(value => value.trim()).filter(Boolean)
+  } else {
+    const step = config.numberStep || 1
+    const direction = config.numberEnd >= config.numberStart ? Math.abs(step) : -Math.abs(step)
+    for (let value = config.numberStart; direction > 0 ? value <= config.numberEnd : value >= config.numberEnd; value += direction) {
+      const sign = value < 0 ? '-' : ''
+      values.push(sign + String(Math.abs(value)).padStart(Math.max(0, config.numberPad), '0'))
+      if (values.length >= 100000) break
+    }
+  }
+  const processed = values.map(value => `${config.prefix}${value}${config.suffix}`)
+  const repeated: string[] = []
+  for (let round = 0; round < Math.max(1, Math.min(config.repeat, 1000)) && repeated.length < 100000; round++) {
+    repeated.push(...processed.slice(0, 100000 - repeated.length))
+  }
+  return repeated
+}
+
 // ── helpers ────────────────────────────────────────────────────────────────────
 function statusBg(code: number) {
   if (!code) return 'text-zinc-600'
@@ -183,7 +225,7 @@ export function ProxyPage() {
             sendToBruteForce={(f) => { sendToBruteForce(f); navigate('/brute-force') }}
           />
         )}
-        {activeTab === 'repeater' && <RepeaterTab />}
+        {activeTab === 'repeater' && <RepeaterTab onOpenIntruder={() => setActiveTab('intruder')} />}
         {activeTab === 'intruder' && <IntruderTab />}
         {activeTab === 'jwt' && <JwtAttackTab />}
       </div>
@@ -605,9 +647,9 @@ function SiteMapTab({ flows, selectedFlowId, selectFlow, scopeDomains, sendToBru
 }
 
 // ── Repeater tab ──────────────────────────────────────────────────────────────
-function RepeaterTab() {
+function RepeaterTab({ onOpenIntruder }: { onOpenIntruder: () => void }) {
   const { repeaterTabs, activeRepeaterTabId, addRepeaterTab, closeRepeaterTab,
-    setActiveRepeaterTab, updateRepeaterTab } = useProxyStore()
+    setActiveRepeaterTab, updateRepeaterTab, sendRawToIntruder } = useProxyStore()
 
   const activeTab = repeaterTabs.find(t => t.id === activeRepeaterTabId)
 
@@ -676,6 +718,9 @@ function RepeaterTab() {
             <Input className="w-20 h-7 text-xs bg-zinc-900 font-mono" placeholder="port"
               value={String(activeTab.port)}
               onChange={e => updateRepeaterTab(activeTab.id, { port: parseInt(e.target.value) || 80 })} />
+            <Button size="sm" variant="outline" className="shrink-0 border-orange-800/60 text-orange-400" onClick={() => { sendRawToIntruder(activeTab.rawRequest, activeTab.host, activeTab.port, activeTab.useHttps); onOpenIntruder() }} title="Send the edited request to Intruder">
+              <Crosshair size={12} className="mr-1" /> Intruder
+            </Button>
             <Button size="sm" onClick={handleSend} disabled={activeTab.loading} className="shrink-0">
               {activeTab.loading ? <Loader2 size={12} className="animate-spin mr-1" /> : <Send size={12} className="mr-1" />}
               Send
@@ -738,17 +783,19 @@ function IntruderTab() {
   const {
     intruderRequest, intruderHost, intruderPort, intruderHttps,
     intruderResults, intruderRunning, intruderJobId, intruderTotal,
-    setIntruderRequest, setIntruderTarget, clearIntruderResults,
+    setIntruderRequest, setIntruderTarget, clearIntruderResults, sendRawToRepeater,
   } = useProxyStore()
 
   const [subTab, setSubTab] = useState<'positions' | 'payloads' | 'results'>('positions')
   const [attackType, setAttackType] = useState<'sniper' | 'cluster_bomb' | 'pitchfork'>('sniper')
-  const [payloadSets, setPayloadSets] = useState<{ type: 'builtin' | 'custom'; builtinId: string; custom: string }[]>([
-    { type: 'builtin', builtinId: 'sqli-error', custom: '' }
-  ])
+  const [payloadSets, setPayloadSets] = useState<PayloadSetConfig[]>([newPayloadSet('sqli-error')])
   const [concurrency, setConcurrency] = useState(10)
   const [timeout, setTimeout2] = useState(10)
+  const [maxRequests, setMaxRequests] = useState(10000)
   const [filterStatus, setFilterStatus] = useState('')
+  const [filterPayload, setFilterPayload] = useState('')
+  const [selectedResult, setSelectedResult] = useState<IntruderResult | null>(null)
+  const [resultDetail, setResultDetail] = useState<'request' | 'response'>('response')
   const textRef = useRef<HTMLTextAreaElement>(null)
   const resultsEndRef = useRef<HTMLDivElement>(null)
 
@@ -777,13 +824,19 @@ function IntruderTab() {
   const clearMarkers = () => setIntruderRequest(intruderRequest.replace(/§/g, ''))
 
   const getPayloads = (): string[][] => {
-    return payloadSets.map(ps => {
-      if (ps.type === 'builtin') {
-        return PAYLOAD_SETS.find(p => p.id === ps.builtinId)?.payloads ?? []
-      }
-      return ps.custom.split('\n').map(l => l.trim()).filter(Boolean)
-    })
+    return payloadSets.map(payloadValues)
   }
+
+  const payloadCounts = payloadSets.map(ps => payloadValues(ps).length)
+  const effectivePayloadCounts = Array.from(
+    { length: markerCount },
+    (_, index) => payloadCounts[index] ?? payloadCounts[payloadCounts.length - 1] ?? 0,
+  )
+  const estimatedRequests = markerCount === 0 ? 0 : attackType === 'sniper'
+    ? markerCount * (payloadCounts[0] || 0)
+    : attackType === 'pitchfork'
+      ? Math.min(...effectivePayloadCounts)
+      : effectivePayloadCounts.reduce((total, count) => total * Math.max(0, count), 1)
 
   const handleStart = async () => {
     clearIntruderResults()
@@ -797,6 +850,7 @@ function IntruderTab() {
       payloads,
       concurrency,
       timeout: timeout2,
+      max_requests: maxRequests,
     })
     setSubTab('results')
   }
@@ -806,9 +860,10 @@ function IntruderTab() {
   }
 
   // Filtered results
-  const visibleResults = filterStatus
-    ? intruderResults.filter(r => String(r.status).startsWith(filterStatus))
-    : intruderResults
+  const visibleResults = intruderResults.filter(result =>
+    (!filterStatus || String(result.status).startsWith(filterStatus)) &&
+    (!filterPayload || result.payload.toLowerCase().includes(filterPayload.toLowerCase()))
+  )
 
   // Baseline: most common status in results
   const baselineStatus = intruderResults.length > 0
@@ -920,6 +975,13 @@ function IntruderTab() {
             <input type="number" min={1} max={60} value={timeout}
               onChange={e => setTimeout2(parseInt(e.target.value) || 10)}
               className="w-16 h-7 bg-zinc-900 border border-zinc-800 rounded px-2 text-xs text-zinc-300" />
+            <span className="text-xs text-zinc-400">Max requests</span>
+            <input type="number" min={1} max={100000} value={maxRequests}
+              onChange={e => setMaxRequests(Math.max(1, Math.min(100000, parseInt(e.target.value) || 1)))}
+              className="w-24 h-7 bg-zinc-900 border border-zinc-800 rounded px-2 text-xs text-zinc-300" />
+            <span className={cn('text-[10px] ml-auto', estimatedRequests > maxRequests ? 'text-amber-400' : 'text-zinc-500')}>
+              {estimatedRequests.toLocaleString()} planned{estimatedRequests > maxRequests ? `, capped at ${maxRequests.toLocaleString()}` : ''}
+            </span>
           </div>
 
           {payloadSets.map((ps, idx) => (
@@ -935,7 +997,7 @@ function IntruderTab() {
 
           {(attackType === 'cluster_bomb' || attackType === 'pitchfork') && payloadSets.length < markerCount && (
             <Button size="sm" variant="outline" className="text-xs border-zinc-700" onClick={() =>
-              setPayloadSets(prev => [...prev, { type: 'builtin', builtinId: 'fuzzing', custom: '' }])}>
+              setPayloadSets(prev => [...prev, newPayloadSet('fuzzing')])}>
               <Plus size={11} className="mr-1" /> Add payload set (Position {payloadSets.length + 1})
             </Button>
           )}
@@ -948,6 +1010,8 @@ function IntruderTab() {
           <div className="flex items-center gap-2 shrink-0">
             <Input placeholder="Filter status…" className="w-24 h-7 text-xs bg-zinc-900"
               value={filterStatus} onChange={e => setFilterStatus(e.target.value)} />
+            <Input placeholder="Filter payload…" className="w-48 h-7 text-xs bg-zinc-900"
+              value={filterPayload} onChange={e => setFilterPayload(e.target.value)} />
             {intruderResults.length > 0 && (
               <span className="text-xs text-zinc-500">
                 {intruderResults.length} results
@@ -955,60 +1019,85 @@ function IntruderTab() {
                 {baselineLength > 0 && <> · avg length: {baselineLength}b</>}
               </span>
             )}
-            <Button size="sm" variant="ghost" className="text-xs text-zinc-600 ml-auto" onClick={clearIntruderResults}>
+            <Button size="sm" variant="ghost" className="text-xs text-zinc-600 ml-auto" onClick={() => { clearIntruderResults(); setSelectedResult(null) }}>
               <Trash2 size={11} className="mr-1" /> Clear
             </Button>
           </div>
-          <div className="flex-1 overflow-auto rounded-lg border border-zinc-800 min-h-0">
-            <table className="w-full text-xs">
-              <thead className="bg-zinc-900 sticky top-0 z-10">
-                <tr className="text-zinc-500 text-left">
-                  <th className="px-2 py-2 w-10">#</th>
-                  <th className="px-2 py-2">Payload</th>
-                  <th className="px-2 py-2 w-16">Status</th>
-                  <th className="px-2 py-2 w-16">Length</th>
-                  <th className="px-2 py-2 w-16">Time</th>
-                  <th className="px-2 py-2 w-8"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {visibleResults.map((r) => {
-                  const interesting = isInteresting(r)
-                  return (
-                    <tr key={r.index}
-                      className={cn('border-b border-zinc-800/50 hover:bg-zinc-800/30',
-                        interesting && 'bg-yellow-950/20')}>
-                      <td className="px-2 py-1.5 text-zinc-600">{r.index + 1}</td>
-                      <td className="px-2 py-1.5 font-mono text-[11px] text-zinc-300 truncate max-w-[280px]">
-                        {r.payload}
-                      </td>
-                      <td className={cn('px-2 py-1.5 font-mono font-semibold', statusBg(r.status))}>
-                        {r.error ? <span className="text-red-500">ERR</span> : r.status || '—'}
-                      </td>
-                      <td className="px-2 py-1.5 text-zinc-400 font-mono">{r.error ? '—' : r.length}</td>
-                      <td className="px-2 py-1.5 text-zinc-500">{r.error ? '—' : `${r.duration_ms.toFixed(0)}ms`}</td>
-                      <td className="px-2 py-1.5">
-                        {interesting && !r.error && (
-                          <span title="Different from baseline"><AlertTriangle size={11} className="text-yellow-500" /></span>
-                        )}
-                        {r.error && <span className="text-[10px] text-red-500" title={r.error}>!</span>}
-                      </td>
-                    </tr>
-                  )
-                })}
-                {intruderResults.length === 0 && !intruderRunning && (
-                  <tr><td colSpan={6} className="px-3 py-8 text-center text-zinc-600">
-                    Mark positions, configure payloads, then click Attack.
-                  </td></tr>
-                )}
-                {intruderRunning && intruderResults.length === 0 && (
-                  <tr><td colSpan={6} className="px-3 py-4 text-center text-zinc-500">
-                    <Loader2 size={14} className="animate-spin inline mr-2" />Attacking…
-                  </td></tr>
-                )}
-              </tbody>
-            </table>
-            <div ref={resultsEndRef} />
+          <div className="flex-1 grid grid-cols-[minmax(410px,1fr)_minmax(360px,0.9fr)] gap-2 min-h-0">
+            <div className="overflow-auto rounded-lg border border-zinc-800 min-h-0">
+              <table className="w-full text-xs">
+                <thead className="bg-zinc-900 sticky top-0 z-10">
+                  <tr className="text-zinc-500 text-left">
+                    <th className="px-2 py-2 w-10">#</th>
+                    <th className="px-2 py-2">Payload</th>
+                    <th className="px-2 py-2 w-16">Status</th>
+                    <th className="px-2 py-2 w-16">Length</th>
+                    <th className="px-2 py-2 w-16">Time</th>
+                    <th className="px-2 py-2 w-8"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {visibleResults.map((r) => {
+                    const interesting = isInteresting(r)
+                    return (
+                      <tr key={r.index} onClick={() => setSelectedResult(r)}
+                        className={cn('border-b border-zinc-800/50 hover:bg-zinc-800/40 cursor-pointer',
+                          interesting && 'bg-yellow-950/20', selectedResult?.index === r.index && 'bg-orange-950/30 outline outline-1 outline-inset outline-orange-900')}>
+                        <td className="px-2 py-1.5 text-zinc-600">{r.index + 1}</td>
+                        <td className="px-2 py-1.5 font-mono text-[11px] text-zinc-300 truncate max-w-[240px]">{r.payload}</td>
+                        <td className={cn('px-2 py-1.5 font-mono font-semibold', statusBg(r.status))}>
+                          {r.error ? <span className="text-red-500">ERR</span> : r.status || '—'}
+                        </td>
+                        <td className="px-2 py-1.5 text-zinc-400 font-mono">{r.error ? '—' : r.length}</td>
+                        <td className="px-2 py-1.5 text-zinc-500">{r.error ? '—' : `${r.duration_ms.toFixed(0)}ms`}</td>
+                        <td className="px-2 py-1.5">
+                          {interesting && !r.error && <AlertTriangle size={11} className="text-yellow-500" />}
+                          {r.error && <span className="text-[10px] text-red-500" title={r.error}>!</span>}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                  {intruderResults.length === 0 && !intruderRunning && (
+                    <tr><td colSpan={6} className="px-3 py-8 text-center text-zinc-600">Mark positions, configure payloads, then click Attack.</td></tr>
+                  )}
+                  {intruderRunning && intruderResults.length === 0 && (
+                    <tr><td colSpan={6} className="px-3 py-4 text-center text-zinc-500"><Loader2 size={14} className="animate-spin inline mr-2" />Attacking…</td></tr>
+                  )}
+                </tbody>
+              </table>
+              <div ref={resultsEndRef} />
+            </div>
+
+            <div className="rounded-lg border border-zinc-800 bg-zinc-950 min-h-0 overflow-hidden flex flex-col">
+              {selectedResult ? (
+                <>
+                  <div className="px-3 py-2 border-b border-zinc-800 bg-zinc-900/70 flex items-center gap-3 shrink-0">
+                    <span className={cn('text-sm font-mono font-bold', statusBg(selectedResult.status))}>{selectedResult.error ? 'ERR' : selectedResult.status}</span>
+                    <span className="text-[10px] text-zinc-500 truncate flex-1" title={selectedResult.payload}>{selectedResult.payload}</span>
+                    <button className="text-[10px] text-zinc-400 hover:text-zinc-100 flex items-center gap-1" onClick={() => navigator.clipboard.writeText(resultDetail === 'request' ? selectedResult.request : `${Object.entries(selectedResult.response_headers).map(([key, value]) => `${key}: ${value}`).join('\n')}\n\n${selectedResult.response_body}`)}><Copy size={10} />Copy</button>
+                    <button className="text-[10px] text-orange-400 hover:text-orange-300 flex items-center gap-1" onClick={() => { sendRawToRepeater(selectedResult.request, intruderHost, intruderPort, intruderHttps); toast.success('Request opened in Repeater') }}><Repeat2 size={10} />Repeater</button>
+                  </div>
+                  <div className="px-3 pt-2 flex items-center justify-between shrink-0">
+                    <div className="flex rounded bg-zinc-900 p-0.5">
+                      {(['request', 'response'] as const).map(detail => <button key={detail} onClick={() => setResultDetail(detail)} className={cn('px-3 py-1 rounded text-[10px] capitalize', resultDetail === detail ? 'bg-zinc-700 text-zinc-100' : 'text-zinc-500 hover:text-zinc-300')}>{detail}</button>)}
+                    </div>
+                    <span className="text-[9px] text-zinc-600">{selectedResult.length} bytes · {selectedResult.duration_ms.toFixed(0)} ms</span>
+                  </div>
+                  <div className="flex-1 min-h-0 overflow-auto p-3">
+                    {resultDetail === 'request' ? (
+                      <pre className="text-[10px] leading-relaxed font-mono text-zinc-300 whitespace-pre-wrap break-all">{selectedResult.request || '(request unavailable)'}</pre>
+                    ) : selectedResult.error ? (
+                      <pre className="text-[10px] font-mono text-red-400 whitespace-pre-wrap">{selectedResult.error}</pre>
+                    ) : (
+                      <div className="space-y-3">
+                        <div><p className="text-[9px] uppercase font-semibold text-zinc-600 mb-1">Headers</p><pre className="text-[10px] leading-relaxed font-mono text-sky-300 whitespace-pre-wrap break-all">{Object.entries(selectedResult.response_headers).map(([key, value]) => `${key}: ${value}`).join('\n') || '(no headers)'}</pre></div>
+                        <div><p className="text-[9px] uppercase font-semibold text-zinc-600 mb-1">Body</p><pre className="text-[10px] leading-relaxed font-mono text-zinc-300 whitespace-pre-wrap break-all">{selectedResult.response_body || '(empty body)'}</pre></div>
+                      </div>
+                    )}
+                  </div>
+                </>
+              ) : <div className="flex-1 grid place-items-center text-center px-8"><div><Search size={20} className="mx-auto text-zinc-700 mb-2" /><p className="text-xs text-zinc-500">Select a result to inspect the complete request and response.</p></div></div>}
+            </div>
           </div>
         </div>
       )}
@@ -1055,6 +1144,14 @@ function JwtAttackTab() {
   const [attackResults, setAttackResults] = useState<Record<string, any>>({})
   const [running, setRunning] = useState<Record<string, boolean>>({})
   const [copiedToken, setCopiedToken] = useState<string | null>(null)
+  const [customHeader, setCustomHeader] = useState('')
+  const [customPayload, setCustomPayload] = useState('')
+  const [signingMode, setSigningMode] = useState<'keep_signature' | 'none' | 'hmac'>('keep_signature')
+  const [hmacAlgorithm, setHmacAlgorithm] = useState<'HS256' | 'HS384' | 'HS512'>('HS256')
+  const [hmacSecret, setHmacSecret] = useState('')
+  const [headerValueTemplate, setHeaderValueTemplate] = useState('Bearer {token}')
+  const [forgeResult, setForgeResult] = useState<any>(null)
+  const [forgeRunning, setForgeRunning] = useState(false)
   // Request mode
   const [mode, setMode] = useState<'token' | 'request'>('token')
   const [requestFlow, setRequestFlow] = useState<any>(null)
@@ -1106,6 +1203,44 @@ function JwtAttackTab() {
     return () => clearTimeout(timer)
   }, [token])
 
+  useEffect(() => {
+    if (!decoded) return
+    setCustomHeader(JSON.stringify(decoded.header || {}, null, 2))
+    setCustomPayload(JSON.stringify(decoded.payload || {}, null, 2))
+    setForgeResult(null)
+  }, [decoded])
+
+  const forgeCustomToken = async () => {
+    if (!token.trim()) return
+    let header: Record<string, unknown>
+    let payload: Record<string, unknown>
+    try {
+      header = JSON.parse(customHeader)
+      payload = JSON.parse(customPayload)
+      if (Array.isArray(header) || Array.isArray(payload) || !header || !payload) throw new Error('JSON objects required')
+    } catch (error) {
+      setForgeResult({ error: `Invalid JSON: ${String(error)}` })
+      return
+    }
+    setForgeRunning(true)
+    try {
+      const result = await api.post<any>('/api/jwt/forge-custom', {
+        token: token.trim(), header, payload,
+        signing_mode: signingMode,
+        algorithm: hmacAlgorithm,
+        secret: hmacSecret,
+        target_url: targetUrl.trim(),
+        header_name: headerName.trim() || 'Authorization',
+        header_value_template: headerValueTemplate || '{token}',
+      })
+      setForgeResult(result)
+    } catch (error) {
+      setForgeResult({ error: String(error) })
+    } finally {
+      setForgeRunning(false)
+    }
+  }
+
   const runAttack = async (attackId: string) => {
     if (!token.trim()) return
     setRunning(r => ({ ...r, [attackId]: true }))
@@ -1140,12 +1275,13 @@ function JwtAttackTab() {
   }
 
   const sendToRep = (tok: string) => {
+    const value = (headerValueTemplate || 'Bearer {token}').replace('{token}', tok)
     const fakeFlow = {
       id: `jwt-${Date.now()}`,
       request_method: 'GET',
       request_host: new URL(targetUrl || 'http://target.com').host,
       request_path: new URL(targetUrl || 'http://target.com').pathname || '/',
-      request_headers: { [headerName || 'Authorization']: `Bearer ${tok}` },
+      request_headers: { [headerName || 'Authorization']: value },
       request_body: '',
       response_status: 0,
       response_headers: {},
@@ -1290,9 +1426,10 @@ function JwtAttackTab() {
 
                 {/* Detected JWTs */}
                 {detectedJwts.length === 0 && (
-                  <div className="rounded-lg border border-yellow-800/40 bg-yellow-950/20 p-2.5">
+                  <div className="rounded-lg border border-yellow-800/40 bg-yellow-950/20 p-2.5 space-y-2">
                     <p className="text-[10px] text-yellow-400">No JWT detected in this request</p>
-                    <p className="text-[9px] text-zinc-600 mt-1">Try Token Mode to paste one manually</p>
+                    <p className="text-[9px] text-zinc-500 leading-relaxed">A JWT has three Base64URL parts separated by dots. This may be an opaque session cookie, which cannot be decoded into editable claims.</p>
+                    <button onClick={() => requestFlow && sendToRepeater(requestFlow)} className="w-full h-7 rounded border border-zinc-700 text-[9px] text-zinc-300 hover:border-zinc-500 flex items-center justify-center gap-1"><Repeat2 size={9} />Send request to Repeater</button>
                   </div>
                 )}
                 {detectedJwts.length > 0 && (
@@ -1449,6 +1586,14 @@ function JwtAttackTab() {
         </div>
 
         {/* Attack list */}
+        <button
+          onClick={() => setSelectedAttack('custom_editor')}
+          disabled={!decoded}
+          className={cn('w-full h-8 rounded-md border flex items-center justify-center gap-1.5 text-[10px] font-semibold transition-colors disabled:opacity-40', selectedAttack === 'custom_editor' ? 'border-teal-700 bg-teal-950/30 text-teal-300' : 'border-teal-900/70 text-teal-400 hover:bg-teal-950/20')}
+        >
+          <Key size={11} /> Edit claims and re-sign
+        </button>
+
         <div className="rounded-lg border border-zinc-800 overflow-hidden">
           <div className="bg-zinc-900 px-2.5 py-1.5 flex items-center justify-between">
             <span className="text-[9px] font-semibold text-zinc-500 uppercase">Attacks ({ATTACK_DISPLAY.length})</span>
@@ -1509,7 +1654,22 @@ function JwtAttackTab() {
           </div>
         )}
 
-        {selectedAttack && sel && (
+        {selectedAttack === 'custom_editor' && (
+          <CustomJwtEditor
+            header={customHeader} setHeader={setCustomHeader}
+            payload={customPayload} setPayload={setCustomPayload}
+            signingMode={signingMode} setSigningMode={setSigningMode}
+            algorithm={hmacAlgorithm} setAlgorithm={setHmacAlgorithm}
+            secret={hmacSecret} setSecret={setHmacSecret}
+            headerName={headerName} template={headerValueTemplate} setTemplate={setHeaderValueTemplate}
+            targetUrl={targetUrl} running={forgeRunning} result={forgeResult}
+            onForge={forgeCustomToken} onCopy={copyTok}
+            onLoadToken={value => { setToken(value); setSelectedAttack('custom_editor') }}
+            onSendToRepeater={targetUrl ? sendToRep : undefined}
+          />
+        )}
+
+        {selectedAttack !== 'custom_editor' && selectedAttack && sel && (
           <>
             {/* Attack header */}
             <div className="flex items-center justify-between gap-3">
@@ -1548,6 +1708,52 @@ function JwtAttackTab() {
     )}
     </div>
   )
+}
+
+function CustomJwtEditor({ header, setHeader, payload, setPayload, signingMode, setSigningMode, algorithm, setAlgorithm, secret, setSecret, headerName, template, setTemplate, targetUrl, running, result, onForge, onCopy, onLoadToken, onSendToRepeater }: {
+  header: string; setHeader: (v: string) => void
+  payload: string; setPayload: (v: string) => void
+  signingMode: 'keep_signature' | 'none' | 'hmac'; setSigningMode: (v: 'keep_signature' | 'none' | 'hmac') => void
+  algorithm: 'HS256' | 'HS384' | 'HS512'; setAlgorithm: (v: 'HS256' | 'HS384' | 'HS512') => void
+  secret: string; setSecret: (v: string) => void
+  headerName: string; template: string; setTemplate: (v: string) => void
+  targetUrl: string; running: boolean; result: any
+  onForge: () => void; onCopy: (v: string) => void; onLoadToken: (v: string) => void
+  onSendToRepeater?: (v: string) => void
+}) {
+  return <div className="space-y-3">
+    <div className="flex items-center justify-between gap-3">
+      <div><h2 className="text-sm font-bold text-zinc-100">JWT claim workbench</h2><p className="text-[10px] text-zinc-500 mt-0.5">Edit any claim, choose how to sign it, then probe the target or move it to Repeater.</p></div>
+      <Button size="sm" onClick={onForge} disabled={running} className="bg-teal-700 hover:bg-teal-600 text-white text-xs shrink-0">{running ? <Loader2 size={11} className="animate-spin mr-1.5" /> : <Play size={11} className="mr-1.5" />}Generate{targetUrl ? ' and send' : ''}</Button>
+    </div>
+
+    <div className="grid grid-cols-2 gap-3">
+      <JsonEditor label="JOSE header" value={header} onChange={setHeader} />
+      <JsonEditor label="Payload claims" value={payload} onChange={setPayload} />
+    </div>
+
+    <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-3 space-y-3">
+      <div className="grid grid-cols-3 gap-2">
+        <SignMode active={signingMode === 'keep_signature'} title="Keep signature" body="Tests missing signature verification" onClick={() => setSigningMode('keep_signature')} />
+        <SignMode active={signingMode === 'none'} title="alg:none" body="Unsigned bypass plus edited claims" onClick={() => setSigningMode('none')} />
+        <SignMode active={signingMode === 'hmac'} title="HMAC secret" body="Creates a valid HS token" onClick={() => setSigningMode('hmac')} />
+      </div>
+      {signingMode === 'hmac' && <div className="grid grid-cols-[120px_1fr] gap-2"><select value={algorithm} onChange={e => setAlgorithm(e.target.value as any)} className="h-8 rounded border border-zinc-700 bg-zinc-950 px-2 text-[11px] text-zinc-300"><option>HS256</option><option>HS384</option><option>HS512</option></select><Input type="password" value={secret} onChange={e => setSecret(e.target.value)} placeholder="HMAC secret (from weak-secret crack or authorized test config)" className="h-8 bg-zinc-950 text-[11px] font-mono" /></div>}
+      <div className="grid grid-cols-[180px_1fr] gap-2 items-end"><div><label className="text-[9px] text-zinc-600 uppercase font-semibold">Injection header</label><div className="h-8 mt-1 rounded border border-zinc-800 bg-zinc-950 px-2 flex items-center text-[10px] font-mono text-zinc-400 truncate">{headerName || 'Authorization'}</div></div><div><label className="text-[9px] text-zinc-600 uppercase font-semibold">Value template</label><Input value={template} onChange={e => setTemplate(e.target.value)} placeholder="Bearer {token} or session={token}" className="h-8 mt-1 bg-zinc-950 text-[10px] font-mono" /></div></div>
+      <p className="text-[9px] text-zinc-600">Use <code className="text-teal-400">{'{token}'}</code> where the generated JWT belongs. The probe uses GET; use Repeater for custom methods, bodies, or cookies.</p>
+    </div>
+
+    {result?.error && <div className="rounded-lg border border-red-800/50 bg-red-950/20 p-3 text-[11px] text-red-400">{result.error}</div>}
+    {result?.token && <div className="rounded-lg border border-teal-900/70 bg-teal-950/10 overflow-hidden"><div className="px-3 py-2 border-b border-teal-900/50 flex items-center justify-between"><div><span className="text-[10px] font-semibold text-teal-300">Generated token</span>{result.warning && <span className="ml-2 text-[9px] text-amber-400">Signature intentionally invalid</span>}</div><div className="flex gap-2"><button onClick={() => onCopy(result.token)} className="text-[10px] text-zinc-400 hover:text-zinc-200 flex items-center gap-1"><Copy size={10} />Copy</button><button onClick={() => onLoadToken(result.token)} className="text-[10px] text-zinc-400 hover:text-zinc-200 flex items-center gap-1"><RotateCcw size={10} />Load</button>{onSendToRepeater && <button onClick={() => onSendToRepeater(result.token)} className="text-[10px] text-teal-400 hover:text-teal-300 flex items-center gap-1"><Send size={10} />Repeater</button>}</div></div><div className="p-3 font-mono text-[10px] text-green-300 break-all leading-relaxed">{result.token}</div>{result.probe && <div className="border-t border-teal-900/40 px-3 py-2 flex items-center gap-3"><span className={cn('text-xs font-bold font-mono', getStatusColor(result.probe.status))}>HTTP {result.probe.status || 'ERR'}</span><span className="text-[10px] text-zinc-500">{result.probe.length ?? 0} bytes</span><span className={cn('text-[9px] font-semibold', result.probe.interesting ? 'text-green-400' : 'text-zinc-600')}>{result.probe.interesting ? 'Review response' : 'Rejected by authorization'}</span></div>}</div>}
+  </div>
+}
+
+function JsonEditor({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
+  return <div className="rounded-lg border border-zinc-800 overflow-hidden"><div className="h-8 px-3 bg-zinc-900 flex items-center text-[9px] uppercase font-semibold text-zinc-500">{label}</div><textarea value={value} onChange={e => onChange(e.target.value)} spellCheck={false} className="w-full h-56 resize-none bg-zinc-950 p-3 font-mono text-[11px] leading-relaxed text-zinc-300 focus:outline-none focus:ring-1 focus:ring-teal-900" /></div>
+}
+
+function SignMode({ active, title, body, onClick }: { active: boolean; title: string; body: string; onClick: () => void }) {
+  return <button onClick={onClick} className={cn('text-left rounded-md border p-2.5 transition-colors', active ? 'border-teal-700 bg-teal-950/25' : 'border-zinc-800 bg-zinc-950/40 hover:border-zinc-700')}><div className={cn('text-[10px] font-semibold', active ? 'text-teal-300' : 'text-zinc-300')}>{title}</div><div className="text-[9px] text-zinc-600 mt-1 leading-relaxed">{body}</div></button>
 }
 
 // ── Attack info panel (description + steps) ───────────────────────────────────
@@ -1938,15 +2144,15 @@ function TokenList({ probes, onCopy, copiedToken, onSendToRepeater, jwksUrl }: {
 // ── PayloadSetEditor ──────────────────────────────────────────────────────────
 function PayloadSetEditor({ index, ps, attackType, onChange, onRemove }: {
   index: number
-  ps: { type: 'builtin' | 'custom'; builtinId: string; custom: string }
+  ps: PayloadSetConfig
   attackType: string
-  onChange: (ps: { type: 'builtin' | 'custom'; builtinId: string; custom: string }) => void
+  onChange: (ps: PayloadSetConfig) => void
   onRemove?: () => void
 }) {
   const [expanded, setExpanded] = useState(true)
   const selectedSet = PAYLOAD_SETS.find(p => p.id === ps.builtinId)
-  const count = ps.type === 'builtin' ? (selectedSet?.payloads.length ?? 0)
-    : ps.custom.split('\n').filter(l => l.trim()).length
+  const preview = payloadValues(ps)
+  const count = preview.length
 
   // Group by category
   const grouped = CATEGORY_ORDER.reduce((acc, cat) => {
@@ -1981,6 +2187,10 @@ function PayloadSetEditor({ index, ps, attackType, onChange, onRemove }: {
             <button onClick={() => onChange({ ...ps, type: 'custom' })}
               className={cn('px-2 py-1 rounded text-[11px] border', ps.type === 'custom' ? 'border-orange-600 text-orange-400 bg-orange-950/30' : 'border-zinc-700 text-zinc-500')}>
               Custom list
+            </button>
+            <button onClick={() => onChange({ ...ps, type: 'numbers' })}
+              className={cn('px-2 py-1 rounded text-[11px] border', ps.type === 'numbers' ? 'border-orange-600 text-orange-400 bg-orange-950/30' : 'border-zinc-700 text-zinc-500')}>
+              Numbers
             </button>
           </div>
 
@@ -2021,6 +2231,26 @@ function PayloadSetEditor({ index, ps, attackType, onChange, onRemove }: {
               spellCheck={false}
             />
           )}
+
+          {ps.type === 'numbers' && (
+            <div className="grid grid-cols-4 gap-2">
+              {[
+                ['Start', 'numberStart', ps.numberStart], ['End', 'numberEnd', ps.numberEnd],
+                ['Step', 'numberStep', ps.numberStep], ['Zero padding', 'numberPad', ps.numberPad],
+              ].map(([label, key, value]) => <label key={String(key)} className="text-[9px] text-zinc-500 space-y-1"><span>{label}</span><input type="number" value={Number(value)} min={key === 'numberPad' ? 0 : undefined} onChange={e => onChange({ ...ps, [key]: Number(e.target.value) } as PayloadSetConfig)} className="w-full h-8 bg-zinc-900 border border-zinc-800 rounded px-2 text-xs text-zinc-300" /></label>)}
+            </div>
+          )}
+
+          <div className="grid grid-cols-[1fr_1fr_120px] gap-2 pt-2 border-t border-zinc-800">
+            <label className="text-[9px] text-zinc-500 space-y-1"><span>Prefix</span><input value={ps.prefix} onChange={e => onChange({ ...ps, prefix: e.target.value })} placeholder="Optional" className="w-full h-8 bg-zinc-900 border border-zinc-800 rounded px-2 text-xs font-mono text-zinc-300" /></label>
+            <label className="text-[9px] text-zinc-500 space-y-1"><span>Suffix</span><input value={ps.suffix} onChange={e => onChange({ ...ps, suffix: e.target.value })} placeholder="Optional" className="w-full h-8 bg-zinc-900 border border-zinc-800 rounded px-2 text-xs font-mono text-zinc-300" /></label>
+            <label className="text-[9px] text-zinc-500 space-y-1"><span>Repeat list</span><input type="number" min={1} max={1000} value={ps.repeat} onChange={e => onChange({ ...ps, repeat: Math.max(1, Math.min(1000, Number(e.target.value) || 1)) })} className="w-full h-8 bg-zinc-900 border border-zinc-800 rounded px-2 text-xs text-zinc-300" /></label>
+          </div>
+
+          <div className="bg-zinc-950 border border-zinc-800 rounded p-2">
+            <div className="flex items-center justify-between mb-1"><span className="text-[9px] uppercase font-semibold text-zinc-600">Generated preview</span><span className="text-[9px] text-zinc-600">{count.toLocaleString()} total</span></div>
+            <div className="flex flex-wrap gap-1">{preview.slice(0, 12).map((value, i) => <code key={`${value}-${i}`} className="max-w-40 truncate rounded bg-zinc-900 px-1.5 py-0.5 text-[9px] text-orange-300" title={value}>{value}</code>)}{count > 12 && <span className="text-[9px] text-zinc-600 self-center">+{count - 12} more</span>}</div>
+          </div>
         </div>
       )}
     </div>

@@ -206,11 +206,11 @@ function App() {
     })
 
     const unsubIntruder = wsClient.subscribe('intruder', (data) => {
-      const d = data as { event: string; job_id: string; total?: number; index?: number; payload?: string; status?: number; length?: number; duration_ms?: number; error?: string | null }
+      const d = data as { event: string; job_id: string; total?: number; index?: number; payload?: string; status?: number; length?: number; duration_ms?: number; error?: string | null; request?: string; response_headers?: Record<string, string>; response_body?: string; content_type?: string }
       if (d.event === 'started') {
         setIntruderRunning(true, d.job_id, d.total)
       } else if (d.event === 'result') {
-        addIntruderResult({ index: d.index!, payload: d.payload!, status: d.status!, length: d.length!, duration_ms: d.duration_ms!, error: d.error ?? null })
+        addIntruderResult({ index: d.index!, payload: d.payload!, status: d.status!, length: d.length!, duration_ms: d.duration_ms!, error: d.error ?? null, request: d.request ?? '', response_headers: d.response_headers ?? {}, response_body: d.response_body ?? '', content_type: d.content_type ?? '' })
       } else if (d.event === 'completed' || d.event === 'cancelled' || d.event === 'error') {
         setIntruderRunning(false, null)
       }

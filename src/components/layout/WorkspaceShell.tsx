@@ -9,9 +9,9 @@ interface WorkspaceShellProps {
 
 export function WorkspaceShell({ title, subtitle, children }: WorkspaceShellProps) {
   return (
-    <div className="flex flex-1 flex-col overflow-hidden">
+    <div className="workspace-shell flex flex-1 flex-col overflow-hidden">
       <TopBar title={title} subtitle={subtitle} />
-      <main className="flex-1 overflow-auto p-4">
+      <main className="workspace-main flex-1 overflow-auto p-4">
         {children}
       </main>
     </div>

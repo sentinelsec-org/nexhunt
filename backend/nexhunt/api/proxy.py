@@ -78,23 +78,28 @@ async def _run_intruder(job_id: str, config: IntruderConfig):
                 subs = list(defaults)
                 subs[pos_idx] = payload
                 combos.append(subs)
+                if len(combos) >= config.max_requests:
+                    break
+            if len(combos) >= config.max_requests:
+                break
     elif config.attack_type == "cluster_bomb":
         pl_lists = list(config.payloads[:n_positions])
         while len(pl_lists) < n_positions:
             pl_lists.append(pl_lists[-1] if pl_lists else [''])
-        combos = [list(c) for c in itertools.product(*pl_lists)]
+        combos = [list(c) for c in itertools.islice(itertools.product(*pl_lists), config.max_requests)]
     elif config.attack_type == "pitchfork":
         pl_lists = list(config.payloads[:n_positions])
         while len(pl_lists) < n_positions:
             pl_lists.append(pl_lists[-1] if pl_lists else [''])
         min_len = min(len(p) for p in pl_lists)
-        combos = [[pl_lists[pi][i] for pi in range(n_positions)] for i in range(min_len)]
+        combos = [[pl_lists[pi][i] for pi in range(n_positions)] for i in range(min(min_len, config.max_requests))]
     else:
         combos = []
 
     total = len(combos)
     await ws_manager.broadcast("intruder", {
-        "job_id": job_id, "event": "started", "total": total
+        "job_id": job_id, "event": "started", "total": total,
+        "capped": total >= config.max_requests,
     })
 
     sem = asyncio.Semaphore(config.concurrency)
@@ -125,6 +130,10 @@ async def _run_intruder(job_id: str, config: IntruderConfig):
                     "status": resp.status_code,
                     "length": len(resp.content),
                     "duration_ms": round(duration, 1),
+                    "request": req_text[:16000],
+                    "response_headers": dict(resp.headers),
+                    "response_body": resp.text[:12000],
+                    "content_type": resp.headers.get("content-type", ""),
                     "error": None,
                 }
             except Exception as e:
@@ -132,6 +141,8 @@ async def _run_intruder(job_id: str, config: IntruderConfig):
                     "job_id": job_id, "event": "result",
                     "index": idx, "payload": payload_display,
                     "status": 0, "length": 0, "duration_ms": 0,
+                    "request": req_text[:16000],
+                    "response_headers": {}, "response_body": "", "content_type": "",
                     "error": str(e)[:120],
                 }
             await ws_manager.broadcast("intruder", result)

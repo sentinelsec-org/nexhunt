@@ -48,6 +48,10 @@ export interface IntruderResult {
   length: number
   duration_ms: number
   error: string | null
+  request: string
+  response_headers: Record<string, string>
+  response_body: string
+  content_type: string
 }
 
 function flowToRaw(flow: HttpFlow): string {
@@ -100,6 +104,7 @@ interface ProxyState {
 
   // Repeater actions
   sendToRepeater: (flow: HttpFlow) => void
+  sendRawToRepeater: (raw: string, host: string, port: number, https: boolean) => void
   addRepeaterTab: () => void
   closeRepeaterTab: (id: string) => void
   setActiveRepeaterTab: (id: string) => void
@@ -115,6 +120,7 @@ interface ProxyState {
 
   // Intruder actions
   sendToIntruder: (flow: HttpFlow) => void
+  sendRawToIntruder: (raw: string, host: string, port: number, https: boolean) => void
   setIntruderRequest: (raw: string) => void
   setIntruderTarget: (host: string, port: number, https: boolean) => void
   addIntruderResult: (result: IntruderResult) => void
@@ -179,6 +185,15 @@ export const useProxyStore = create<ProxyState>((set) => ({
     }
     set((s) => ({ repeaterTabs: [...s.repeaterTabs.slice(-9), tab], activeRepeaterTabId: id }))
   },
+  sendRawToRepeater: (raw, host, port, https) => {
+    const id = `tab-${_tabCounter++}`
+    const first = raw.split(/\r?\n/, 1)[0] || 'Request'
+    const tab: RepeaterTab = {
+      id, label: first.slice(0, 28), rawRequest: raw,
+      host, port, useHttps: https, response: null, loading: false,
+    }
+    set((s) => ({ repeaterTabs: [...s.repeaterTabs.slice(-9), tab], activeRepeaterTabId: id }))
+  },
   addRepeaterTab: () => {
     const id = `tab-${_tabCounter++}`
     const tab: RepeaterTab = {
@@ -205,6 +220,13 @@ export const useProxyStore = create<ProxyState>((set) => ({
     intruderHost: flow.request_host,
     intruderPort: flow.request_port || (flow.request_url.startsWith('https') ? 443 : 80),
     intruderHttps: flow.request_url.startsWith('https'),
+    intruderResults: [],
+  }),
+  sendRawToIntruder: (raw, host, port, https) => set({
+    intruderRequest: raw,
+    intruderHost: host,
+    intruderPort: port,
+    intruderHttps: https,
     intruderResults: [],
   }),
   setIntruderRequest: (raw) => set({ intruderRequest: raw }),

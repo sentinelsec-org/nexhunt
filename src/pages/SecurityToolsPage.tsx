@@ -16,6 +16,7 @@ import {
 import { useNavigate } from 'react-router-dom'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import type { Finding } from '@/types'
+import { JsApiMapResults } from '@/components/security/JsApiMapResults'
 
 type ToolId = 'cors' | 'bypass_403' | 'cloud_buckets' | 'exposed_files' | 'graphql_audit' | 'viewstate_audit' | 'github_scanner' | 'interactsh' | 'exploit_intel' | 'js_api_mapper'
 type ViewMode = 'findings' | 'terminal'
@@ -680,7 +681,10 @@ export function SecurityToolsPage() {
           )}
 
           {/* Findings view */}
-          {view === 'findings' && (
+          {view === 'findings' && activeTab === 'js_api_mapper' && (
+            <JsApiMapResults findings={tabFindings} running={isRunning} />
+          )}
+          {view === 'findings' && activeTab !== 'js_api_mapper' && (
             <div className="flex-1 flex gap-3 min-h-0">
               {/* Findings table */}
               <div className="flex-1 overflow-auto rounded-lg border border-zinc-800">
