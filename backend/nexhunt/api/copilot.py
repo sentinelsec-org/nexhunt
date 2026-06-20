@@ -111,7 +111,11 @@ async def analyze_secret(req: SecretAnalysisRequest):
     if not req.match:
         return {"response": "No secret provided."}
     try:
-        # Pull the full JS file so the AI sees how the secret is used, not just the line.
+        # Pull the JS file and keep only a focused window around the secret. Small
+        # free-tier providers (e.g. Groq 8k TPM) reject big requests, and the code
+        # right around the usage is what matters — not the whole bundle.
+        WINDOW = 1500   # chars of code on each side of the match
+        HEAD = 2500     # fallback when the match isn't located in the body
         file_excerpt = ""
         if req.js_url:
             import httpx
@@ -119,22 +123,18 @@ async def analyze_secret(req: SecretAnalysisRequest):
                 async with httpx.AsyncClient(verify=False, follow_redirects=True, timeout=12) as client:
                     r = await client.get(req.js_url)
                     body = r.text
-                # Keep it within model limits: head + the region around the match.
-                if len(body) > 16000:
-                    idx = body.find(req.match[:40]) if req.match else -1
-                    if idx >= 0:
-                        s, e = max(0, idx - 4000), min(len(body), idx + 4000)
-                        file_excerpt = body[:4000] + "\n...\n[region around the secret]\n" + body[s:e]
-                    else:
-                        file_excerpt = body[:16000]
+                idx = body.find(req.match[:40]) if req.match else -1
+                if idx >= 0:
+                    s, e = max(0, idx - WINDOW), min(len(body), idx + WINDOW)
+                    file_excerpt = ("...\n" if s > 0 else "") + body[s:e] + ("\n..." if e < len(body) else "")
                 else:
-                    file_excerpt = body
+                    file_excerpt = body[:HEAD] + ("\n..." if len(body) > HEAD else "")
             except Exception as fe:
                 file_excerpt = f"(could not fetch the file: {fe})"
 
         host_lines = []
-        for h in req.live_hosts[:25]:
-            techs = ", ".join(h.get("technologies", [])[:8])
+        for h in req.live_hosts[:10]:
+            techs = ", ".join(h.get("technologies", [])[:6])
             host_lines.append(f"- {h.get('url','')} [{h.get('status_code','?')}] techs=[{techs}]")
         hosts_block = "\n".join(host_lines) or "(no live-host context provided)"
 
@@ -209,7 +209,8 @@ Analyze concretely and practically with these sections:
 4. **What to test next — concrete steps:** exact API calls / curl / official CLI to validate the key and probe what it unlocks (scopes, accessible data, billing). Reference the hosts above where relevant.
 5. **Severity** and whether it's worth reporting / likely in scope."""
 
-        response = await copilot_service._dispatch(prompt, system=system)
+        # Cap completion so prompt+output fits small free-tier per-minute budgets.
+        response = await copilot_service._dispatch(prompt, system=system, max_tokens=1800)
         return {"response": response}
     except Exception as e:
         logger.error(f"Copilot analyze-secret error: {e}")

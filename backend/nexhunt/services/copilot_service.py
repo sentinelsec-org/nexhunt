@@ -333,22 +333,23 @@ class CopilotService:
         key = (settings.ai_groq_key or settings.ai_api_key) if p == "groq" else settings.ai_api_key
         return (base, key)
 
-    async def _dispatch(self, message: str, history: list[dict] | None = None, system: str | None = None) -> str:
+    async def _dispatch(self, message: str, history: list[dict] | None = None, system: str | None = None, max_tokens: int = 4096) -> str:
         # `system` overrides the default agentic SYSTEM_PROMPT for focused one-shot
         # tasks (e.g. secret triage) that should not emit nexhunt-tool blocks.
+        # `max_tokens` caps the completion (lower it to fit small free-tier TPM budgets).
         # Anthropic uses its own SDK.
         if settings.ai_provider == "claude" and settings.ai_api_key:
-            return await self._chat_claude(message, history, system)
+            return await self._chat_claude(message, history, system, max_tokens)
         # Any OpenAI-compatible provider (groq/gemini/cerebras/openrouter/deepseek/openai/custom).
         base_url, key = self._resolve_provider()
         if base_url and key:
-            return await self._chat_openai_compatible(base_url, key, message, history, system)
+            return await self._chat_openai_compatible(base_url, key, message, history, system, max_tokens)
         # Otherwise use Sentinel's hosted PRO Copilot, authorized by the license key.
         if settings.sentinel_ai_proxy_url:
-            return await self._chat_hosted(message, history, system)
+            return await self._chat_hosted(message, history, system, max_tokens)
         return "No AI provider configured. Set a provider + API key in Settings."
 
-    async def _chat_hosted(self, message: str, history: list[dict] | None = None, system: str | None = None) -> str:
+    async def _chat_hosted(self, message: str, history: list[dict] | None = None, system: str | None = None, max_tokens: int = 4096) -> str:
         """Call Sentinel's hosted Copilot proxy, authenticated by the license key."""
         import asyncio
         import httpx
@@ -362,7 +363,7 @@ class CopilotService:
             "system": system if system is not None else (SYSTEM_PROMPT + self._lang_instruction()),
             "message": message[:16000],
             "history": [h for h in (history or [])[-20:] if h.get("role") in ("user", "assistant")],
-            "max_tokens": 4096,
+            "max_tokens": max_tokens,
         }
         try:
             async with httpx.AsyncClient(timeout=95.0) as client:
@@ -381,7 +382,7 @@ class CopilotService:
             logger.error(f"Hosted Copilot error: {e}")
             return "AI Copilot is temporarily unavailable. Try again shortly."
 
-    async def _chat_openai_compatible(self, base_url: str, key: str, message: str, history: list[dict] | None = None, system: str | None = None) -> str:
+    async def _chat_openai_compatible(self, base_url: str, key: str, message: str, history: list[dict] | None = None, system: str | None = None, max_tokens: int = 4096) -> str:
         """Chat via any OpenAI-compatible API (Groq, Gemini, Cerebras, OpenRouter, DeepSeek, OpenAI, custom)."""
         import asyncio
         try:
@@ -393,7 +394,7 @@ class CopilotService:
                 client.chat.completions.create(
                     model=settings.ai_model,
                     messages=[{"role": "system", "content": system}] + self._build_messages(history, trimmed),
-                    max_tokens=4096,
+                    max_tokens=max_tokens,
                     temperature=0.3,
                 ),
                 timeout=90.0,
@@ -405,13 +406,13 @@ class CopilotService:
             logger.error(f"AI provider ({settings.ai_provider}) error: {e}")
             return f"AI provider error ({settings.ai_provider}, model {settings.ai_model}): {e}"
 
-    async def _chat_claude(self, message: str, history: list[dict] | None = None, system: str | None = None) -> str:
+    async def _chat_claude(self, message: str, history: list[dict] | None = None, system: str | None = None, max_tokens: int = 8096) -> str:
         try:
             import anthropic
             client = anthropic.AsyncAnthropic(api_key=settings.ai_api_key)
             resp = await client.messages.create(
                 model="claude-sonnet-4-6",
-                max_tokens=8096,
+                max_tokens=max_tokens,
                 system=system if system is not None else (SYSTEM_PROMPT + self._lang_instruction()),
                 messages=self._build_messages(history, message),
             )
