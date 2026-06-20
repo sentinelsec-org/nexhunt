@@ -137,13 +137,8 @@ async def run_xss_pipeline(req: PipelineRequest):
     if not dalfox_ok:
         return {"error": "dalfox is not installed"}
 
-    # Phase 1: Katana
-    await ws_manager.broadcast("pipeline", {
-        "phase": "katana", "event": "started",
-        "pipeline": "xss",
-        "message": f"Crawling {target} with Katana...",
-    })
-
+    # Phase 1: Katana (the crawl helper emits "started" only on a real crawl,
+    # so a cached reuse doesn't look like a re-run)
     try:
         all_results, param_results = await _katana_crawl_streaming(
             target, opts, pipeline="xss"
@@ -284,6 +279,14 @@ async def _katana_crawl_streaming(target: str, opts: dict, *, pipeline: str):
                 "message": f"Reusing cached crawl from {age}s ago — {len(all_results)} URLs, {len(param_results)} with params (skipped Katana)",
             })
             return list(all_results), list(param_results)
+
+    # Cache miss (or forced) — now we actually crawl. Emit "started" only here so
+    # a cache hit never shows a misleading "Crawling..." in the UI.
+    await ws_manager.broadcast("pipeline", {
+        "phase": "katana", "event": "started",
+        "pipeline": pipeline,
+        "message": f"Crawling {target} with Katana...",
+    })
 
     katana = get_adapter("katana")
     if not katana or not await katana.check_installed():
@@ -583,12 +586,6 @@ async def run_sqli_probe_pipeline(req: PipelineRequest):
     target = req.target.strip()
     opts = req.options
 
-    await ws_manager.broadcast("pipeline", {
-        "phase": "katana", "event": "started",
-        "pipeline": "sqli",
-        "message": f"Crawling {target} for injectable parameters...",
-    })
-
     try:
         all_results, param_results = await _katana_crawl_streaming(target, opts, pipeline="sqli")
     except RuntimeError as e:
@@ -804,12 +801,6 @@ async def run_js_scan_pipeline(req: PipelineRequest):
     """
     target = req.target.strip()
     opts = req.options
-
-    await ws_manager.broadcast("pipeline", {
-        "phase": "katana", "event": "started",
-        "pipeline": "js_scan",
-        "message": f"Crawling {target} to discover JS files...",
-    })
 
     try:
         all_results, _ = await _katana_crawl_streaming(target, opts, pipeline="js_scan")

@@ -195,6 +195,16 @@ const SEV_COLORS: Record<string, string> = {
   info:     'bg-zinc-800 text-zinc-400 border-zinc-700',
 }
 
+// Render plain evidence text with clickable http(s) links (e.g. bucket object URLs).
+function linkify(text: string): React.ReactNode[] {
+  const parts = text.split(/(https?:\/\/[^\s)<>"']+)/g)
+  return parts.map((part, i) =>
+    /^https?:\/\//.test(part)
+      ? <a key={i} href={part} target="_blank" rel="noreferrer" className="text-cyan-400 underline hover:text-cyan-300 break-all">{part}</a>
+      : <span key={i}>{part}</span>
+  )
+}
+
 function SevBadge({ severity }: { severity: string }) {
   return (
     <span className={cn('text-[10px] px-1.5 py-0.5 rounded border font-medium capitalize shrink-0', SEV_COLORS[severity] ?? SEV_COLORS.info)}>
@@ -702,7 +712,7 @@ export function SecurityToolsPage() {
 
               {/* Detail panel */}
               {selected && (
-                <div className="w-72 shrink-0 rounded-lg border border-zinc-800 bg-zinc-900/50 p-4 overflow-y-auto text-xs space-y-3">
+                <div className="w-96 xl:w-[480px] shrink-0 rounded-lg border border-zinc-800 bg-zinc-900/50 p-4 overflow-y-auto text-xs space-y-3">
                   <div className="flex items-start justify-between gap-2">
                     <h3 className="font-semibold text-zinc-200 leading-tight flex-1">{selected.title}</h3>
                     <button onClick={() => setSelected(null)} className="text-zinc-600 hover:text-zinc-400 shrink-0"><X size={13} /></button>
@@ -737,7 +747,7 @@ export function SecurityToolsPage() {
                           <Maximize2 size={10} /> Expand
                         </button>
                       </div>
-                      <pre className="text-[10px] bg-zinc-950 rounded p-2 overflow-auto text-zinc-400 whitespace-pre-wrap break-all leading-relaxed max-h-48">
+                      <pre className="text-[10px] bg-zinc-950 rounded p-2 overflow-auto text-zinc-400 whitespace-pre-wrap break-all leading-relaxed max-h-80">
                         {selected.evidence}
                       </pre>
                     </div>
@@ -822,7 +832,7 @@ export function SecurityToolsPage() {
               </div>
             </div>
             <pre className="overflow-auto p-4 text-[11px] leading-relaxed font-mono text-zinc-300 whitespace-pre-wrap break-all">
-              {selected.evidence}
+              {linkify(selected.evidence)}
             </pre>
           </div>
         </div>

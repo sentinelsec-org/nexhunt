@@ -966,7 +966,7 @@ export function ReconPage() {
                     : <><Route size={12} className="mr-1.5" />Check Endpoints <ChevronDown size={10} className="ml-1" /></>}
                 </Button>
                 {endpointMenuOpen && (
-                  <div className="absolute top-full left-0 mt-1 z-50 w-80 rounded-lg border border-zinc-700 bg-zinc-900 shadow-xl">
+                  <div className="absolute top-full left-0 mt-1 z-50 w-[460px] max-w-[calc(100vw-2rem)] rounded-lg border border-zinc-700 bg-zinc-900 shadow-xl">
                     {/* Target hosts */}
                     <div className="flex items-center justify-between px-3 py-2 border-b border-zinc-800">
                       <p className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wide">
@@ -990,7 +990,7 @@ export function ReconPage() {
                         onChange={e => setEndpointHostFilter(e.target.value)}
                         className="w-full text-[10px] bg-zinc-950 border border-zinc-800 rounded px-2 py-1 text-zinc-300 placeholder:text-zinc-700 focus:outline-none mb-1"
                       />
-                      <div className="max-h-32 overflow-auto">
+                      <div className="max-h-52 overflow-auto">
                         {liveHosts
                           .filter(h => !endpointHostFilter || h.url.toLowerCase().includes(endpointHostFilter.toLowerCase()))
                           .map((h, i) => {
@@ -1022,16 +1022,28 @@ export function ReconPage() {
                       </div>
                     </div>
                     {/* Categories */}
-                    <div className="px-3 py-2 border-b border-zinc-800">
-                      <p className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wide">Wordlist categories</p>
+                    <div className="flex items-center justify-between px-3 py-2 border-b border-zinc-800">
+                      <p className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wide">
+                        Wordlist categories ({selectedEndpointCats.size})
+                      </p>
+                      <div className="flex gap-1.5">
+                        <button
+                          onClick={() => setSelectedEndpointCats(new Set(ENDPOINT_CATEGORIES.map(c => c.id)))}
+                          className="text-[9px] px-1.5 py-0.5 rounded border border-zinc-700 text-zinc-400 hover:border-zinc-500 transition-colors"
+                        >All</button>
+                        <button
+                          onClick={() => setSelectedEndpointCats(new Set())}
+                          className="text-[9px] px-1.5 py-0.5 rounded border border-zinc-700 text-zinc-400 hover:border-zinc-500 transition-colors"
+                        >None</button>
+                      </div>
                     </div>
-                    <div className="py-1 max-h-52 overflow-auto">
+                    <div className="py-1 max-h-72 overflow-auto">
                       {ENDPOINT_CATEGORIES.map(cat => {
                         const checked = selectedEndpointCats.has(cat.id)
                         return (
                           <label
                             key={cat.id}
-                            className="w-full flex items-start gap-2 px-3 py-1.5 hover:bg-zinc-800 transition-colors text-left cursor-pointer"
+                            className="w-full flex items-start gap-2.5 px-3 py-2 hover:bg-zinc-800 transition-colors text-left cursor-pointer"
                           >
                             <input
                               type="checkbox"
@@ -1043,8 +1055,10 @@ export function ReconPage() {
                               })}
                               className="mt-0.5 shrink-0 accent-cyan-500"
                             />
-                            <span className="text-xs font-medium text-zinc-200 shrink-0 mt-0.5 w-28">{cat.label}</span>
-                            <span className="text-[10px] text-zinc-500 leading-snug">{cat.desc}</span>
+                            <div className="min-w-0">
+                              <div className="text-xs font-medium text-zinc-200">{cat.label}</div>
+                              <div className="text-[10px] text-zinc-500 leading-snug">{cat.desc}</div>
+                            </div>
                           </label>
                         )
                       })}
