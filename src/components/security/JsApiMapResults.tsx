@@ -27,10 +27,11 @@ const METHOD_COLOR: Record<string, string> = {
 }
 
 function parseMap(findings: Finding[]) {
-  const summary = findings.find(f => f.template_id?.startsWith('jsmap-fw-') || f.title.includes('[JS API Map] Auth framework:'))
+  const summary = findings.find(f => f.template_id?.startsWith('jsmap-fw-') || f.template_id === 'jsmap-map' || f.title.includes('[JS API Map] Auth framework:') || f.title.includes('[JS API Map] Route map:'))
   const frameworkMatch = summary?.title.match(/Auth framework:\s*(.*?)\s*[—-]\s*(\d+) routes mapped/i)
   const frameworks = frameworkMatch?.[1]?.split(',').map(v => v.trim()).filter(Boolean) ?? []
-  const mappedCount = Number(frameworkMatch?.[2] || 0)
+  const routeMapMatch = summary?.title.match(/Route map:\s*(\d+) routes mapped/i)
+  const mappedCount = Number(frameworkMatch?.[2] || routeMapMatch?.[1] || 0)
   const evidence = summary?.evidence || ''
   const basesLine = evidence.match(/API base candidates:\s*(.+)/i)?.[1] || ''
   const bases = basesLine.split(',').map(v => v.trim()).filter(Boolean)
@@ -83,8 +84,21 @@ function commandRows(finding?: Finding) {
 export function JsApiMapResults({ findings, running }: { findings: Finding[]; running: boolean }) {
   const navigate = useNavigate()
   const addFinding = useWorkspaceStore(s => s.addFinding)
-  const parsed = useMemo(() => parseMap(findings), [findings])
-  const [view, setView] = useState<MapView>('privileged')
+  const hostGroups = useMemo(() => {
+    const grouped = new Map<string, Finding[]>()
+    for (const finding of findings) {
+      let host = 'Unknown host'
+      try { host = new URL(finding.url || '').hostname || host } catch {}
+      grouped.set(host, [...(grouped.get(host) || []), finding])
+    }
+    return [...grouped.entries()]
+      .map(([host, hostFindings]) => ({ host, findings: hostFindings, parsed: parseMap(hostFindings) }))
+      .sort((a, b) => a.host.localeCompare(b.host))
+  }, [findings])
+  const [activeHost, setActiveHost] = useState<string | null>(null)
+  const activeGroup = hostGroups.find(group => group.host === activeHost) || hostGroups[0]
+  const parsed = activeGroup?.parsed || parseMap([])
+  const [view, setView] = useState<MapView>('all')
   const [filter, setFilter] = useState('')
   const [selectedKey, setSelectedKey] = useState<string | null>(null)
   const [copied, setCopied] = useState<string | null>(null)
@@ -114,6 +128,19 @@ export function JsApiMapResults({ findings, running }: { findings: Finding[]; ru
 
   return (
     <div className="flex-1 min-h-0 flex flex-col gap-3">
+      <div className="shrink-0 flex items-center gap-1 overflow-x-auto rounded-lg border border-zinc-800 bg-zinc-950/60 p-1">
+        <span className="px-2 text-[9px] font-semibold uppercase text-zinc-600 whitespace-nowrap">Hosts</span>
+        {hostGroups.map(group => {
+          const active = group.host === activeGroup?.host
+          const privileged = group.parsed.routes.filter(route => route.privileged).length
+          return <button key={group.host} onClick={() => { setActiveHost(group.host); setSelectedKey(null) }} className={cn('h-8 shrink-0 rounded-md border px-2.5 flex items-center gap-2 text-[10px] transition-colors', active ? 'border-teal-800 bg-teal-950/30 text-teal-300' : 'border-transparent text-zinc-500 hover:border-zinc-800 hover:text-zinc-300')}>
+            <span className={cn('w-1.5 h-1.5 rounded-full', group.parsed.mappedCount > 0 ? 'bg-teal-400' : 'bg-zinc-700')} />
+            <span className="font-mono">{group.host}</span>
+            <span className="text-[9px] text-zinc-600">{group.parsed.mappedCount} routes{privileged > 0 ? ` · ${privileged} privileged` : ''}</span>
+          </button>
+        })}
+      </div>
+
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-px rounded-lg border border-zinc-800 bg-zinc-800 overflow-hidden shrink-0">
         <Metric label="Framework" value={parsed.frameworks.join(', ') || 'Unknown'} accent />
         <Metric label="Routes mapped" value={String(parsed.mappedCount)} />

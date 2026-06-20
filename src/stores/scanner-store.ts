@@ -8,12 +8,14 @@ interface ScannerState {
   scanJobs: ScanJob[]
   rawOutput: Record<string, string[]>   // tool -> lines
   activeScans: Set<string>              // tools currently running
+  activeScanCounts: Record<string, number>  // supports concurrent bulk jobs per tool
   activeJobIds: Record<string, string>  // tool -> job_id (for cancellation)
   addFinding: (finding: Finding) => void
   setFindings: (findings: Finding[]) => void
   updateScanJob: (job: ScanJob) => void
   setScanJobs: (jobs: ScanJob[]) => void
   appendToolOutput: (tool: string, line: string) => void
+  clearToolOutput: (tool: string) => void
   setScanRunning: (tool: string, running: boolean) => void
   setJobId: (tool: string, jobId: string | null) => void
   clearFindings: () => void
@@ -24,6 +26,7 @@ export const useScannerStore = create<ScannerState>((set) => ({
   scanJobs: [],
   rawOutput: {},
   activeScans: new Set<string>(),
+  activeScanCounts: {},
   activeJobIds: {},
   addFinding: (finding) => set((state) => ({
     findings: [finding, ...state.findings]
@@ -40,10 +43,16 @@ export const useScannerStore = create<ScannerState>((set) => ({
     const next = [...prev, line]
     return { rawOutput: { ...state.rawOutput, [tool]: next.slice(-MAX_OUTPUT_LINES) } }
   }),
+  clearToolOutput: (tool) => set((state) => ({
+    rawOutput: { ...state.rawOutput, [tool]: [] },
+  })),
   setScanRunning: (tool, running) => set((state) => {
+    const counts = { ...state.activeScanCounts }
+    counts[tool] = Math.max(0, (counts[tool] ?? 0) + (running ? 1 : -1))
     const next = new Set(state.activeScans)
-    running ? next.add(tool) : next.delete(tool)
-    return { activeScans: next }
+    if (counts[tool] > 0) next.add(tool)
+    else { next.delete(tool); delete counts[tool] }
+    return { activeScans: next, activeScanCounts: counts }
   }),
   setJobId: (tool, jobId) => set((state) => {
     const next = { ...state.activeJobIds }
@@ -51,5 +60,5 @@ export const useScannerStore = create<ScannerState>((set) => ({
     else next[tool] = jobId
     return { activeJobIds: next }
   }),
-  clearFindings: () => set({ findings: [], scanJobs: [], rawOutput: {}, activeScans: new Set(), activeJobIds: {} })
+  clearFindings: () => set({ findings: [], scanJobs: [], rawOutput: {}, activeScans: new Set(), activeScanCounts: {}, activeJobIds: {} })
 }))

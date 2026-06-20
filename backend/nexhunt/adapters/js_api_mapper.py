@@ -103,10 +103,23 @@ def _is_privileged(path: str) -> bool:
 def _looks_like_route(path: str) -> bool:
     if _IGNORE_RE.search(path):
         return False
-    if path in ("/", "//"):
+    if path in ("/", "//") or path.startswith("//"):
         return False
     # require at least one letter (drop "/2", "/1.0" version-ish noise unless it has words)
     return bool(re.search(r'[a-zA-Z]{2,}', path))
+
+
+def _same_site_url(url: str, target: str) -> bool:
+    """Keep Recon seeds on the target host or one of its subdomains."""
+    target_host = (urlparse(target if target.startswith("http") else f"https://{target}").hostname or "").lower()
+    seed_host = (urlparse(url if url.startswith("http") else f"https://{url}").hostname or "").lower()
+    target_host = target_host.removeprefix("www.")
+    seed_host = seed_host.removeprefix("www.")
+    return bool(target_host and seed_host and (
+        seed_host == target_host
+        or seed_host.endswith(f".{target_host}")
+        or target_host.endswith(f".{seed_host}")
+    ))
 
 
 def _fingerprint(blob: str) -> list[str]:
@@ -182,7 +195,15 @@ class JsApiMapperAdapter(ToolAdapter):
 
         # JS among recon seed URLs
         js_urls += [u for u in seed_urls if u.split("?")[0].lower().endswith(".js")]
-        js_urls = list(dict.fromkeys(js_urls))[:25]
+
+        # Treat root/www variants of the same asset as one bundle.
+        unique_urls: dict[tuple[str, str, str], str] = {}
+        for url in js_urls:
+            parsed = urlparse(url)
+            host = (parsed.hostname or "").lower().removeprefix("www.")
+            key = (host, parsed.path, parsed.query)
+            unique_urls.setdefault(key, url)
+        js_urls = list(unique_urls.values())[:25]
 
         for u in js_urls:
             try:
@@ -194,12 +215,15 @@ class JsApiMapperAdapter(ToolAdapter):
         return out
 
     async def run(self, target: str, options: dict) -> AsyncIterator[dict]:
-        seed_urls = [u for u in (options.get("seed_urls") or []) if isinstance(u, str) and u]
+        seed_urls = [
+            u for u in (options.get("seed_urls") or [])
+            if isinstance(u, str) and u and _same_site_url(u, target)
+        ]
 
         async with httpx.AsyncClient(verify=False, follow_redirects=True, timeout=12) as client:
             js_files = await self._collect_js(client, target, seed_urls)
             if not js_files:
-                yield {"_raw": True, "line": "  No JS files found. Give a .js URL or a host with linked bundles, or run Recon first."}
+                yield {"_raw": True, "line": f"  No JS files found for {target}. Give a .js URL or a host with linked bundles, or run Recon first."}
                 return
 
             yield {"_raw": True, "line": f"$ js-api-mapper {target} — analyzing {len(js_files)} JS file(s)"}
@@ -245,24 +269,36 @@ class JsApiMapperAdapter(ToolAdapter):
                     # keep the meaningful actions, drop generic HTTP-verb noise
                     role_actions.update(a for a in acts if a in _INTERESTING_ACTIONS or (a not in _VERB_NOISE and "-" in a))
 
-            # ── Emit: framework summary ──
-            if frameworks:
-                route_list = "\n".join(f"  {meth:6} {p}  [{src}]" for (p, meth), src in sorted(expanded.items()))
-                yield {
-                    "_raw": False, "id": None,
-                    "title": f"[JS API Map] Auth framework: {', '.join(frameworks)} — {len(expanded)} routes mapped",
-                    "severity": "info", "vuln_type": "info-disclosure",
-                    "url": primary_base, "parameter": None,
-                    "evidence": (
-                        f"Frameworks: {', '.join(frameworks)}\nAPI base candidates: {', '.join(bases)}\n\n"
-                        f"Route map (declared in JS + expanded from the library's known API):\n{route_list}"
-                    ),
-                    "description": (
-                        "Recovered the API route map from the site's JavaScript and expanded it using the "
-                        "detected auth framework's documented endpoints. Use these for access-control testing."
-                    ),
-                    "tool": "js_api_mapper", "template_id": f"jsmap-fw-{frameworks[0]}", "status": "new",
-                }
+            # ── Emit: map summary (also when no framework/routes were found) ──
+            route_list = "\n".join(
+                f"  {meth:6} {p}  [{src}]" for (p, meth), src in sorted(expanded.items())
+            ) or "  (no API-like routes found)"
+            summary_title = (
+                f"[JS API Map] Auth framework: {', '.join(frameworks)} — {len(expanded)} routes mapped"
+                if frameworks else f"[JS API Map] Route map: {len(expanded)} routes mapped"
+            )
+            yield {
+                "_raw": False, "id": None,
+                "title": summary_title,
+                "severity": "info", "vuln_type": "info-disclosure",
+                "url": primary_base, "parameter": None,
+                "evidence": (
+                    f"Frameworks: {', '.join(frameworks) or 'none detected'}\n"
+                    f"Bundles analyzed: {len(js_files)}\n"
+                    f"API base candidates: {', '.join(bases)}\n\n"
+                    f"Route map (declared in JS + expanded from the library's known API):\n{route_list}"
+                ),
+                "description": (
+                    "Recovered the API route map from the site's JavaScript and expanded it using the detected "
+                    "auth framework's documented endpoints. Use these for access-control testing."
+                    if frameworks else
+                    "Analyzed the site's JavaScript bundles for API-like paths. Zero routes means the loaded "
+                    "scripts appear static/vendor-oriented or construct endpoints dynamically at runtime."
+                ),
+                "tool": "js_api_mapper",
+                "template_id": f"jsmap-fw-{frameworks[0]}" if frameworks else "jsmap-map",
+                "status": "new",
+            }
 
             # ── Emit: privileged routes (one finding each, with test plan) ──
             priv = sorted({(p, meth) for (p, meth) in expanded if _is_privileged(p)})

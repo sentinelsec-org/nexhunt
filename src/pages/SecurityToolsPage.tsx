@@ -32,6 +32,7 @@ const BULK_ENDPOINT: Partial<Record<ToolId, string>> = {
   exposed_files: '/api/tools/exposed-files-bulk',
   cloud_buckets: '/api/tools/cloud-buckets-bulk',
   viewstate_audit: '/api/tools/viewstate-bulk',
+  js_api_mapper: '/api/tools/js-api-mapper-bulk',
 }
 
 interface ToolDef {
@@ -251,15 +252,25 @@ export function SecurityToolsPage() {
   const [copied, setCopied] = useState(false)
   const [evidenceOpen, setEvidenceOpen] = useState(false)
   const [guideOpen, setGuideOpen] = useState(false)
+  const [selectedJsHosts, setSelectedJsHosts] = useState<string[]>([])
   const [notInstalled, setNotInstalled] = useState<Set<string>>(new Set())
   const termRef = useRef<HTMLPreElement>(null)
   const navigate = useNavigate()
 
   const { activeProject, globalTarget, getSessionOpts } = useAppStore()
   const { isPro } = useLicenseStore()
-  const { findings, rawOutput, activeScans, activeJobIds } = useScannerStore()
+  const { findings, rawOutput, activeScans, activeJobIds, clearToolOutput } = useScannerStore()
   const { liveHosts, urls } = useReconStore()
+  const jsHostUrls = [...new Set(liveHosts.map(host => host.url).filter(Boolean))]
+  const jsHostKey = jsHostUrls.join('\n')
   const { addFinding: addToWorkspace } = useWorkspaceStore()
+
+  useEffect(() => {
+    setSelectedJsHosts(previous => {
+      const stillLive = previous.filter(url => jsHostUrls.includes(url))
+      return stillLive.length > 0 ? stillLive : jsHostUrls
+    })
+  }, [jsHostKey])
 
   // Check which tools are installed once on mount
   useEffect(() => {
@@ -322,6 +333,7 @@ export function SecurityToolsPage() {
       toast.error('Enter a target first', null)
       return
     }
+    clearToolOutput(activeTab)
     try {
       await api.post(tool.endpoint, { target, options: optsFor(activeTab), project_id: activeProject ?? '' })
     } catch (err) {
@@ -363,13 +375,15 @@ export function SecurityToolsPage() {
   const handleBulkScan = async () => {
     const endpoint = BULK_ENDPOINT[activeTab]
     if (!endpoint) return
-    if (bulkTargets.length === 0) {
-      toast.error('No live hosts', 'Run HTTPX on the Recon page first to populate live hosts.')
+    const scanTargets = activeTab === 'js_api_mapper' ? selectedJsHosts : bulkTargets
+    if (scanTargets.length === 0) {
+      toast.error('No live hosts selected', 'Select one or more live hosts, or use Select all.')
       return
     }
+    clearToolOutput(activeTab)
     try {
       const res = await api.post<{ count: number }>(endpoint, {
-        targets: bulkTargets,
+        targets: scanTargets,
         options: optsFor(activeTab),
         project_id: activeProject ?? '',
       })
@@ -509,6 +523,13 @@ export function SecurityToolsPage() {
               />
             )}
 
+            {activeTab === 'js_api_mapper' && (
+              <JsApiHostPicker
+                selected={selectedJsHosts}
+                onChange={setSelectedJsHosts}
+              />
+            )}
+
             {/* Input + buttons */}
             <div className="flex gap-2">
               <Input
@@ -540,7 +561,7 @@ export function SecurityToolsPage() {
             {BULK_ENDPOINT[activeTab] && (
               <button
                 onClick={handleBulkScan}
-                disabled={isRunning || bulkTargets.length === 0 || proGated}
+                disabled={isRunning || (activeTab === 'js_api_mapper' ? selectedJsHosts.length === 0 : bulkTargets.length === 0) || proGated}
                 className={cn(
                   'w-full flex items-center justify-center gap-1.5 px-3 py-1.5 text-[11px] font-medium rounded-md border transition-colors disabled:opacity-40 disabled:cursor-not-allowed',
                   tool.border, tool.color, 'hover:bg-zinc-800/40'
@@ -549,7 +570,11 @@ export function SecurityToolsPage() {
                 <Server size={11} />
                 {activeTab === 'cloud_buckets'
                   ? `Derive buckets from ${bulkTargets.length} domains`
-                  : `Scan all live hosts (${bulkTargets.length})`}
+                  : activeTab === 'js_api_mapper'
+                    ? selectedJsHosts.length === jsHostUrls.length
+                      ? `Map all live hosts (${selectedJsHosts.length})`
+                      : `Map selected hosts (${selectedJsHosts.length})`
+                    : `Scan all live hosts (${bulkTargets.length})`}
               </button>
             )}
 
@@ -1128,6 +1153,67 @@ function LiveHostPicker({ selected, onSelect, color }: {
                   {h.title && <span className="text-[9px] text-zinc-600 truncate max-w-[80px] shrink-0">{h.title}</span>}
                 </button>
               ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function JsApiHostPicker({ selected, onChange }: {
+  selected: string[]
+  onChange: (urls: string[]) => void
+}) {
+  const { liveHosts } = useReconStore()
+  const [open, setOpen] = useState(false)
+  const [filter, setFilter] = useState('')
+  const ref = useRef<HTMLDivElement>(null)
+  const hosts = [...new Map(liveHosts.filter(host => host.url).map(host => [host.url, host])).values()]
+  const visible = hosts.filter(host => !filter || `${host.url} ${host.title || ''}`.toLowerCase().includes(filter.toLowerCase()))
+
+  useEffect(() => {
+    if (!open) return
+    const close = (event: MouseEvent) => {
+      if (ref.current && !ref.current.contains(event.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', close)
+    return () => document.removeEventListener('mousedown', close)
+  }, [open])
+
+  if (hosts.length === 0) return (
+    <div className="rounded-md border border-zinc-800 bg-zinc-950/40 px-3 py-2 text-[10px] text-zinc-600">
+      No live hosts yet. Run HTTPX in Recon, or use the single-host field below.
+    </div>
+  )
+
+  const toggle = (url: string) => onChange(
+    selected.includes(url) ? selected.filter(item => item !== url) : [...selected, url]
+  )
+
+  return (
+    <div className="relative" ref={ref}>
+      <button onClick={() => setOpen(value => !value)} className="w-full h-9 flex items-center justify-between gap-2 rounded-md border border-teal-900/70 bg-teal-950/15 px-3 text-xs text-teal-300 hover:border-teal-700 transition-colors">
+        <span className="flex items-center gap-2"><Server size={12} /><span>{selected.length} of {hosts.length} live hosts selected</span></span>
+        <ChevronDown size={12} className={cn('transition-transform', open && 'rotate-180')} />
+      </button>
+      {open && (
+        <div className="absolute z-50 top-full left-0 right-0 mt-1 rounded-lg border border-zinc-700 bg-zinc-900 shadow-xl shadow-black/50 overflow-hidden">
+          <div className="flex items-center gap-2 p-2 border-b border-zinc-800">
+            <input autoFocus value={filter} onChange={event => setFilter(event.target.value)} placeholder="Filter hostname or title" className="flex-1 h-7 rounded border border-zinc-800 bg-zinc-950 px-2 text-[10px] text-zinc-300 focus:outline-none focus:border-teal-800" />
+            <button onClick={() => onChange(hosts.map(host => host.url))} className="text-[10px] text-teal-400 hover:text-teal-300">Select all</button>
+            <button onClick={() => onChange([])} className="text-[10px] text-zinc-500 hover:text-zinc-300">Clear</button>
+          </div>
+          <div className="max-h-56 overflow-y-auto p-1">
+            {visible.map(host => {
+              const checked = selected.includes(host.url)
+              return <button key={host.url} onClick={() => toggle(host.url)} className={cn('w-full grid grid-cols-[20px_44px_minmax(0,1fr)_110px] items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-zinc-800/70', checked && 'bg-teal-950/20')}>
+                <span className={cn('w-3.5 h-3.5 rounded border grid place-items-center', checked ? 'border-teal-600 bg-teal-600 text-zinc-950' : 'border-zinc-700')}>{checked && <Check size={10} />}</span>
+                <span className={cn('text-[9px] font-mono font-semibold', host.status_code && host.status_code < 300 ? 'text-green-400' : 'text-amber-400')}>{host.status_code || '---'}</span>
+                <span className="font-mono text-[10px] text-zinc-300 truncate">{host.url}</span>
+                <span className="text-[9px] text-zinc-600 truncate">{host.title || ''}</span>
+              </button>
+            })}
+            {visible.length === 0 && <div className="px-3 py-5 text-center text-[10px] text-zinc-600">No hosts match this filter.</div>}
           </div>
         </div>
       )}

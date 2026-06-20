@@ -180,6 +180,16 @@ async def run_js_api_mapper(req: ToolRequest):
     return _start_tool("js_api_mapper", req.target, req.options, req.project_id or None)
 
 
+@router.post("/js-api-mapper-bulk")
+async def run_js_api_mapper_bulk(req: BulkToolRequest):
+    targets = list(dict.fromkeys(t.strip() for t in req.targets if t.strip()))[:50]
+    job_ids = [
+        _start_tool("js_api_mapper", target, req.options, req.project_id or None)["job_id"]
+        for target in targets
+    ]
+    return {"status": "started", "count": len(job_ids), "job_ids": job_ids}
+
+
 class MsfLaunchRequest(BaseModel):
     module: str
     rhosts: str = ""
