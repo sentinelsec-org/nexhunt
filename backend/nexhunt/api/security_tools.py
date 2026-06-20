@@ -175,6 +175,11 @@ async def run_exploit_intel(req: ToolRequest):
     return _start_tool("exploit_intel", req.target, req.options, req.project_id or None)
 
 
+@router.post("/js-api-mapper")
+async def run_js_api_mapper(req: ToolRequest):
+    return _start_tool("js_api_mapper", req.target, req.options, req.project_id or None)
+
+
 class MsfLaunchRequest(BaseModel):
     module: str
     rhosts: str = ""

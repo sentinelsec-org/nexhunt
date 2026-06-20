@@ -11,13 +11,13 @@ import { cn } from '@/lib/utils'
 import {
   Play, Square, Loader2, Terminal, Copy, Check,
   Globe, Lock, Cloud, GitBranch, Radio, Info, X, BookOpen, Sparkles,
-  FolderGit2, Server, ChevronDown, Share2, FileCode2, Crown, Maximize2, Crosshair, Rocket,
+  FolderGit2, Server, ChevronDown, Share2, FileCode2, Crown, Maximize2, Crosshair, Rocket, Waypoints,
 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import type { Finding } from '@/types'
 
-type ToolId = 'cors' | 'bypass_403' | 'cloud_buckets' | 'exposed_files' | 'graphql_audit' | 'viewstate_audit' | 'github_scanner' | 'interactsh' | 'exploit_intel'
+type ToolId = 'cors' | 'bypass_403' | 'cloud_buckets' | 'exposed_files' | 'graphql_audit' | 'viewstate_audit' | 'github_scanner' | 'interactsh' | 'exploit_intel' | 'js_api_mapper'
 type ViewMode = 'findings' | 'terminal'
 
 // PRO-only tools in prod.
@@ -156,6 +156,21 @@ const TOOLS: ToolDef[] = [
     endpoint: '/api/tools/github',
   },
   {
+    id: 'js_api_mapper',
+    label: 'JS API Mapper',
+    icon: Waypoints,
+    tagline: 'JS bundles -> API route map + auth framework + access-control plan',
+    what: 'Parses the site\'s JavaScript to recover the API route map, fingerprints the auth/backend framework (better-auth, NextAuth, Supabase, Firebase...), expands it to that library\'s full known privileged routes, and builds an access-control test plan for each.',
+    impact: 'Turns "I found a path string in a JS file" into "here is the whole admin API surface (impersonate, set-role, set-password, delete-user...) and exactly how to test each for broken access control / IDOR / account takeover".',
+    desc: 'Give it a host (it fetches the homepage + linked bundles) or a single .js URL. It extracts quoted route strings, path->method maps, and role/permission arrays; identifies the auth framework from route signatures and adds its documented admin endpoints even if the client only shipped a few; flags privileged routes (admin/impersonate/set-role/set-password/delete) and dangerous role actions; and emits a per-route anon/user/admin test plan. Pairs with the Proxy: register a normal account, grab its JWT, and replay each privileged route to see what the backend actually enforces. Auto-uses JS URLs from Recon.',
+    inputLabel: 'Host or JS bundle URL',
+    placeholder: 'https://app.target.com  or  https://app.target.com/assets/index.js',
+    color: 'text-teal-400',
+    border: 'border-teal-500/30',
+    bg: 'bg-teal-950/15',
+    endpoint: '/api/tools/js-api-mapper',
+  },
+  {
     id: 'exploit_intel',
     label: 'Exploit Intel',
     icon: Crosshair,
@@ -222,7 +237,7 @@ const TOOL_BINARY: Partial<Record<ToolId, string>> = {
 export function SecurityToolsPage() {
   const [activeTab, setActiveTab] = useState<ToolId>('cors')
   const [targets, setTargets] = useState<Record<ToolId, string>>({
-    cors: '', bypass_403: '', cloud_buckets: '', exposed_files: '', graphql_audit: '', viewstate_audit: '', github_scanner: '', interactsh: '', exploit_intel: '',
+    cors: '', bypass_403: '', cloud_buckets: '', exposed_files: '', graphql_audit: '', viewstate_audit: '', github_scanner: '', interactsh: '', exploit_intel: '', js_api_mapper: '',
   })
   const [graphqlSampleIds, setGraphqlSampleIds] = useState('')
   const [graphqlExtraQueries, setGraphqlExtraQueries] = useState('')
@@ -286,6 +301,8 @@ export function SecurityToolsPage() {
       return { ...getSessionOpts(), seed_urls: urls.map(u => u.url).filter(Boolean).slice(0, 800), test_write: cloudTestWrite }
     if (id === 'exploit_intel')
       return { ...getSessionOpts(), techs: [...new Set(liveHosts.flatMap(h => h.technologies ?? []).filter(Boolean))].slice(0, 100) }
+    if (id === 'js_api_mapper')
+      return { ...getSessionOpts(), seed_urls: urls.map(u => u.url).filter(Boolean).slice(0, 800) }
     if (id === 'graphql_audit')
       return { ...getSessionOpts(), sample_ids: graphqlSampleIds, extra_queries: graphqlExtraQueries }
     return getSessionOpts()
@@ -868,6 +885,7 @@ export function SecurityToolsPage() {
               {activeTab === 'github_scanner' && <GithubGuide />}
               {activeTab === 'interactsh' && <InteractshGuide />}
               {activeTab === 'exploit_intel' && <ExploitIntelGuide />}
+              {activeTab === 'js_api_mapper' && <JsApiMapperGuide />}
             </div>
             <div className="shrink-0 px-5 py-3 border-t border-zinc-800 bg-zinc-900 flex justify-end">
               <button
@@ -1315,6 +1333,28 @@ function InteractshGuide() {
         </div>
       </GuideSection>
       <Tip>SSRF to cloud metadata (169.254.169.254) via the OOB host is a P1. If you get a DNS callback but not HTTP, check for SSRF+DNS-only. Still worth reporting.</Tip>
+    </>
+  )
+}
+
+function JsApiMapperGuide() {
+  return (
+    <>
+      <GuideSection title="What it does">
+        <div className="space-y-1.5 text-[10px] text-zinc-500 leading-relaxed">
+          <p>Recovers the API from the client JS: <span className="text-teal-400">route strings</span>, <span className="text-teal-400">path→method maps</span>, and <span className="text-teal-400">role/permission arrays</span>.</p>
+          <p>Fingerprints the auth framework (better-auth, NextAuth, Supabase, Firebase, Laravel Sanctum) by its route signatures and <span className="text-teal-400">expands</span> to the library's full admin endpoint set — even the ones the client never calls.</p>
+          <p>Flags privileged routes (admin / impersonate / set-role / set-password / delete) and emits an access-control test plan per route.</p>
+        </div>
+      </GuideSection>
+      <GuideSection title="How to use the output">
+        <div className="space-y-1 text-[10px] text-zinc-500 leading-relaxed">
+          <p>1. Register a normal account on the target and grab its JWT/session (via the Proxy or DevTools).</p>
+          <p>2. Replay each privileged route as <code className="text-teal-400">anonymous</code> and as that <code className="text-teal-400">normal user</code>.</p>
+          <p>3. A <code className="text-green-400">2xx</code> where you expected <code className="text-orange-400">401/403</code> = broken access control. Routes with an id/param = test IDOR too.</p>
+        </div>
+      </GuideSection>
+      <Tip>The biggest wins live here: an <code className="text-red-400">impersonate-user</code> or <code className="text-red-400">set-role</code> route reachable by a normal user is account takeover / privilege escalation — usually P1.</Tip>
     </>
   )
 }

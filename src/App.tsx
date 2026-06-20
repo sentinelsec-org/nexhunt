@@ -161,7 +161,7 @@ function App() {
         else if (status.event === 'completed' || status.event === 'failed') setScreenshotRunning(false)
       }
       // Track scanner + exploit tool running state + job IDs via WS
-      const scannerTools = ['nuclei', 'ffuf', 'nikto', 'gobuster', 'dirsearch', 'sqlmap', 'dalfox', 'xsstrike', 'commix', 'cors', 'bypass_403', 'cloud_buckets', 'github_scanner', 'interactsh', 'exploit_intel']
+      const scannerTools = ['nuclei', 'ffuf', 'nikto', 'gobuster', 'dirsearch', 'sqlmap', 'dalfox', 'xsstrike', 'commix', 'cors', 'bypass_403', 'cloud_buckets', 'github_scanner', 'interactsh', 'exploit_intel', 'js_api_mapper']
       if (scannerTools.includes(status.tool)) {
         const s = data as { tool: string; event: string; job_id?: string }
         setScanRunning(s.tool, s.event === 'started')
