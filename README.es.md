@@ -11,7 +11,7 @@
 
 **Plataforma de Automatización para Bug Bounty en Linux**
 
-[![Version](https://img.shields.io/badge/version-1.2.1--beta-amber?style=flat-square)](https://github.com/sentinelsec-org/nexhunt/releases)
+[![Version](https://img.shields.io/badge/version-1.3.0--beta-amber?style=flat-square)](https://github.com/sentinelsec-org/nexhunt/releases)
 [![Platform](https://img.shields.io/badge/plataforma-Linux-green?style=flat-square)]()
 [![License](https://img.shields.io/badge/licencia-Free%20%2F%20PRO-blue?style=flat-square)](https://nexhunt.myshopify.com/products/nexhunt-pro)
 [![Made by](https://img.shields.io/badge/by-Sentinel%20Security-green?style=flat-square)](https://nexhunt.myshopify.com)
@@ -48,7 +48,7 @@ Corre **localmente en tu máquina Linux**. Sin nube, sin datos enviados a ningú
 
 ## 🗺️ El flujo completo, en una sola app
 
-### 🌐 Exposure Intelligence *(PRO)*
+### 🌐 Exposure Intelligence
 
 ![Buscador global de vulnerabilidades de NexHunt con presets, filtros por tecnologia, Shodan y Google/Bing dorks.](docs/screenshots/exposure-intel.png)
 
@@ -86,6 +86,7 @@ Encontrá lo que realmente es explotable, no solo lo detectable.
 - **Correlación de CVEs** — matchea automáticamente las tecnologías descubiertas (nginx, Apache, WordPress, Spring...) con CVEs conocidos y corre templates de nuclei específicos. Un clic por stack
 - **Brute-force de directorios** — ffuf, gobuster y dirsearch con selección inteligente de wordlists según el servidor detectado
 - **Auditoría de servidor web** — nikto detecta malas configuraciones, headers desactualizados y vulnerabilidades conocidas del servidor
+- **API Scanner** *(PRO)* — apuntá a una URL de docs Swagger/OpenAPI y prueba cada endpoint y método, anónimo vs autenticado, marcando control de acceso roto por la diferencia de status code
 
 ---
 
@@ -106,9 +107,10 @@ Chequeos especializados que la mayoría de los scanners pasan por alto.
 
 - **CORS mal configurado** — testea reflexión de origin, exposición de credenciales y políticas wildcard en todos los hosts activos
 - **Bypass de 403** — prueba 20+ técnicas de bypass (inyección de headers, normalización de paths, verb tampering) en endpoints prohibidos
-- **Exposición de buckets cloud** — descubre buckets S3, GCS y Azure Blob mal configurados asociados al target
+- **Exposición de buckets cloud** *(PRO)* — descubre buckets S3, GCS y Azure Blob mal configurados asociados al target, con prueba opcional de write-takeover
 - **Escaneo de secretos GitHub** — TruffleHog escanea los repositorios públicos de la org objetivo buscando credenciales filtradas, API keys y tokens
 - **Interacciones OOB** — listener de interactsh para callbacks DNS/HTTP de puntos de inyección ciegos
+- **JS API Mapper** *(PRO)* — convierte bundles JS en un mapa de ataque de API: framework, bases de API, rutas y una matriz de acceso anónimo/usuario/admin
 
 ---
 
@@ -160,20 +162,23 @@ El tier gratuito es genuinamente útil. Sin límites de tiempo, sin degradación
 | Scanner objetivo único (nuclei, ffuf, nikto, gobuster, dirsearch) | ✅ | ✅ |
 | Correlación de CVEs por tecnología | ✅ | ✅ |
 | Explotación objetivo único (sqlmap, dalfox, xsstrike, commix) | ✅ | ✅ |
-| Herramientas de seguridad (CORS, bypass 403, cloud buckets, secretos GitHub) | ✅ | ✅ |
+| Herramientas de seguridad (CORS, bypass 403, secretos GitHub, archivos expuestos) | ✅ | ✅ |
 | Proxy captura + editor + repeater | ✅ | ✅ |
 | BD de hallazgos + proyectos + metodología | ✅ | ✅ |
 | Terminal integrada + gestión de sesión | ✅ | ✅ |
-| **Exposure Intelligence** (Shodan, dorks y endpoints del proyecto) | ❌ | ✅ |
+| **Exposure Intelligence** (Shodan, dorks y endpoints del proyecto) | ✅ | ✅ |
+| Suite WordPress + fuerza bruta de credenciales | ✅ | ✅ |
+| GraphQL Auditor + VIEWSTATE Auditor | ✅ | ✅ |
+| Pipeline automatizado de XSS + pipeline de JS Secrets | ✅ | ✅ |
 | **AI Copilot** (análisis, sugerencias, generación de reportes) | ❌ | ✅ |
-| **Pipelines automatizados** (cadena completa XSS/SQLi/JS) | ❌ | ✅ |
+| **API Scanner** (prueba de endpoints OpenAPI/Swagger, anónimo vs autenticado) | ❌ | ✅ |
+| **Cloud buckets** (S3/GCS/Azure, prueba de write-takeover) | ❌ | ✅ |
+| **JS API Mapper** (bundles JS → mapa de ataque de API) | ❌ | ✅ |
+| **Pipeline automatizado de SQLi** (Katana → minado de JS → prueba en 3 capas) | ❌ | ✅ |
 | **Escaneo masivo** (nuclei-bulk, recon completo en todos los hosts) | ❌ | ✅ |
-| **Check de takeovers** masivo en subdominios descubiertos | ❌ | ✅ |
 | **Endpoint check** masivo en URLs descubiertas | ❌ | ✅ |
-| **CORS bulk** en todos los hosts activos | ❌ | ✅ |
 | **Proxy Intruder** (cluster bomb / pitchfork) | ❌ | ✅ |
 | **Suite JWT** (confusión de algoritmos, inyección de keys, falsificación de claims) | ❌ | ✅ |
-| **Lógica de negocio** (IDOR, race conditions, param fuzzing) | ❌ | ✅ |
 | Soporte prioritario | ❌ | ✅ |
 
 **[→ Obtener PRO en nexhunt.myshopify.com](https://nexhunt.myshopify.com/products/nexhunt-pro)**
@@ -260,6 +265,6 @@ NexHunt es software propietario. El **tier gratuito** es libre de usar indefinid
 
 Hecho con 🖤 por **[Sentinel Security](https://nexhunt.myshopify.com)**
 
-*NexHunt v1.2.1 beta — Linux*
+*NexHunt v1.3.0 beta — Linux*
 
 </div>

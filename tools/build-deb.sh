@@ -114,6 +114,11 @@ step "Building .deb"
 dpkg-deb --build "$DEBROOT" "$DIST/${PKG}.deb"
 ok "$DIST/${PKG}.deb"
 
+if [ -f "$DIST/SHA256SUMS" ]; then
+    (cd "$DIST" && sha256sum "${PKG}.deb" >> SHA256SUMS)
+    ok "Added ${PKG}.deb to SHA256SUMS"
+fi
+
 echo
 echo "Install locally with:"
 echo "  sudo apt install $DIST/${PKG}.deb"
