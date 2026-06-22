@@ -9,12 +9,13 @@ import logging
 import time
 import uuid
 import httpx
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import Literal, Optional
+from nexhunt.licensing.guard import require_pro
 
-router = APIRouter(prefix="/api/jwt", tags=["jwt"])
+router = APIRouter(prefix="/api/jwt", tags=["jwt"], dependencies=[Depends(require_pro("JWT Attack Suite"))])
 
 # In-memory keypair store for jku/x5u attacks
 _jwt_keypairs: dict[str, dict] = {}

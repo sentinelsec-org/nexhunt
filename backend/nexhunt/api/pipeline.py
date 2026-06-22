@@ -14,9 +14,10 @@ import logging
 import asyncio
 from urllib.parse import urlparse, parse_qs, urlencode, urlunparse, quote, urljoin
 from pydantic import BaseModel
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from nexhunt.adapters.base import get_adapter
 from nexhunt.ws.manager import ws_manager
+from nexhunt.licensing.guard import require_pro
 
 router = APIRouter(prefix="/api/pipeline", tags=["pipeline"])
 logger = logging.getLogger(__name__)
@@ -46,6 +47,66 @@ def _crawl_cache_key(target: str, opts: dict) -> str:
 class PipelineRequest(BaseModel):
     target: str
     options: dict = {}
+    project_id: str = ""
+
+
+# ── Persistence ──────────────────────────────────────────────────────────────
+# Pipeline findings only ever lived in the frontend's in-memory pipeline store —
+# lost on every restart. Save them to the same `findings` table every other tool
+# uses, mirroring api/security_tools.py::_run_tool_bg's save block.
+
+async def _persist_finding(finding: dict, project_id: str | None) -> dict:
+    import uuid
+    from nexhunt.database import DefaultSession
+    from nexhunt.models.finding import Finding
+
+    finding_id = str(uuid.uuid4())
+    try:
+        async with DefaultSession() as session:
+            session.add(Finding(
+                id=finding_id,
+                project_id=project_id or None,
+                title=finding.get("title", ""),
+                severity=finding.get("severity", "info"),
+                vuln_type=finding.get("vuln_type"),
+                url=finding.get("url"),
+                parameter=finding.get("parameter"),
+                evidence=(finding.get("evidence") or "")[:20000],
+                description=finding.get("description"),
+                tool=finding.get("tool"),
+                template_id=finding.get("template_id"),
+                status=finding.get("status", "new"),
+            ))
+            await session.commit()
+        finding["id"] = finding_id
+    except Exception as e:
+        logger.warning(f"Pipeline finding DB save failed: {e}")
+    finding["project_id"] = project_id or ""
+    return finding
+
+
+def _sqli_to_finding(f: dict) -> dict:
+    method_label = {"error-based": "SQL Error", "boolean-based": "Boolean-based", "time-based": "Time-based"}.get(f.get("method", ""), f.get("method", ""))
+    severity = "critical" if f.get("method") == "error-based" else "high"
+    return {
+        "title": f"[SQLi Pipeline] {method_label} — param: {f.get('parameter')}",
+        "severity": severity, "vuln_type": "sqli",
+        "url": f.get("original_url") or f.get("url"), "parameter": f.get("parameter"),
+        "evidence": f"{f.get('evidence', '')}\n\nPoC: {f.get('url')}",
+        "description": f"Potential SQL injection via {method_label} probing. Confirm with sqlmap before reporting.",
+        "tool": "sqli_pipeline", "template_id": f.get("type"), "status": "new",
+    }
+
+
+def _secret_to_finding(f: dict) -> dict:
+    return {
+        "title": f"[JS Secret] {f.get('label')} in {f.get('js_url')}",
+        "severity": f.get("severity", "info"), "vuln_type": "secret-exposure",
+        "url": f.get("js_url"), "parameter": None,
+        "evidence": f"Line {f.get('line')}: {f.get('match')}\n\nContext: {f.get('context')}",
+        "description": f"Potential {f.get('label')} exposed in client-side JavaScript.",
+        "tool": "js_scan_pipeline", "template_id": f.get("label"), "status": "new",
+    }
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -131,6 +192,7 @@ async def run_xss_pipeline(req: PipelineRequest):
     """
     target = req.target.strip()
     opts = req.options
+    project_id = req.project_id or None
 
     dalfox = get_adapter("dalfox")
     dalfox_ok = dalfox and await dalfox.check_installed()
@@ -238,6 +300,7 @@ async def run_xss_pipeline(req: PipelineRequest):
 
     findings = []
     async for finding in dalfox.run(target, dalfox_opts):
+        finding = await _persist_finding(finding, project_id)
         findings.append(finding)
         await ws_manager.broadcast("findings", finding)
         await ws_manager.broadcast("pipeline", {
@@ -575,7 +638,7 @@ async def _probe_sqli(url: str, cookie: str | None, extra_headers: dict | None =
     return findings
 
 
-@router.post("/sqli_probe")
+@router.post("/sqli_probe", dependencies=[Depends(require_pro("SQLi Probe pipeline"))])
 async def run_sqli_probe_pipeline(req: PipelineRequest):
     """
     SQLi probe pipeline:
@@ -585,6 +648,7 @@ async def run_sqli_probe_pipeline(req: PipelineRequest):
     """
     target = req.target.strip()
     opts = req.options
+    project_id = req.project_id or None
 
     try:
         all_results, param_results = await _katana_crawl_streaming(target, opts, pipeline="sqli")
@@ -679,6 +743,8 @@ async def run_sqli_probe_pipeline(req: PipelineRequest):
         for findings in results:
             for finding in findings:
                 all_findings.append(finding)
+                saved = await _persist_finding(_sqli_to_finding(finding), project_id)
+                await ws_manager.broadcast("findings", saved)
                 await ws_manager.broadcast("pipeline", {
                     "phase": "sqli_probe", "event": "finding",
                     "pipeline": "sqli",
@@ -801,6 +867,7 @@ async def run_js_scan_pipeline(req: PipelineRequest):
     """
     target = req.target.strip()
     opts = req.options
+    project_id = req.project_id or None
 
     try:
         all_results, _ = await _katana_crawl_streaming(target, opts, pipeline="js_scan")
@@ -890,6 +957,8 @@ async def run_js_scan_pipeline(req: PipelineRequest):
                 findings = _grep_js(url, content)
                 for f in findings:
                     all_findings.append(f)
+                    saved = await _persist_finding(_secret_to_finding(f), project_id)
+                    await ws_manager.broadcast("findings", saved)
                     await ws_manager.broadcast("pipeline", {
                         "phase": "js_scan", "event": "finding",
                         "pipeline": "js_scan",
@@ -919,6 +988,7 @@ async def run_js_scan_pipeline(req: PipelineRequest):
                     continue
                 # ASP.NET __VIEWSTATE mining (decode + secret scan, no extra request)
                 for vf in viewstate_findings_from_html(page_url, content):
+                    vf = await _persist_finding(vf, project_id)
                     all_findings.append(vf)
                     await ws_manager.broadcast("findings", vf)
                     await ws_manager.broadcast("pipeline", {
@@ -933,6 +1003,8 @@ async def run_js_scan_pipeline(req: PipelineRequest):
                 bucket_refs |= _buckets_from_text(inline)
                 for f in _grep_js(page_url, inline):
                     all_findings.append(f)
+                    saved = await _persist_finding(_secret_to_finding(f), project_id)
+                    await ws_manager.broadcast("findings", saved)
                     await ws_manager.broadcast("pipeline", {
                         "phase": "js_scan", "event": "finding",
                         "pipeline": "js_scan",
@@ -958,6 +1030,7 @@ async def run_js_scan_pipeline(req: PipelineRequest):
                     for it in items:
                         if it.get("_raw"):
                             continue
+                        it = await _persist_finding(it, project_id)
                         all_findings.append(it)
                         await ws_manager.broadcast("findings", it)
                         await ws_manager.broadcast("pipeline", {

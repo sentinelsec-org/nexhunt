@@ -22,28 +22,31 @@ import {
   KeyRound,
   ChevronDown,
   ChevronUp,
-  ShieldCheck,
   Lock,
   Crown,
-  Zap,
-  Newspaper,
   Search,
 } from 'lucide-react'
 
 const navSections = [
   {
-    title: 'Workflow',
+    title: 'Recon',
     items: [
-      { path: '/recon',          icon: Radar,        label: 'Recon',           requiresProject: true  },
-      { path: '/exposure-intel', icon: Search,       label: 'Exposure Intel', requiresProject: false, pro: true },
-      { path: '/proxy',          icon: Globe,         label: 'Proxy',           requiresProject: true  },
-      { path: '/scanner',        icon: ScanSearch,    label: 'Scanner',         requiresProject: true  },
-      { path: '/security-tools', icon: ShieldCheck,   label: 'Attacks',         requiresProject: true  },
-      { path: '/wordpress',      icon: Newspaper,     label: 'WordPress',       requiresProject: true, pro: true },
-      { path: '/exploit',        icon: Swords,        label: 'Exploit',         requiresProject: true  },
-      { path: '/pipelines',      icon: Zap,           label: 'Pipelines',       requiresProject: true  },
-      { path: '/brute-force',    icon: KeyRound,      label: 'Brute Force',     requiresProject: true, pro: true },
-      { path: '/workspace',      icon: BookOpen,      label: 'Workspace',       requiresProject: true  },
+      { path: '/recon',          icon: Radar,         label: 'Recon',          requiresProject: true  },
+      { path: '/exposure-intel', icon: Search,        label: 'Exposure Intel', requiresProject: false },
+      { path: '/proxy',          icon: Globe,         label: 'Proxy',          requiresProject: true  },
+    ],
+  },
+  {
+    title: 'Testing',
+    items: [
+      { path: '/scan',           icon: ScanSearch,    label: 'Scan',           requiresProject: true  },
+      { path: '/offense',        icon: Swords,        label: 'Exploit',        requiresProject: true  },
+    ],
+  },
+  {
+    title: 'Report',
+    items: [
+      { path: '/workspace',      icon: BookOpen,      label: 'Workspace',      requiresProject: true  },
     ],
   },
   {

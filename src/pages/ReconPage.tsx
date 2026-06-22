@@ -966,115 +966,122 @@ export function ReconPage() {
                     : <><Route size={12} className="mr-1.5" />Check Endpoints <ChevronDown size={10} className="ml-1" /></>}
                 </Button>
                 {endpointMenuOpen && (
-                  <div className="absolute top-full left-0 mt-1 z-50 w-[460px] max-w-[calc(100vw-2rem)] rounded-lg border border-zinc-700 bg-zinc-900 shadow-xl">
-                    {/* Target hosts */}
-                    <div className="flex items-center justify-between px-3 py-2 border-b border-zinc-800">
-                      <p className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wide">
-                        Target hosts ({selectedEndpointHosts.size > 0 ? selectedEndpointHosts.size : liveHosts.length})
-                      </p>
-                      <div className="flex gap-1.5">
-                        <button
-                          onClick={() => setSelectedEndpointHosts(new Set())}
-                          className="text-[9px] px-1.5 py-0.5 rounded border border-zinc-700 text-zinc-400 hover:border-zinc-500 transition-colors"
-                        >All</button>
-                        <button
-                          onClick={() => setSelectedEndpointHosts(new Set(['__none__']))}
-                          className="text-[9px] px-1.5 py-0.5 rounded border border-zinc-700 text-zinc-400 hover:border-zinc-500 transition-colors"
-                        >None</button>
+                  <div className="absolute top-full left-0 mt-1 z-50 w-[760px] max-w-[calc(100vw-2rem)] rounded-lg border border-zinc-700 bg-zinc-900 shadow-xl shadow-black/50">
+                    <div className="grid grid-cols-2 divide-x divide-zinc-800">
+                      {/* Target hosts */}
+                      <div className="flex flex-col min-h-0">
+                        <div className="flex items-center justify-between px-3.5 py-3 border-b border-zinc-800">
+                          <p className="text-[11px] font-semibold text-zinc-400 uppercase tracking-wide">
+                            Target hosts ({selectedEndpointHosts.size > 0 ? selectedEndpointHosts.size : liveHosts.length})
+                          </p>
+                          <div className="flex gap-1.5">
+                            <button
+                              onClick={() => setSelectedEndpointHosts(new Set())}
+                              className="text-[10px] px-2 py-1 rounded border border-zinc-700 text-zinc-400 hover:border-zinc-500 transition-colors"
+                            >All</button>
+                            <button
+                              onClick={() => setSelectedEndpointHosts(new Set(['__none__']))}
+                              className="text-[10px] px-2 py-1 rounded border border-zinc-700 text-zinc-400 hover:border-zinc-500 transition-colors"
+                            >None</button>
+                          </div>
+                        </div>
+                        <div className="px-2 py-2 border-b border-zinc-800">
+                          <input
+                            type="text" placeholder="Filter hosts..."
+                            value={endpointHostFilter}
+                            onChange={e => setEndpointHostFilter(e.target.value)}
+                            className="w-full text-[11px] bg-zinc-950 border border-zinc-800 rounded px-2.5 py-1.5 text-zinc-300 placeholder:text-zinc-700 focus:outline-none"
+                          />
+                        </div>
+                        <div className="max-h-[22rem] overflow-auto flex-1 p-1">
+                          {liveHosts
+                            .filter(h => !endpointHostFilter || h.url.toLowerCase().includes(endpointHostFilter.toLowerCase()))
+                            .map((h, i) => {
+                              // empty selection = all hosts implicitly checked
+                              const checked = selectedEndpointHosts.size === 0 || selectedEndpointHosts.has(h.url)
+                              return (
+                                <label key={i} className="w-full flex items-center gap-2.5 px-2.5 py-2 hover:bg-zinc-800 transition-colors cursor-pointer rounded">
+                                  <input
+                                    type="checkbox"
+                                    checked={checked}
+                                    onChange={() => setSelectedEndpointHosts(prev => {
+                                      // Materialize implicit "all" (or the "none" sentinel) into a concrete set before toggling
+                                      const base = prev.size === 0
+                                        ? new Set(liveHosts.map(x => x.url))
+                                        : new Set([...prev].filter(u => u !== '__none__'))
+                                      if (base.has(h.url)) base.delete(h.url); else base.add(h.url)
+                                      return base.size === 0 ? new Set(['__none__']) : base
+                                    })}
+                                    className="shrink-0 accent-cyan-500 w-3.5 h-3.5"
+                                  />
+                                  <span className={cn('text-[11px] font-mono font-bold shrink-0',
+                                    h.status_code && h.status_code < 300 ? 'text-green-400' :
+                                    h.status_code && h.status_code < 400 ? 'text-yellow-400' : 'text-orange-400'
+                                  )}>{h.status_code ?? '?'}</span>
+                                  <span className="text-[11px] text-zinc-300 font-mono truncate flex-1">{h.url}</span>
+                                </label>
+                              )
+                            })}
+                        </div>
                       </div>
-                    </div>
-                    <div className="px-1.5 py-1.5 border-b border-zinc-800">
-                      <input
-                        type="text" placeholder="Filter hosts..."
-                        value={endpointHostFilter}
-                        onChange={e => setEndpointHostFilter(e.target.value)}
-                        className="w-full text-[10px] bg-zinc-950 border border-zinc-800 rounded px-2 py-1 text-zinc-300 placeholder:text-zinc-700 focus:outline-none mb-1"
-                      />
-                      <div className="max-h-52 overflow-auto">
-                        {liveHosts
-                          .filter(h => !endpointHostFilter || h.url.toLowerCase().includes(endpointHostFilter.toLowerCase()))
-                          .map((h, i) => {
-                            // empty selection = all hosts implicitly checked
-                            const checked = selectedEndpointHosts.size === 0 || selectedEndpointHosts.has(h.url)
+
+                      {/* Categories */}
+                      <div className="flex flex-col min-h-0">
+                        <div className="flex items-center justify-between px-3.5 py-3 border-b border-zinc-800">
+                          <p className="text-[11px] font-semibold text-zinc-400 uppercase tracking-wide">
+                            Wordlist categories ({selectedEndpointCats.size})
+                          </p>
+                          <div className="flex gap-1.5">
+                            <button
+                              onClick={() => setSelectedEndpointCats(new Set(ENDPOINT_CATEGORIES.map(c => c.id)))}
+                              className="text-[10px] px-2 py-1 rounded border border-zinc-700 text-zinc-400 hover:border-zinc-500 transition-colors"
+                            >All</button>
+                            <button
+                              onClick={() => setSelectedEndpointCats(new Set())}
+                              className="text-[10px] px-2 py-1 rounded border border-zinc-700 text-zinc-400 hover:border-zinc-500 transition-colors"
+                            >None</button>
+                          </div>
+                        </div>
+                        <div className="max-h-[22rem] overflow-auto flex-1 p-1">
+                          {ENDPOINT_CATEGORIES.map(cat => {
+                            const checked = selectedEndpointCats.has(cat.id)
                             return (
-                              <label key={i} className="w-full flex items-center gap-2 px-1.5 py-1 hover:bg-zinc-800 transition-colors cursor-pointer rounded">
+                              <label
+                                key={cat.id}
+                                className="w-full flex items-start gap-2.5 px-2.5 py-2.5 hover:bg-zinc-800 transition-colors text-left cursor-pointer rounded"
+                              >
                                 <input
                                   type="checkbox"
                                   checked={checked}
-                                  onChange={() => setSelectedEndpointHosts(prev => {
-                                    // Materialize implicit "all" (or the "none" sentinel) into a concrete set before toggling
-                                    const base = prev.size === 0
-                                      ? new Set(liveHosts.map(x => x.url))
-                                      : new Set([...prev].filter(u => u !== '__none__'))
-                                    if (base.has(h.url)) base.delete(h.url); else base.add(h.url)
-                                    return base.size === 0 ? new Set(['__none__']) : base
+                                  onChange={() => setSelectedEndpointCats(prev => {
+                                    const next = new Set(prev)
+                                    if (next.has(cat.id)) next.delete(cat.id); else next.add(cat.id)
+                                    return next
                                   })}
-                                  className="shrink-0 accent-cyan-500"
+                                  className="mt-0.5 shrink-0 accent-cyan-500 w-3.5 h-3.5"
                                 />
-                                <span className={cn('text-[10px] font-mono font-bold shrink-0',
-                                  h.status_code && h.status_code < 300 ? 'text-green-400' :
-                                  h.status_code && h.status_code < 400 ? 'text-yellow-400' : 'text-orange-400'
-                                )}>{h.status_code ?? '?'}</span>
-                                <span className="text-[10px] text-zinc-300 font-mono truncate flex-1">{h.url}</span>
+                                <div className="min-w-0">
+                                  <div className="text-[13px] font-medium text-zinc-200">{cat.label}</div>
+                                  <div className="text-[11px] text-zinc-500 leading-snug mt-0.5">{cat.desc}</div>
+                                </div>
                               </label>
                             )
                           })}
+                        </div>
                       </div>
-                    </div>
-                    {/* Categories */}
-                    <div className="flex items-center justify-between px-3 py-2 border-b border-zinc-800">
-                      <p className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wide">
-                        Wordlist categories ({selectedEndpointCats.size})
-                      </p>
-                      <div className="flex gap-1.5">
-                        <button
-                          onClick={() => setSelectedEndpointCats(new Set(ENDPOINT_CATEGORIES.map(c => c.id)))}
-                          className="text-[9px] px-1.5 py-0.5 rounded border border-zinc-700 text-zinc-400 hover:border-zinc-500 transition-colors"
-                        >All</button>
-                        <button
-                          onClick={() => setSelectedEndpointCats(new Set())}
-                          className="text-[9px] px-1.5 py-0.5 rounded border border-zinc-700 text-zinc-400 hover:border-zinc-500 transition-colors"
-                        >None</button>
-                      </div>
-                    </div>
-                    <div className="py-1 max-h-72 overflow-auto">
-                      {ENDPOINT_CATEGORIES.map(cat => {
-                        const checked = selectedEndpointCats.has(cat.id)
-                        return (
-                          <label
-                            key={cat.id}
-                            className="w-full flex items-start gap-2.5 px-3 py-2 hover:bg-zinc-800 transition-colors text-left cursor-pointer"
-                          >
-                            <input
-                              type="checkbox"
-                              checked={checked}
-                              onChange={() => setSelectedEndpointCats(prev => {
-                                const next = new Set(prev)
-                                if (next.has(cat.id)) next.delete(cat.id); else next.add(cat.id)
-                                return next
-                              })}
-                              className="mt-0.5 shrink-0 accent-cyan-500"
-                            />
-                            <div className="min-w-0">
-                              <div className="text-xs font-medium text-zinc-200">{cat.label}</div>
-                              <div className="text-[10px] text-zinc-500 leading-snug">{cat.desc}</div>
-                            </div>
-                          </label>
-                        )
-                      })}
                     </div>
                     {/* Scan actions */}
-                    <div className="flex items-center gap-2 px-3 py-2 border-t border-zinc-800">
+                    <div className="flex items-center gap-2 px-3.5 py-3 border-t border-zinc-800">
                       <button
                         onClick={() => handleCheckEndpoints([...selectedEndpointCats])}
                         disabled={selectedEndpointCats.size === 0}
-                        className="flex-1 text-[10px] font-semibold px-2 py-1 rounded border border-cyan-700 text-cyan-400 hover:bg-cyan-950/40 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                        className="flex-1 text-[11px] font-semibold px-3 py-2 rounded border border-cyan-700 text-cyan-400 hover:bg-cyan-950/40 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                       >
                         Scan {selectedEndpointCats.size} cats → {selectedEndpointHosts.has('__none__') ? 0 : selectedEndpointHosts.size > 0 ? selectedEndpointHosts.size : liveHosts.length} hosts
                       </button>
                       <button
                         onClick={() => handleCheckEndpoints(ENDPOINT_CATEGORIES.map(c => c.id))}
-                        className="text-[10px] px-2 py-1 rounded border border-zinc-700 text-zinc-300 hover:bg-zinc-800 transition-colors"
+                        className="text-[11px] px-3 py-2 rounded border border-zinc-700 text-zinc-300 hover:bg-zinc-800 transition-colors"
                       >
                         All cats
                       </button>

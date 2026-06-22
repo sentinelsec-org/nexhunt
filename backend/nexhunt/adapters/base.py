@@ -204,6 +204,7 @@ def _build_registry() -> dict[str, "ToolAdapter"]:
     from nexhunt.adapters.wpscan import WpscanAdapter
     from nexhunt.adapters.exploit_intel import ExploitIntelAdapter
     from nexhunt.adapters.js_api_mapper import JsApiMapperAdapter
+    from nexhunt.adapters.api_scanner import ApiScannerAdapter
 
     adapters = [
         SubfinderAdapter(), AmassAdapter(), HttpxAdapter(), NmapAdapter(),
@@ -215,7 +216,7 @@ def _build_registry() -> dict[str, "ToolAdapter"]:
         CorsScannerAdapter(), Bypass403Adapter(), CloudBucketsAdapter(),
         InteractshAdapter(), GithubScannerAdapter(), ExposedFilesAdapter(),
         GraphqlAuditAdapter(), ViewStateAuditAdapter(), WpscanAdapter(),
-        ExploitIntelAdapter(), JsApiMapperAdapter(),
+        ExploitIntelAdapter(), JsApiMapperAdapter(), ApiScannerAdapter(),
     ]
     return {a.name: a for a in adapters}
 

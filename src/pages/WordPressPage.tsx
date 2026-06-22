@@ -32,7 +32,7 @@ const PRIO_STYLE: Record<ActionPriority, string> = {
   info:     'text-zinc-500 bg-zinc-900 border-zinc-800',
 }
 
-export function WordPressPage() {
+export function WordPressPage({ embedded }: { embedded?: boolean }) {
   const navigate = useNavigate()
   const { globalTarget, setGlobalTarget, activeProject, getSessionOpts, setPendingCommand } = useAppStore()
   const [target, setTargetLocal] = useState(globalTarget)
@@ -127,7 +127,7 @@ export function WordPressPage() {
   }
 
   return (
-    <WorkspaceShell title="WordPress" subtitle="Black-box WordPress pentest powered by WPScan">
+    <WorkspaceShell title="WordPress" subtitle="Black-box WordPress pentest powered by WPScan" embedded={embedded}>
       <div className="flex flex-col gap-4 max-w-[1400px]">
         {/* Status banner */}
         <div className="flex flex-wrap items-center gap-3 rounded-xl border border-zinc-800 bg-zinc-900/50 px-4 py-2.5">

@@ -10,12 +10,16 @@ import { usePipelineStore, type PipelineRun } from '@/stores/pipeline-store'
 
 import { useReconStore } from '@/stores/recon-store'
 import { useAppStore } from '@/stores/app-store'
+import { useScannerStore } from '@/stores/scanner-store'
 import { useLicenseStore } from '@/stores/license-store'
 import {
   Play, Loader2, Database, Zap, Bug, Trash2, FileCode,
   ChevronDown, Server, Settings2, CheckSquare, Square as SquareIcon,
-  Sparkles, X,
+  Sparkles, X, History, Crown,
 } from 'lucide-react'
+
+// Tools tagged by the pipelines themselves — used to show persisted results after a restart.
+const PIPELINE_TOOLS = ['dalfox', 'sqli_pipeline', 'js_scan_pipeline', 'viewstate_audit', 'cloud_buckets']
 
 const ACCENTS = {
   xss: {
@@ -35,11 +39,14 @@ const ACCENTS = {
   },
 }
 
-export function PipelinesPage() {
-  const { globalTarget, setGlobalTarget, getSessionOpts } = useAppStore()
+export function PipelinesPage({ embedded }: { embedded?: boolean }) {
+  const { globalTarget, setGlobalTarget, getSessionOpts, activeProject } = useAppStore()
+  const isPro = useLicenseStore((s) => s.isPro())
+  const { findings } = useScannerStore()
   const [pipelineTarget, setPipelineTargetLocal] = useState(globalTarget)
   const [selectedHosts, setSelectedHosts] = useState<string[]>([])
   const [multiProgress, setMultiProgress] = useState<{ current: number; total: number } | null>(null)
+  const previousFindings = findings.filter(f => f.tool && PIPELINE_TOOLS.includes(f.tool))
 
   useEffect(() => {
     if (globalTarget && !pipelineTarget) setPipelineTargetLocal(globalTarget)
@@ -52,7 +59,6 @@ export function PipelinesPage() {
 
   const { runs, activeRunId, startRun, clearRuns } = usePipelineStore()
   const { liveHosts } = useReconStore()
-  const { isPro } = useLicenseStore()
   const logRef = useRef<HTMLPreElement>(null)
   const [viewRunId, setViewRunId] = useState<string | null>(null)
 
@@ -125,6 +131,7 @@ export function PipelinesPage() {
       const sess = getSessionOpts()
       await api.post('/api/pipeline/xss', {
         target,
+        project_id: activeProject ?? '',
         options: {
           depth: parseInt(xssOpts.depth) || 3,
           concurrency: parseInt(xssOpts.concurrency) || 10,
@@ -154,6 +161,7 @@ export function PipelinesPage() {
       const sess = getSessionOpts()
       await api.post('/api/pipeline/sqli_probe', {
         target,
+        project_id: activeProject ?? '',
         options: {
           depth: parseInt(sqliOpts.depth) || 3,
           concurrency: parseInt(sqliOpts.concurrency) || 10,
@@ -183,6 +191,7 @@ export function PipelinesPage() {
       const sess = getSessionOpts()
       await api.post('/api/pipeline/js_scan', {
         target,
+        project_id: activeProject ?? '',
         options: {
           depth: parseInt(jsOpts.depth) || 3,
           concurrency: parseInt(jsOpts.concurrency) || 10,
@@ -208,7 +217,7 @@ export function PipelinesPage() {
   }
 
   return (
-    <WorkspaceShell title="Pipelines" subtitle="Automated bug bounty chains — crawl, mine and probe in one run">
+    <WorkspaceShell title="Pipelines" subtitle="Automated bug bounty chains — crawl, mine and probe in one run" embedded={embedded}>
       <div className="flex flex-col gap-4 max-w-[1400px]">
         {/* Target bar */}
         <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-4">
@@ -282,6 +291,7 @@ export function PipelinesPage() {
             runLabel={runLabel('Run SQLi Probe')}
             disabled={noTarget}
             onRun={handleSqli}
+            locked={!isPro}
           >
             <CrawlOpts opts={sqliOpts} set={setSqliOpts} accent={ACCENTS.sqli.accentInput} />
             <div className="space-y-1.5 border border-zinc-800 rounded-lg p-3">
@@ -311,6 +321,36 @@ export function PipelinesPage() {
             </div>
           </PipelineCard>
         </div>
+
+        {/* Persisted results — survive an app restart, unlike the run console below */}
+        {previousFindings.length > 0 && (
+          <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 overflow-hidden">
+            <div className="flex items-center gap-2 px-4 py-3 border-b border-zinc-800">
+              <History size={14} className="text-zinc-500" />
+              <span className="text-[10px] font-semibold tracking-wider text-zinc-400 uppercase">Resultados guardados</span>
+              <span className="bg-zinc-700 text-zinc-200 rounded-full px-1.5 text-[9px] font-bold">{previousFindings.length}</span>
+              <span className="text-[10px] text-zinc-600 ml-1">— de corridas anteriores de este proyecto, no se pierden al reiniciar</span>
+            </div>
+            <div className="divide-y divide-zinc-800/60 max-h-56 overflow-y-auto">
+              {previousFindings.map(f => (
+                <div key={f.id} className="flex items-start gap-2.5 px-4 py-2 hover:bg-zinc-900 transition-colors">
+                  <span className={cn('text-[9px] font-bold uppercase px-1.5 py-0.5 rounded border shrink-0 mt-0.5',
+                    f.severity === 'critical' ? 'text-red-400 bg-red-950/50 border-red-800' :
+                    f.severity === 'high'     ? 'text-orange-400 bg-orange-950/50 border-orange-800' :
+                    f.severity === 'medium'   ? 'text-yellow-400 bg-yellow-950/50 border-yellow-800' :
+                    f.severity === 'low'      ? 'text-zinc-400 bg-zinc-900 border-zinc-700' :
+                                                'text-zinc-500 bg-zinc-900 border-zinc-800'
+                  )}>{f.severity}</span>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[11px] text-zinc-200 truncate">{f.title}</div>
+                    {f.url && <div className="text-[9px] text-zinc-500 font-mono truncate mt-0.5">{f.url}</div>}
+                  </div>
+                  <span className="text-[9px] text-zinc-600 shrink-0 mt-0.5">{f.tool}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Run console */}
         <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-4 space-y-3">
@@ -447,8 +487,8 @@ export function PipelinesPage() {
                       {f.url && <div className="text-[9px] text-zinc-500 font-mono truncate mt-0.5">{f.url}</div>}
                       {f.text && <div className="text-[9px] text-zinc-400 font-mono truncate mt-0.5">{f.text}</div>}
                     </div>
-                    {/* AI analysis for JS secrets (PRO) — explains what the secret is + what to test */}
-                    {f.match && isPro() && (
+                    {/* AI analysis for JS secrets — explains what the secret is + what to test */}
+                    {f.match && (
                       <button
                         onClick={() => analyzeSecret(f)}
                         title="Ask AI what this secret is and what to test"
@@ -496,7 +536,7 @@ export function PipelinesPage() {
 
 // ─── Card shell ───────────────────────────────────────────────────────────────
 
-function PipelineCard({ accent, icon, title, chain, desc, running, runLabel, disabled, onRun, children }: {
+function PipelineCard({ accent, icon, title, chain, desc, running, runLabel, disabled, onRun, locked, children }: {
   accent: typeof ACCENTS.xss
   icon: React.ReactNode
   title: string
@@ -506,6 +546,7 @@ function PipelineCard({ accent, icon, title, chain, desc, running, runLabel, dis
   runLabel: string
   disabled: boolean
   onRun: () => void
+  locked?: boolean
   children: React.ReactNode
 }) {
   const [showAdv, setShowAdv] = useState(false)
@@ -521,8 +562,21 @@ function PipelineCard({ accent, icon, title, chain, desc, running, runLabel, dis
 
       <p className="text-[11px] text-zinc-400 leading-relaxed flex-1">{desc}</p>
 
-      <Button className={cn('w-full text-white text-xs font-semibold', accent.btn)} disabled={running || disabled} onClick={onRun}>
-        {running
+      {locked && (
+        <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-950/20 px-3 py-2">
+          <Crown size={14} className="text-amber-400 shrink-0 mt-0.5" />
+          <div className="text-[11px] leading-relaxed">
+            <span className="text-amber-300 font-semibold">{title} is a PRO feature.</span>
+            <span className="text-zinc-400"> Upgrade to run it. </span>
+            <a href="https://nexhunt.myshopify.com/products/nexhunt-pro" target="_blank" rel="noreferrer" className="text-amber-400 underline">Get PRO</a>
+          </div>
+        </div>
+      )}
+
+      <Button className={cn('w-full text-white text-xs font-semibold', accent.btn)} disabled={running || disabled || locked} onClick={onRun}>
+        {locked
+          ? <><Crown size={13} className="mr-1.5" />PRO</>
+          : running
           ? <><Loader2 size={13} className="mr-1.5 animate-spin" />Running...</>
           : <><Play size={13} className="mr-1.5" />{runLabel}</>}
       </Button>

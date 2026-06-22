@@ -290,7 +290,7 @@ export function SettingsPage() {
             )}
 
             <div>
-              <label className="text-xs text-zinc-500 mb-1 block">Interface &amp; AI Language</label>
+              <label className="text-xs text-zinc-500 mb-1 block">AI Language</label>
               <select
                 className="h-9 rounded-md border border-input bg-zinc-900 px-3 text-sm text-zinc-300 w-48"
                 value={language}

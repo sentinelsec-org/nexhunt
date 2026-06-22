@@ -22,7 +22,7 @@ type ToolId = 'cors' | 'bypass_403' | 'cloud_buckets' | 'exposed_files' | 'graph
 type ViewMode = 'findings' | 'terminal'
 
 // PRO-only tools in prod.
-const PRO_TOOLS: ToolId[] = ['graphql_audit', 'viewstate_audit']
+const PRO_TOOLS: ToolId[] = ['cloud_buckets', 'js_api_mapper']
 
 // Tools that take a live-host URL — get the host picker + bulk scan.
 const HOST_TOOLS: ToolId[] = ['cors', 'bypass_403', 'exposed_files', 'viewstate_audit']
@@ -236,7 +236,7 @@ const TOOL_BINARY: Partial<Record<ToolId, string>> = {
   interactsh: 'interactsh-client',
 }
 
-export function SecurityToolsPage() {
+export function SecurityToolsPage({ embedded }: { embedded?: boolean }) {
   const [activeTab, setActiveTab] = useState<ToolId>('cors')
   const [targets, setTargets] = useState<Record<ToolId, string>>({
     cors: '', bypass_403: '', cloud_buckets: '', exposed_files: '', graphql_audit: '', viewstate_audit: '', github_scanner: '', interactsh: '', exploit_intel: '', js_api_mapper: '',
@@ -414,7 +414,7 @@ export function SecurityToolsPage() {
       : liveHosts.map(h => h.url).filter(Boolean)
 
   return (
-    <WorkspaceShell title="Attacks" subtitle="Targeted attacks — CORS, 403 bypass, cloud buckets, exposed files, secrets, OOB">
+    <WorkspaceShell title="Attacks" subtitle="Targeted attacks — CORS, 403 bypass, cloud buckets, exposed files, secrets, OOB" embedded={embedded}>
       <div className="flex gap-4 h-full min-h-0">
 
         {/* LEFT: Tool selector */}

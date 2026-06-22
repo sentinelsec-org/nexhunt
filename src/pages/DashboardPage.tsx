@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { WorkspaceShell } from '@/components/layout/WorkspaceShell'
 import { useProxyStore } from '@/stores/proxy-store'
@@ -5,6 +6,8 @@ import { useScannerStore } from '@/stores/scanner-store'
 import { useReconStore } from '@/stores/recon-store'
 import { useAppStore } from '@/stores/app-store'
 import { Badge } from '@/components/ui/badge'
+import { api } from '@/api/http-client'
+import { toast } from '@/stores/toast-store'
 import {
   Globe,
   Radar,
@@ -15,7 +18,19 @@ import {
   Activity,
   FolderOpen,
   ArrowRight,
+  Download,
+  Loader2,
 } from 'lucide-react'
+
+function downloadText(content: string, filename: string) {
+  const blob = new Blob([content], { type: 'text/markdown' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
+}
 
 function StatCard({ icon: Icon, label, value, color, dimmed }: {
   icon: typeof Globe
@@ -45,10 +60,29 @@ export function DashboardPage() {
   const { subdomains } = useReconStore()
   const { activeProject, activeProjectData } = useAppStore()
   const navigate = useNavigate()
+  const [downloading, setDownloading] = useState(false)
 
   const hasProject = !!activeProject
   const criticalCount = findings.filter(f => f.severity === 'critical').length
   const highCount = findings.filter(f => f.severity === 'high').length
+
+  const downloadBriefing = async () => {
+    if (!activeProject) return
+    setDownloading(true)
+    try {
+      const res = await api.get<{ content?: string; error?: string }>(`/api/projects/${activeProject}/briefing`)
+      if (res.error || !res.content) {
+        toast.error('No se pudo generar el resumen', res.error)
+        return
+      }
+      const name = (activeProjectData?.name || 'project').replace(/[^a-z0-9-]+/gi, '-')
+      downloadText(res.content, `nexhunt-briefing-${name}.md`)
+    } catch (err) {
+      toast.error('No se pudo generar el resumen', err)
+    } finally {
+      setDownloading(false)
+    }
+  }
 
   return (
     <WorkspaceShell
@@ -107,6 +141,30 @@ export function DashboardPage() {
             dimmed={!hasProject}
           />
         </div>
+
+        {/* AI handoff briefing */}
+        {hasProject && (
+          <div className="flex items-center justify-between rounded-xl border border-teal-900/50 bg-teal-950/10 px-5 py-4 gap-4">
+            <div className="flex items-center gap-3 min-w-0">
+              <Download size={18} className="text-teal-400 shrink-0" />
+              <div className="min-w-0">
+                <div className="text-sm font-medium text-zinc-200">Summary to continue with AI</div>
+                <div className="text-xs text-zinc-600">
+                  Download a general .md — scope, how many findings there are and the most important ones, what was run — to
+                  paste into Claude (or any AI) and continue the pentest from there. It's not an evidence dump, just what matters.
+                </div>
+              </div>
+            </div>
+            <button
+              onClick={downloadBriefing}
+              disabled={downloading}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-teal-700 hover:bg-teal-950/40 text-teal-300 text-xs font-medium transition-colors disabled:opacity-50 shrink-0"
+            >
+              {downloading ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
+              Download briefing
+            </button>
+          </div>
+        )}
 
         {/* Quick status */}
         <div className="grid grid-cols-2 gap-4">

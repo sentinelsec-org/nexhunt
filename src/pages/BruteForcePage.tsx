@@ -26,7 +26,7 @@ function humanSize(n: number): string {
 const labelCls = 'text-[10px] text-zinc-500 uppercase tracking-widest mb-1 block'
 const selectCls = 'w-full h-8 rounded-md bg-zinc-900 border border-zinc-700 text-xs text-zinc-200 px-2 focus:outline-none focus:border-zinc-500'
 
-export function BruteForcePage() {
+export function BruteForcePage({ embedded }: { embedded?: boolean }) {
   const { config, setConfig, jobs, wordlists, startAttack, fetchJobs, killJob, fetchWordlists, prefill, consumePrefill } = useBruteForceStore()
   const [launching, setLaunching] = useState(false)
   const [selectedJob, setSelectedJob] = useState<string | null>(null)
@@ -93,7 +93,7 @@ export function BruteForcePage() {
   }
 
   return (
-    <WorkspaceShell title="Brute Force" subtitle="Hydra credential attacks — runs in a separate terminal window">
+    <WorkspaceShell title="Brute Force" subtitle="Hydra credential attacks — runs in a separate terminal window" embedded={embedded}>
       <div className="flex h-full">
         {/* ── Config ── */}
         <div className="w-[380px] shrink-0 border-r border-zinc-800 overflow-y-auto p-4 space-y-3">
@@ -315,14 +315,14 @@ function StatusDot({ status }: { status: string }) {
 
 const COMBO_MUTATIONS: { id: string; label: string; fn: (w: string) => string[] }[] = [
   { id: 'original', label: 'Original',                fn: w => [w] },
-  { id: 'capital',  label: 'Capitalizada',            fn: w => [w.length ? w[0].toUpperCase() + w.slice(1) : w] },
-  { id: 'upper',    label: 'MAYUSCULAS',              fn: w => [w.toUpperCase()] },
-  { id: 'years',    label: '+ año (2022-2026)',       fn: w => ['2022','2023','2024','2025','2026'].map(y => w+y) },
-  { id: 'capyears', label: 'Capitalizada + año',      fn: w => { const c=w[0]?.toUpperCase()+w.slice(1); return ['2024','2025','2026'].map(y=>c+y) } },
+  { id: 'capital',  label: 'Capitalized',             fn: w => [w.length ? w[0].toUpperCase() + w.slice(1) : w] },
+  { id: 'upper',    label: 'UPPERCASE',               fn: w => [w.toUpperCase()] },
+  { id: 'years',    label: '+ year (2022-2026)',      fn: w => ['2022','2023','2024','2025','2026'].map(y => w+y) },
+  { id: 'capyears', label: 'Capitalized + year',      fn: w => { const c=w[0]?.toUpperCase()+w.slice(1); return ['2024','2025','2026'].map(y=>c+y) } },
   { id: 'specials', label: '+ ! / 123 / @',           fn: w => ['!','!!','123','1234','@','!123','@123'].map(s=>w+s) },
-  { id: 'capspec',  label: 'Capitalizada + !/ año',   fn: w => { const c=w[0]?.toUpperCase()+w.slice(1); return [c+'!',c+'!!',c+'123',c+'2024',c+'2025',c+'@123'] } },
+  { id: 'capspec',  label: 'Capitalized + !/ year',   fn: w => { const c=w[0]?.toUpperCase()+w.slice(1); return [c+'!',c+'!!',c+'123',c+'2024',c+'2025',c+'@123'] } },
   { id: 'l33t',     label: 'L33t (a→@ e→3 i→1 o→0)', fn: w => [w.replace(/a/gi,'@').replace(/e/gi,'3').replace(/i/gi,'1').replace(/o/gi,'0').replace(/s/gi,'$')] },
-  { id: 'nums',     label: '+ números 1-50',          fn: w => Array.from({length:50},(_,i)=>`${w}${i+1}`) },
+  { id: 'nums',     label: '+ numbers 1-50',          fn: w => Array.from({length:50},(_,i)=>`${w}${i+1}`) },
 ]
 
 function buildWordlist(
@@ -650,13 +650,13 @@ function WordlistManager({ onClose, targetHint }: { onClose: () => void; targetH
           {tab === 'cupp' && (
             <div className="space-y-3">
               <p className="text-[11px] text-zinc-500 leading-relaxed">
-                Perfil del objetivo. Rellena los campos que conozcas - CUPP genera combinaciones de todos con años, fechas, l33t, sufijos especiales, y pares de palabras.
+                Target profile. Fill in whatever fields you know - CUPP generates combinations of all of them with years, dates, l33t, special suffixes, and word pairs.
               </p>
 
               <div className="rounded-md border border-zinc-800 bg-zinc-900/40 p-3 space-y-2">
-                <label className={labelCls + ' mb-1'}>Objetivo</label>
+                <label className={labelCls + ' mb-1'}>Target</label>
                 <div className="grid grid-cols-3 gap-2">
-                  {([['Nombre', 'first_name'], ['Apellido', 'last_name'], ['Apodo/nick', 'nickname']] as const).map(([lbl, key]) => (
+                  {([['First name', 'first_name'], ['Last name', 'last_name'], ['Nickname', 'nickname']] as const).map(([lbl, key]) => (
                     <div key={key}>
                       <label className={labelCls}>{lbl}</label>
                       <Input value={cupp[key]} onChange={e => setCupp(p => ({...p, [key]: e.target.value}))} placeholder={lbl.toLowerCase()} className="h-8 text-xs" />
@@ -664,15 +664,15 @@ function WordlistManager({ onClose, targetHint }: { onClose: () => void; targetH
                   ))}
                 </div>
                 <div>
-                  <label className={labelCls}>Fecha de nacimiento (DD/MM/AAAA)</label>
+                  <label className={labelCls}>Date of birth (DD/MM/YYYY)</label>
                   <Input value={cupp.birthdate} onChange={e => setCupp(p => ({...p, birthdate: e.target.value}))} placeholder="15/06/1990" className="h-8 text-xs font-mono" />
                 </div>
               </div>
 
               <div className="rounded-md border border-zinc-800 bg-zinc-900/40 p-3 space-y-2">
-                <label className={labelCls + ' mb-1'}>Pareja / familia</label>
+                <label className={labelCls + ' mb-1'}>Partner / family</label>
                 <div className="grid grid-cols-3 gap-2">
-                  {([['Nombre', 'partner'], ['Apodo', 'partner_nick'], ['Nacimiento', 'partner_birth']] as const).map(([lbl, key]) => (
+                  {([['Name', 'partner'], ['Nickname', 'partner_nick'], ['Birthdate', 'partner_birth']] as const).map(([lbl, key]) => (
                     <div key={key}>
                       <label className={labelCls}>{lbl}</label>
                       <Input value={cupp[key]} onChange={e => setCupp(p => ({...p, [key]: e.target.value}))} placeholder={lbl.toLowerCase()} className="h-8 text-xs" />
@@ -683,24 +683,24 @@ function WordlistManager({ onClose, targetHint }: { onClose: () => void; targetH
 
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className={labelCls}>Mascota</label>
-                  <Input value={cupp.pet} onChange={e => setCupp(p => ({...p, pet: e.target.value}))} placeholder="firulais" className="h-8 text-xs" />
+                  <label className={labelCls}>Pet</label>
+                  <Input value={cupp.pet} onChange={e => setCupp(p => ({...p, pet: e.target.value}))} placeholder="rex" className="h-8 text-xs" />
                 </div>
                 <div>
-                  <label className={labelCls}>Empresa / empresa</label>
+                  <label className={labelCls}>Company</label>
                   <Input value={cupp.company} onChange={e => setCupp(p => ({...p, company: e.target.value}))} placeholder="acmecorp" className="h-8 text-xs" />
                 </div>
               </div>
 
               <div>
-                <label className={labelCls}>Palabras clave extra (una por linea)</label>
+                <label className={labelCls}>Extra keywords (one per line)</label>
                 <textarea value={cupp.keywords} onChange={e => setCupp(p => ({...p, keywords: e.target.value}))}
-                  placeholder={'futbol\nriver\nboca'}
+                  placeholder={'soccer\nfootball\nteam'}
                   className="w-full h-16 rounded-md bg-black border border-zinc-700 text-xs text-zinc-200 font-mono p-2 focus:outline-none focus:border-zinc-500" />
               </div>
 
               <div className="flex gap-4">
-                {([['cupp_leet', 'L33t (a→@ e→3...)'], ['cupp_specials', '+ ! 123 @'], ['cupp_numbers', '+ numeros']] as const).map(([key, lbl]) => (
+                {([['cupp_leet', 'L33t (a→@ e→3...)'], ['cupp_specials', '+ ! 123 @'], ['cupp_numbers', '+ numbers']] as const).map(([key, lbl]) => (
                   <label key={key} className="flex items-center gap-2 text-[11px] text-zinc-400 cursor-pointer">
                     <input type="checkbox" checked={cupp[key] as boolean} onChange={e => setCupp(p => ({...p, [key]: e.target.checked}))} className="accent-green-500" />
                     {lbl}
@@ -709,13 +709,13 @@ function WordlistManager({ onClose, targetHint }: { onClose: () => void; targetH
               </div>
 
               <div>
-                <label className={labelCls}>Guardar como</label>
-                <Input value={cuppName} onChange={e => setCuppName(e.target.value)} placeholder="perfil-objetivo" className="h-8 text-xs" />
+                <label className={labelCls}>Save as</label>
+                <Input value={cuppName} onChange={e => setCuppName(e.target.value)} placeholder="target-profile" className="h-8 text-xs" />
               </div>
               <Button onClick={runCupp} disabled={cuppBusy} className="w-full bg-green-700 hover:bg-green-600 text-white">
                 {cuppBusy
-                  ? <><Loader2 size={13} className="animate-spin mr-1.5" />Generando...</>
-                  : <><UserRound size={13} className="mr-1.5" />Generar wordlist CUPP</>}
+                  ? <><Loader2 size={13} className="animate-spin mr-1.5" />Generating...</>
+                  : <><UserRound size={13} className="mr-1.5" />Generate CUPP wordlist</>}
               </Button>
             </div>
           )}
@@ -724,33 +724,33 @@ function WordlistManager({ onClose, targetHint }: { onClose: () => void; targetH
           {tab === 'mutate' && (
             <div className="space-y-3">
               <div>
-                <label className={labelCls}>Palabras base (una por linea)</label>
+                <label className={labelCls}>Base words (one per line)</label>
                 <textarea value={mutateWords} onChange={(e) => setMutateWords(e.target.value)}
-                  placeholder={'mcdonalds\nargentina\n2026\nhamburguesas'}
+                  placeholder={'mcdonalds\nargentina\n2026\nburgers'}
                   className="w-full h-24 rounded-md bg-black border border-zinc-700 text-xs text-zinc-200 font-mono p-2 focus:outline-none focus:border-zinc-500" />
               </div>
 
               {/* Combination mode */}
               <div className="rounded-md border border-zinc-800 bg-zinc-900/40 p-3 space-y-2">
-                <label className={labelCls + ' mb-1'}>Como combinarlas</label>
+                <label className={labelCls + ' mb-1'}>How to combine them</label>
                 <div className="space-y-1.5">
                   <label className="flex items-center gap-2 text-[11px] text-zinc-400 cursor-pointer">
                     <input type="checkbox" checked={useSingle} onChange={e => setUseSingle(e.target.checked)} className="accent-green-500" />
-                    Palabras solas (mcdonalds, argentina...)
+                    Single words (mcdonalds, argentina...)
                   </label>
                   <label className="flex items-center gap-2 text-[11px] text-zinc-400 cursor-pointer">
                     <input type="checkbox" checked={usePairs} onChange={e => setUsePairs(e.target.checked)} className="accent-green-500" />
-                    Pares (mcdonalds+argentina, argentina+2026...)
+                    Pairs (mcdonalds+argentina, argentina+2026...)
                   </label>
                   <label className="flex items-center gap-2 text-[11px] text-zinc-400 cursor-pointer">
                     <input type="checkbox" checked={useTriples} onChange={e => setUseTriples(e.target.checked)} className="accent-green-500" />
-                    Trios (mcdonalds+argentina+2026...)
+                    Triples (mcdonalds+argentina+2026...)
                   </label>
                 </div>
                 <div className="border-t border-zinc-800 pt-2 mt-1">
-                  <label className={labelCls + ' mb-1.5'}>Separador entre palabras</label>
+                  <label className={labelCls + ' mb-1.5'}>Separator between words</label>
                   <div className="flex flex-wrap gap-2">
-                    {[['(ninguno)', ''], ['_', '_'], ['-', '-'], ['.', '.'], ['@', '@']].map(([label, val]) => (
+                    {[['(none)', ''], ['_', '_'], ['-', '-'], ['.', '.'], ['@', '@']].map(([label, val]) => (
                       <label key={val} className="flex items-center gap-1.5 text-[11px] text-zinc-400 cursor-pointer bg-zinc-800 rounded px-2 py-1">
                         <input type="checkbox"
                           checked={combSeps.has(val)}
@@ -769,7 +769,7 @@ function WordlistManager({ onClose, targetHint }: { onClose: () => void; targetH
 
               {/* Mutations */}
               <div className="rounded-md border border-zinc-800 bg-zinc-900/40 p-3 space-y-2">
-                <label className={labelCls + ' mb-1'}>Mutaciones a aplicar a cada resultado</label>
+                <label className={labelCls + ' mb-1'}>Mutations to apply to each result</label>
                 <div className="grid grid-cols-2 gap-y-1.5 gap-x-3">
                   {COMBO_MUTATIONS.map(rule => (
                     <label key={rule.id} className="flex items-start gap-2 text-[11px] text-zinc-400 cursor-pointer hover:text-zinc-200">
@@ -794,18 +794,18 @@ function WordlistManager({ onClose, targetHint }: { onClose: () => void; targetH
                     ? 'border-red-800 bg-red-950/20 text-red-400'
                     : 'border-zinc-700 bg-zinc-800/40 text-zinc-400')}>
                   <Wand2 size={12} className="text-green-400 shrink-0" />
-                  <span><span className="text-green-400 font-medium">{mutateResult.length.toLocaleString()}</span> entradas unicas</span>
+                  <span><span className="text-green-400 font-medium">{mutateResult.length.toLocaleString()}</span> unique entries</span>
                 </div>
               )}
 
               <div>
-                <label className={labelCls}>Guardar como</label>
+                <label className={labelCls}>Save as</label>
                 <Input value={mutateName} onChange={(e) => setMutateName(e.target.value)} placeholder="mcdonalds-combo" className="h-8 text-xs" />
               </div>
               <Button onClick={saveMutate} disabled={busy || mutateResult.length === 0} className="w-full bg-green-700 hover:bg-green-600 text-white disabled:opacity-40">
                 {busy
-                  ? <><Loader2 size={13} className="animate-spin mr-1.5" />Guardando...</>
-                  : <><Wand2 size={13} className="mr-1.5" />Guardar {mutateResult.length > 0 ? `${mutateResult.length.toLocaleString()} palabras` : ''}</>}
+                  ? <><Loader2 size={13} className="animate-spin mr-1.5" />Saving...</>
+                  : <><Wand2 size={13} className="mr-1.5" />Save {mutateResult.length > 0 ? `${mutateResult.length.toLocaleString()} words` : ''}</>}
               </Button>
             </div>
           )}

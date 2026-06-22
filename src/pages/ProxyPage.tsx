@@ -1,9 +1,11 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { WorkspaceShell } from '@/components/layout/WorkspaceShell'
 import { useProxyStore } from '@/stores/proxy-store'
 import { useAppStore } from '@/stores/app-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
+import { useLicenseStore } from '@/stores/license-store'
+import { ProGate } from '@/components/layout/ProGate'
 import { ContextMenu, menuFromEvent, type ContextMenuState } from '@/components/ui/context-menu'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -18,7 +20,7 @@ import {
   Play, Square, Shield, ShieldOff, Trash2, Search, Send,
   Plus, X, Repeat2, Crosshair, Filter, ChevronDown, ChevronRight,
   AlertTriangle, CheckCircle, Loader2, RotateCcw, BookOpen, Sparkles, Globe,
-  Key, Copy, Check, ChevronUp, ExternalLink, Network, KeyRound, Folder,
+  Key, Copy, Check, ChevronUp, ExternalLink, Network, KeyRound, Folder, Crown,
 } from 'lucide-react'
 
 type Tab = 'history' | 'sitemap' | 'repeater' | 'intruder' | 'jwt'
@@ -76,7 +78,12 @@ function statusBg(code: number) {
 
 // ── ProxyPage ─────────────────────────────────────────────────────────────────
 export function ProxyPage() {
-  const [activeTab, setActiveTab] = useState<Tab>('history')
+  const [params] = useSearchParams()
+  const isPro = useLicenseStore((s) => s.isPro())
+  const [activeTab, setActiveTab] = useState<Tab>(() => {
+    const t = params.get('tab')
+    return (t === 'history' || t === 'sitemap' || t === 'repeater' || t === 'intruder' || t === 'jwt') ? t : 'history'
+  })
   const {
     flows, selectedFlowId, selectFlow,
     interceptEnabled, setInterceptEnabled,
@@ -190,6 +197,7 @@ export function ProxyPage() {
                   activeTab === t.id ? 'bg-zinc-700 text-zinc-100' : 'text-zinc-400 hover:text-zinc-200')}>
                 <t.icon size={12} />
                 {t.label}
+                {t.id === 'jwt' && !isPro && <Crown size={11} className="text-amber-400" />}
               </button>
             ))}
           </div>
@@ -213,7 +221,7 @@ export function ProxyPage() {
             sendToRepeater={(f) => { sendToRepeater(f); setActiveTab('repeater') }}
             sendToIntruder={(f) => { sendToIntruder(f); setActiveTab('intruder') }}
             sendToJwt={(f) => { sendToJwt(f); setActiveTab('jwt') }}
-            sendToBruteForce={(f) => { sendToBruteForce(f); navigate('/brute-force') }}
+            sendToBruteForce={(f) => { sendToBruteForce(f); navigate('/offense?tab=brute') }}
           />
         )}
         {activeTab === 'sitemap' && (
@@ -222,12 +230,12 @@ export function ProxyPage() {
             selectedFlowId={selectedFlowId}
             selectFlow={selectFlow}
             scopeDomains={scopeDomains}
-            sendToBruteForce={(f) => { sendToBruteForce(f); navigate('/brute-force') }}
+            sendToBruteForce={(f) => { sendToBruteForce(f); navigate('/offense?tab=brute') }}
           />
         )}
         {activeTab === 'repeater' && <RepeaterTab onOpenIntruder={() => setActiveTab('intruder')} />}
         {activeTab === 'intruder' && <IntruderTab />}
-        {activeTab === 'jwt' && <JwtAttackTab />}
+        {activeTab === 'jwt' && <ProGate feature="JWT Attack Suite"><JwtAttackTab /></ProGate>}
       </div>
     </WorkspaceShell>
   )

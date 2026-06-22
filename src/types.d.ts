@@ -1,3 +1,10 @@
+export interface UpdateAvailableInfo {
+  current: string
+  latest: string
+  notes: string
+  mandatory: boolean
+}
+
 export interface NexHuntAPI {
   getBackendUrl: () => Promise<string>
   getWsUrl: () => Promise<string>
@@ -6,6 +13,13 @@ export interface NexHuntAPI {
     node: string
     chrome: string
     electron: string
+  }
+  update: {
+    apply: () => void
+    onAvailable: (cb: (data: UpdateAvailableInfo) => void) => () => void
+    onInstalling: (cb: () => void) => () => void
+    onDone: (cb: (version: string) => void) => () => void
+    onError: (cb: (message: string) => void) => () => void
   }
 }
 

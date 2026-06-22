@@ -1,10 +1,13 @@
 import json
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from nexhunt.database import get_session
 from nexhunt.models.project import Project
+from nexhunt.models.finding import Finding
+from nexhunt.models.recon_result import ReconResult
 from nexhunt.schemas.project import ProjectCreate, ProjectUpdate
 from nexhunt.services.scope import is_in_scope, filter_urls
 
@@ -88,6 +91,117 @@ async def scope_check(
     out_s = json.loads(project.out_of_scope) if project.out_of_scope else []
     ins, outs = filter_urls(data.urls, in_s, out_s)
     return {"in_scope": ins, "out_of_scope": outs, "mode": project.scope_mode}
+
+
+@router.get("/{project_id}/briefing")
+async def get_briefing(project_id: str, session: AsyncSession = Depends(get_session)):
+    """General, AI-readable summary of the pentest so far — for handing off to an assistant to
+    continue the work. Deliberately high-level: counts and the critical/high findings list, not
+    full evidence dumps or exhaustive URL lists."""
+    result = await session.execute(select(Project).where(Project.id == project_id))
+    project = result.scalar_one_or_none()
+    if not project:
+        return {"error": "Project not found"}
+
+    findings_result = await session.execute(
+        select(Finding).where(Finding.project_id == project_id).order_by(Finding.created_at.desc())
+    )
+    findings = findings_result.scalars().all()
+
+    recon_result = await session.execute(
+        select(ReconResult).where(ReconResult.project_id == project_id)
+    )
+    recon_rows = recon_result.scalars().all()
+
+    return {"content": _build_briefing(project, findings, recon_rows)}
+
+
+def _build_briefing(project: Project, findings: list[Finding], recon_rows: list[ReconResult]) -> str:
+    in_scope = json.loads(project.scope) if project.scope else []
+    targets = in_scope or sorted({r.target for r in recon_rows if r.target})
+
+    by_sev: dict[str, list[Finding]] = {}
+    for f in findings:
+        by_sev.setdefault(f.severity or "info", []).append(f)
+    sev_order = ["critical", "high", "medium", "low", "info"]
+    sev_counts = ", ".join(f"{s}: {len(by_sev[s])}" for s in sev_order if by_sev.get(s))
+
+    recon_counts: dict[str, int] = {}
+    for r in recon_rows:
+        recon_counts[r.type] = recon_counts.get(r.type, 0) + 1
+
+    tools_used = sorted({f.tool for f in findings if f.tool})
+
+    lines = [
+        f"# NexHunt Pentest Briefing — {project.name}",
+        f"Generated: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}",
+        "",
+        "## Scope",
+        f"Target(s): {', '.join(targets) if targets else 'not set'}",
+        f"Scope mode: {project.scope_mode}",
+    ]
+    if project.notes:
+        lines += ["", "## Notes", project.notes]
+
+    lines += [
+        "",
+        "## Status so far",
+        f"- {len(findings)} findings total ({sev_counts or 'none'})",
+        "- Recon: " + (", ".join(f"{v} {k.replace('_', ' ')}" for k, v in recon_counts.items()) if recon_counts else "nothing run yet"),
+        f"- Tools that produced findings: {', '.join(tools_used) if tools_used else 'none yet'}",
+    ]
+
+    live_hosts = []
+    for r in recon_rows:
+        if r.type != "live_host":
+            continue
+        try:
+            live_hosts.append(json.loads(r.data))
+        except Exception:
+            continue
+    lines += ["", f"## Live Hosts ({len(live_hosts)})"]
+    if live_hosts:
+        for h in live_hosts[:150]:
+            status = h.get("status_code")
+            url = h.get("url", "")
+            title = h.get("title") or ""
+            techs = ", ".join(h.get("technologies") or [])
+            line = f"- [{status}] {url}"
+            if title:
+                line += f" — \"{title}\""
+            if techs:
+                line += f" — {techs}"
+            lines.append(line)
+        if len(live_hosts) > 150:
+            lines.append(f"- ...and {len(live_hosts) - 150} more (open NexHunt → Recon → Live Hosts for the full list)")
+    else:
+        lines.append("- None yet.")
+
+    important = [f for f in findings if f.severity in ("critical", "high")][:25]
+    lines += ["", "## Most important findings (critical / high)"]
+    if important:
+        for f in important:
+            line = f"- [{f.severity.upper()}] {f.title}"
+            if f.tool:
+                line += f" — {f.tool}"
+            if f.url:
+                line += f" — {f.url}"
+            lines.append(line)
+        if len(by_sev.get("critical", [])) + len(by_sev.get("high", [])) > len(important):
+            lines.append(f"- ...and more (open NexHunt → Workspace for the full list)")
+    else:
+        lines.append("- None yet.")
+
+    lines += [
+        "",
+        "---",
+        "Instructions for the AI: this is a GENERAL summary of the pentest done so far on the scope "
+        "indicated above. It is intentionally brief — it does not include full evidence or exhaustive "
+        "URL listings. Use it as context to continue the work: prioritize confirming/exploiting the "
+        "critical/high findings listed, propose next recon or exploitation steps that are missing based "
+        "on what has already been run, and ask for the specific details of a particular finding if you need them.",
+    ]
+    return "\n".join(lines)
 
 
 def _serialize(p: Project) -> dict:

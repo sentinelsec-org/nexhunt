@@ -1,4 +1,5 @@
-import { app, BrowserWindow, dialog, ipcMain } from 'electron'
+import { app, BrowserWindow, ipcMain } from 'electron'
+import { spawn } from 'child_process'
 import path from 'path'
 import { PythonBridge } from './python-bridge'
 
@@ -45,55 +46,63 @@ async function checkForUpdates(): Promise<void> {
       mandatory: boolean
     }
     if (!data.update_available) return
-
-    const detail = data.notes
-      ? `Release notes:\n${data.notes.slice(0, 400)}`
-      : `A new version is available.`
-
-    const { response } = await dialog.showMessageBox({
-      type: 'info',
-      title: 'NexHunt Update Available',
-      message: `Version ${data.latest} is available (you have ${data.current})`,
-      detail,
-      buttons: data.mandatory ? ['Update now'] : ['Update now', 'Later'],
-      defaultId: 0,
-      cancelId: 1,
-    })
-
-    if (response === 0) {
-      await applyUpdate()
-    }
+    mainWindow?.webContents.send('update:available', data)
   } catch {
     // No update server / offline — silent
   }
 }
 
+function runPkexecAptInstall(debPath: string): Promise<{ ok: boolean; error?: string }> {
+  return new Promise((resolve) => {
+    const child = spawn('pkexec', ['apt', 'install', '-y', debPath])
+    let stderr = ''
+    child.stderr?.on('data', (d) => { stderr += d.toString() })
+    child.on('error', (err) => resolve({ ok: false, error: err.message }))
+    child.on('close', (code) => {
+      if (code === 0) resolve({ ok: true })
+      else resolve({ ok: false, error: stderr.trim() || `apt install exited with code ${code}` })
+    })
+  })
+}
+
 async function applyUpdate(): Promise<void> {
   const win = mainWindow
-  if (win) {
-    win.webContents.send('update:applying')
-  }
+  win?.webContents.send('update:installing')
   try {
     const res = await fetch(`${BACKEND_BASE}/api/update/apply`, { method: 'POST' })
     if (!res.ok) {
       const err = await res.json().catch(() => ({ detail: 'Unknown error' })) as { detail: string }
-      dialog.showErrorBox('Update failed', err.detail || 'Could not apply update.')
+      win?.webContents.send('update:error', err.detail || 'Could not apply update.')
       return
     }
-    const data = await res.json() as { staged: boolean; restart_required: boolean; version: string }
-    if (data.staged && data.restart_required) {
-      dialog.showMessageBox({
-        type: 'info',
-        title: 'Update ready',
-        message: `NexHunt ${data.version} has been downloaded. The app will now restart.`,
-        buttons: ['Restart'],
-      }).then(() => {
-        app.relaunch()
-        app.quit()
-      })
+    const data = await res.json() as {
+      staged: boolean
+      version: string
+      deb_path?: string
+      restart_required?: boolean
+    }
+    if (!data.staged) {
+      win?.webContents.send('update:error', 'Already up to date.')
+      return
+    }
+
+    if (data.deb_path) {
+      const result = await runPkexecAptInstall(data.deb_path)
+      if (!result.ok) {
+        win?.webContents.send('update:error', result.error || 'Installation was cancelled or failed.')
+        return
+      }
+      win?.webContents.send('update:done', data.version)
+      setTimeout(() => { app.relaunch(); app.quit() }, 1500)
+      return
+    }
+
+    if (data.restart_required) {
+      win?.webContents.send('update:done', data.version)
+      setTimeout(() => { app.relaunch(); app.quit() }, 1500)
     }
   } catch {
-    dialog.showErrorBox('Update failed', 'Could not reach the update service.')
+    win?.webContents.send('update:error', 'Could not reach the update service.')
   }
 }
 

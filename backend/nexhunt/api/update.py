@@ -1,8 +1,10 @@
 """
 Update checker/applier. Updates are published as GitHub Releases by Sentinel.
 check  -> compares local version against the latest release tag.
-apply  -> downloads + verifies the release tarball, stages it, and asks Electron to
-          relaunch; the actual swap is done outside the running process by apply-update.sh.
+apply  -> downloads + verifies the latest release asset and stages it. Prefers the
+          .deb (the real-world install path: /opt/nexhunt is root-owned by apt, so
+          Electron installs it via `pkexec apt install`). Falls back to the tarball
+          for non-apt installs, staged for a manual/script-driven swap.
 """
 import hashlib
 import json
@@ -66,12 +68,26 @@ async def apply():
     if _parse(latest) <= _parse(__version__):
         return {"staged": False, "message": "Already up to date"}
 
+    version = latest.lstrip("vV")
     assets = {a["name"]: a["browser_download_url"] for a in rel.get("assets", [])}
+    os.makedirs(_STAGING, exist_ok=True)
+
+    deb_name = next((n for n in assets if n.endswith(".deb")), None)
+    if deb_name:
+        deb_path = os.path.join(_STAGING, deb_name)
+        await _download(assets[deb_name], deb_path)
+        if "SHA256SUMS" in assets:
+            sums_path = os.path.join(_STAGING, "SHA256SUMS")
+            await _download(assets["SHA256SUMS"], sums_path)
+            if not _verify_checksum(deb_path, sums_path, deb_name):
+                os.remove(deb_path)
+                raise HTTPException(status_code=502, detail="Checksum verification failed")
+        return {"staged": True, "version": version, "deb_path": deb_path}
+
     tar_name = next((n for n in assets if n.endswith(".tar.gz")), None)
     if not tar_name:
-        raise HTTPException(status_code=502, detail="Release has no tarball asset")
+        raise HTTPException(status_code=502, detail="Release has no .deb or tarball asset")
 
-    os.makedirs(_STAGING, exist_ok=True)
     tar_path = os.path.join(_STAGING, tar_name)
     await _download(assets[tar_name], tar_path)
 
@@ -87,9 +103,9 @@ async def apply():
 
     marker = os.path.join(_STAGING, "pending.json")
     with open(marker, "w") as f:
-        json.dump({"version": latest.lstrip("vV"), "dir": extract_dir}, f)
+        json.dump({"version": version, "dir": extract_dir}, f)
 
-    return {"staged": True, "restart_required": True, "version": latest.lstrip("vV")}
+    return {"staged": True, "restart_required": True, "version": version}
 
 
 async def _download(url: str, dest: str) -> None:

@@ -118,12 +118,12 @@ async def run_bypass_403_bulk(req: BulkToolRequest):
     return {"status": "started", "count": len(job_ids), "job_ids": job_ids}
 
 
-@router.post("/cloud-buckets")
+@router.post("/cloud-buckets", dependencies=[Depends(require_pro("Cloud Buckets"))])
 async def run_cloud_buckets(req: ToolRequest):
     return _start_tool("cloud_buckets", req.target, req.options, req.project_id or None)
 
 
-@router.post("/cloud-buckets-bulk")
+@router.post("/cloud-buckets-bulk", dependencies=[Depends(require_pro("Cloud Buckets"))])
 async def run_cloud_buckets_bulk(req: BulkToolRequest):
     # targets here are domains/company names derived from live hosts
     targets = [t.strip() for t in req.targets if t.strip()][:50]
@@ -141,17 +141,17 @@ async def run_exposed_files(req: ToolRequest):
     return _start_tool("exposed_files", req.target, req.options, req.project_id or None)
 
 
-@router.post("/graphql", dependencies=[Depends(require_pro("GraphQL Auditor"))])
+@router.post("/graphql")
 async def run_graphql_audit(req: ToolRequest):
     return _start_tool("graphql_audit", req.target, req.options, req.project_id or None)
 
 
-@router.post("/viewstate", dependencies=[Depends(require_pro("VIEWSTATE Auditor"))])
+@router.post("/viewstate")
 async def run_viewstate_audit(req: ToolRequest):
     return _start_tool("viewstate_audit", req.target, req.options, req.project_id or None)
 
 
-@router.post("/viewstate-bulk", dependencies=[Depends(require_pro("VIEWSTATE Auditor"))])
+@router.post("/viewstate-bulk")
 async def run_viewstate_audit_bulk(req: BulkToolRequest):
     targets = [t.strip() for t in req.targets if t.strip()][:50]
     job_ids = [_start_tool("viewstate_audit", t, req.options, req.project_id or None)["job_id"] for t in targets]
@@ -175,12 +175,12 @@ async def run_exploit_intel(req: ToolRequest):
     return _start_tool("exploit_intel", req.target, req.options, req.project_id or None)
 
 
-@router.post("/js-api-mapper")
+@router.post("/js-api-mapper", dependencies=[Depends(require_pro("JS API Mapper"))])
 async def run_js_api_mapper(req: ToolRequest):
     return _start_tool("js_api_mapper", req.target, req.options, req.project_id or None)
 
 
-@router.post("/js-api-mapper-bulk")
+@router.post("/js-api-mapper-bulk", dependencies=[Depends(require_pro("JS API Mapper"))])
 async def run_js_api_mapper_bulk(req: BulkToolRequest):
     targets = list(dict.fromkeys(t.strip() for t in req.targets if t.strip()))[:50]
     job_ids = [

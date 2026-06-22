@@ -5,11 +5,10 @@ etc.) and lets the user create/edit custom lists scoped to a target.
 import os
 import logging
 import subprocess
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from nexhunt.config import settings
-from nexhunt.licensing.guard import require_pro
 
 router = APIRouter(prefix="/api/wordlists", tags=["wordlists"])
 logger = logging.getLogger(__name__)
@@ -79,7 +78,7 @@ async def list_wordlists():
     return {"wordlists": items}
 
 
-@router.post("", dependencies=[Depends(require_pro("Custom wordlists"))])
+@router.post("")
 async def save_wordlist(body: WordlistBody):
     name = os.path.basename(body.name.strip())
     if not name:
@@ -104,7 +103,7 @@ async def get_content(name: str):
         return {"name": os.path.basename(name), "content": f.read()}
 
 
-@router.delete("/{name}", dependencies=[Depends(require_pro("Custom wordlists"))])
+@router.delete("/{name}")
 async def delete_wordlist(name: str):
     path = os.path.join(_CUSTOM_DIR, os.path.basename(name))
     if not os.path.isfile(path):
@@ -207,7 +206,7 @@ def _cupp_generate(body: GenerateRequest) -> list[str]:
     return sorted(v for v in out if len(v) >= 4)
 
 
-@router.post("/generate", dependencies=[Depends(require_pro("Custom wordlists"))])
+@router.post("/generate")
 async def generate_wordlist(body: GenerateRequest):
     name = os.path.basename(body.name.strip())
     if not name:

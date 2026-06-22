@@ -4,10 +4,12 @@ import { TopBar } from './TopBar'
 interface WorkspaceShellProps {
   title: string
   subtitle?: string
+  embedded?: boolean
   children: ReactNode
 }
 
-export function WorkspaceShell({ title, subtitle, children }: WorkspaceShellProps) {
+export function WorkspaceShell({ title, subtitle, embedded, children }: WorkspaceShellProps) {
+  if (embedded) return <>{children}</>
   return (
     <div className="workspace-shell flex flex-1 flex-col overflow-hidden">
       <TopBar title={title} subtitle={subtitle} />

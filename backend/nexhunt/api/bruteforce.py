@@ -12,11 +12,10 @@ import logging
 import subprocess
 import time
 import uuid
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from nexhunt.config import settings
-from nexhunt.licensing.guard import require_pro
 
 router = APIRouter(prefix="/api/bruteforce", tags=["bruteforce"])
 logger = logging.getLogger(__name__)
@@ -210,7 +209,7 @@ async def list_services():
     return {"services": SERVICES, "default_ports": _DEFAULT_PORTS}
 
 
-@router.post("/start", dependencies=[Depends(require_pro("Brute force"))])
+@router.post("/start")
 async def start(req: BruteForceRequest):
     if not req.target.strip():
         raise HTTPException(400, "Target is required")

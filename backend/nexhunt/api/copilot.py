@@ -1,10 +1,11 @@
 import logging
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from nexhunt.services.copilot_service import copilot_service
 from nexhunt.config import settings
+from nexhunt.licensing.guard import require_pro
 
-router = APIRouter(prefix="/api/copilot", tags=["copilot"])
+router = APIRouter(prefix="/api/copilot", tags=["copilot"], dependencies=[Depends(require_pro("AI Copilot"))])
 logger = logging.getLogger(__name__)
 
 

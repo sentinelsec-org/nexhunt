@@ -147,7 +147,7 @@ const METHODOLOGIES: Methodology[] = [
             commands: [
               'GET /api/admin/users',
               'POST /api/users/promote {"role": "admin"}',
-              'GET /api/reports/all  (endpoint que solo admins deberían ver)',
+              'GET /api/reports/all  (endpoint only admins should see)',
             ],
             tips: ['Look for special IDs: 0, 1, -1 (often admin)', 'Try predictable or incremental GUIDs'],
           },

@@ -199,7 +199,7 @@ type ToolOptionsMap = Record<string, ToolOpts>
 // View modes: all findings or per-tool view
 type ViewMode = 'all' | string  // string = specific tool id
 
-export function ScannerPage() {
+export function ScannerPage({ embedded }: { embedded?: boolean }) {
   const { globalTarget, setGlobalTarget, activeProject, getSessionOpts } = useAppStore()
   const [target, setTargetLocal] = useState(globalTarget)
   // Always sync with global target (allows Recon live-host picker to propagate here)
@@ -313,7 +313,7 @@ export function ScannerPage() {
   }, {})
 
   return (
-    <WorkspaceShell title="Scanner" subtitle="Vulnerability scanning and directory discovery — per-tool output">
+    <WorkspaceShell title="Scanner" subtitle="Vulnerability scanning and directory discovery — per-tool output" embedded={embedded}>
       <div className="flex gap-4 h-full min-h-0">
 
         {/* LEFT PANEL — Tool launcher */}
@@ -500,8 +500,8 @@ export function ScannerPage() {
                                   : "border-zinc-800 text-zinc-500 hover:border-zinc-600 hover:text-zinc-300"
                               )}
                             >
-                              <div className={cn("font-medium", nucleiPreset === '' && !opts.templates ? "text-green-300" : "text-green-400")}>Recon rápido</div>
-                              <div className="text-[9px] mt-0.5 text-zinc-600 leading-tight">Tech + exposures + misconfig. Lo que corrés primero.</div>
+                              <div className={cn("font-medium", nucleiPreset === '' && !opts.templates ? "text-green-300" : "text-green-400")}>Quick recon</div>
+                              <div className="text-[9px] mt-0.5 text-zinc-600 leading-tight">Tech + exposures + misconfig. What you run first.</div>
                             </button>
                             <button
                               onClick={() => { setNucleiPreset('full-owasp'); setOption('nuclei', 'templates', '') }}
@@ -512,7 +512,7 @@ export function ScannerPage() {
                                   : "border-zinc-800 text-zinc-500 hover:border-zinc-600 hover:text-zinc-300"
                               )}
                             >
-                              <div className={cn("font-medium", nucleiPreset === 'full-owasp' ? "text-red-300" : "text-red-400")}>Caza profunda</div>
+                              <div className={cn("font-medium", nucleiPreset === 'full-owasp' ? "text-red-300" : "text-red-400")}>Deep hunt</div>
                               <div className="text-[9px] mt-0.5 text-zinc-600 leading-tight">OWASP Top 10 completo + CVEs. Lento pero exhaustivo.</div>
                             </button>
                           </div>
@@ -523,7 +523,7 @@ export function ScannerPage() {
                           onClick={() => setNucleiCatsOpen(v => !v)}
                           className="w-full flex items-center justify-center gap-1 text-[10px] text-zinc-500 hover:text-zinc-300 transition-colors py-0.5"
                         >
-                          <Target size={10} /> Categoría específica
+                          <Target size={10} /> Specific category
                           <ChevronDown size={10} className={cn('transition-transform', nucleiCatsOpen && 'rotate-180')} />
                         </button>
 

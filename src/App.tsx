@@ -1,4 +1,4 @@
-import { HashRouter, Routes, Route } from 'react-router-dom'
+import { HashRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { useEffect } from 'react'
 import { Sidebar } from '@/components/layout/Sidebar'
 import { ProjectGate } from '@/components/layout/ProjectGate'
@@ -7,21 +7,18 @@ import { ErrorBoundary } from '@/components/layout/ErrorBoundary'
 import { Toaster } from '@/components/ui/toast'
 import { UpgradeModal } from '@/components/ui/UpgradeModal'
 import { ProSplash } from '@/components/ui/ProSplash'
+import { UpdateBanner } from '@/components/layout/UpdateBanner'
 import { DashboardPage } from '@/pages/DashboardPage'
 import { ProxyPage } from '@/pages/ProxyPage'
 import { ReconPage } from '@/pages/ReconPage'
-import { ScannerPage } from '@/pages/ScannerPage'
-import { PipelinesPage } from '@/pages/PipelinesPage'
-import { ExploitPage } from '@/pages/ExploitPage'
+import { ScanPage } from '@/pages/ScanPage'
+import { OffensePage } from '@/pages/OffensePage'
 import { CopilotPage } from '@/pages/CopilotPage'
 import { ProjectsPage } from '@/pages/ProjectsPage'
 import { SettingsPage } from '@/pages/SettingsPage'
 import { TerminalPage } from '@/pages/TerminalPage'
 import { MethodologyPage } from '@/pages/MethodologyPage'
 import { WorkspacePage } from '@/pages/WorkspacePage'
-import { SecurityToolsPage } from '@/pages/SecurityToolsPage'
-import { BruteForcePage } from '@/pages/BruteForcePage'
-import { WordPressPage } from '@/pages/WordPressPage'
 import { ExposureIntelPage } from '@/pages/ExposureIntelPage'
 import { useAppStore } from '@/stores/app-store'
 import { useProxyStore } from '@/stores/proxy-store'
@@ -30,6 +27,8 @@ import { useReconStore } from '@/stores/recon-store'
 import type { LiveHostResult } from '@/stores/recon-store'
 import { usePipelineStore } from '@/stores/pipeline-store'
 import { useWordPressStore } from '@/stores/wordpress-store'
+import { useApiScannerStore } from '@/stores/api-scanner-store'
+import type { ApiEndpointRow } from '@/stores/api-scanner-store'
 import { useLicenseStore } from '@/stores/license-store'
 import { wsClient } from '@/api/ws-client'
 import { api } from '@/api/http-client'
@@ -169,6 +168,15 @@ function App() {
         if (s.event === 'completed' || s.event === 'failed' || s.event === 'cancelled') setJobId(s.tool, null)
       }
 
+      // Track API Scanner running state + job ID via WS
+      if (status.tool === 'api_scanner') {
+        const s = data as { tool: string; event: string; job_id?: string }
+        if (s.event === 'started') useApiScannerStore.getState().setRunning(true, s.job_id ?? null)
+        if (s.event === 'completed' || s.event === 'failed' || s.event === 'cancelled') {
+          useApiScannerStore.getState().setRunning(false, null)
+        }
+      }
+
       // Track WordPress (wpscan) running state + job ID via WS
       if (status.tool === 'wpscan') {
         const s = data as { tool: string; event: string; job_id?: string }
@@ -196,10 +204,18 @@ function App() {
       useWordPressStore.getState().handleResult(data)
     })
 
+    const unsubApiScan = wsClient.subscribe('api_scan', (data) => {
+      useApiScannerStore.getState().addRow(data as ApiEndpointRow)
+    })
+
     const unsubToolOutput = wsClient.subscribe('tool_output', (data) => {
       const d = data as { tool: string; line: string }
       if (d.tool === 'wpscan') {
         useWordPressStore.getState().appendLog(d.line)
+        return
+      }
+      if (d.tool === 'api_scanner') {
+        useApiScannerStore.getState().appendOutput(d.line)
         return
       }
       if (d.tool && d.line) appendToolOutput(d.tool, d.line)
@@ -224,6 +240,7 @@ function App() {
       unsubStatus()
       unsubPipeline()
       unsubWordpress()
+      unsubApiScan()
       unsubToolOutput()
       unsubIntruder()
       wsClient.disconnect()
@@ -232,7 +249,8 @@ function App() {
 
   return (
     <HashRouter>
-      <div className="flex h-screen w-screen overflow-hidden bg-zinc-950">
+      <div className="relative flex h-screen w-screen overflow-hidden bg-zinc-950">
+        <UpdateBanner />
         <Sidebar />
         <ErrorBoundary>
           <Routes>
@@ -241,18 +259,23 @@ function App() {
             <Route path="/dashboard" element={<DashboardPage />} />
             <Route path="/projects" element={<ProjectsPage />} />
             <Route path="/settings" element={<SettingsPage />} />
-            <Route path="/exposure-intel" element={<ProGate feature="Exposure Intelligence"><ExposureIntelPage /></ProGate>} />
+            <Route path="/exposure-intel" element={<ExposureIntelPage />} />
 
             {/* Project-required pages — blocked by ProjectGate when no project is active */}
             <Route path="/proxy" element={<ProjectGate><ProxyPage /></ProjectGate>} />
             <Route path="/recon" element={<ProjectGate><ReconPage /></ProjectGate>} />
-            <Route path="/scanner" element={<ProjectGate><ScannerPage /></ProjectGate>} />
-            <Route path="/security-tools" element={<ProjectGate><SecurityToolsPage /></ProjectGate>} />
-            <Route path="/wordpress" element={<ProjectGate><ProGate feature="WordPress pentest suite"><WordPressPage /></ProGate></ProjectGate>} />
-            <Route path="/exploit" element={<ProjectGate><ExploitPage /></ProjectGate>} />
-            <Route path="/pipelines" element={<ProjectGate><PipelinesPage /></ProjectGate>} />
-            <Route path="/brute-force" element={<ProjectGate><ProGate feature="Brute force"><BruteForcePage /></ProGate></ProjectGate>} />
+            <Route path="/scan" element={<ProjectGate><ScanPage /></ProjectGate>} />
+            <Route path="/offense" element={<ProjectGate><OffensePage /></ProjectGate>} />
             <Route path="/workspace" element={<ProjectGate><WorkspacePage /></ProjectGate>} />
+
+            {/* Back-compat redirects for the old flat routes */}
+            <Route path="/scanner" element={<Navigate to="/scan?tab=scanner" replace />} />
+            <Route path="/api-scanner" element={<Navigate to="/scan?tab=api" replace />} />
+            <Route path="/wordpress" element={<Navigate to="/scan?tab=wordpress" replace />} />
+            <Route path="/pipelines" element={<Navigate to="/scan?tab=pipelines" replace />} />
+            <Route path="/security-tools" element={<Navigate to="/offense?tab=attacks" replace />} />
+            <Route path="/exploit" element={<Navigate to="/offense?tab=injection" replace />} />
+            <Route path="/brute-force" element={<Navigate to="/offense?tab=brute" replace />} />
             <Route path="/copilot" element={<ProGate feature="AI Copilot"><CopilotPage /></ProGate>} />
             <Route path="/terminal" element={<TerminalPage />} />
             <Route path="/methodology" element={<MethodologyPage />} />
