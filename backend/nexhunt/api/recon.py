@@ -259,6 +259,11 @@ async def run_gobuster_dns(req: ReconRequest):
     return _start_recon("gobuster-dns", req.target, req.options, req.project_id or None)
 
 
+@router.post("/vhost-fuzzer")
+async def run_vhost_fuzzer(req: ReconRequest):
+    return _start_recon("vhost-fuzzer", req.target, req.options, req.project_id or None)
+
+
 @router.post("/httpx")
 async def run_httpx(req: ReconRequest):
     return _start_recon("httpx", req.target, req.options, req.project_id or None)

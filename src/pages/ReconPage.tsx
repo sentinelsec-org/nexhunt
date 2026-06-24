@@ -75,6 +75,7 @@ const BB_STAGES = [
       { id: 'amass', label: 'Amass', desc: 'Deep passive + active OSINT enumeration', installed: true },
       { id: 'crtsh', label: 'crt.sh', desc: 'Certificate transparency logs — passive, no binary needed', installed: true },
       { id: 'gobuster-dns', label: 'Gobuster DNS', desc: 'Active DNS brute-force — ideal for internal/.local domains, set custom resolver for private DNS', installed: true },
+      { id: 'vhost-fuzzer', label: 'Vhost Fuzzer', desc: 'Virtual host brute-force via Host header (ffuf) — finds subdomains behind wildcard DNS like .local', installed: true },
     ],
   },
   {
@@ -735,8 +736,18 @@ export function ReconPage() {
                               <OptionInput label="Wordlist" placeholder="(default: subdomains-top1m-5000)" value={opts.wordlist || ''} onChange={v => setOption(tool.id, 'wordlist', v)} />
                               <OptionInput label="Threads" placeholder="50" value={opts.threads || ''} onChange={v => setOption(tool.id, 'threads', v)} />
                               <div className="text-[9px] text-zinc-600 pt-0.5">
-                                Set Resolver to the internal DNS IP (e.g. lab DNS server) when targeting .local or private domains.
-                                Leave blank for public domains.
+                                Set Resolver to the internal DNS IP when targeting .local or private domains. Leave blank for public.
+                              </div>
+                            </>
+                          )}
+                          {tool.id === 'vhost-fuzzer' && (
+                            <>
+                              <OptionInput label="Port" placeholder="80" value={opts.port || ''} onChange={v => setOption(tool.id, 'port', v)} />
+                              <OptionInput label="Wordlist" placeholder="(default: subdomains-top1m-5000)" value={opts.wordlist || ''} onChange={v => setOption(tool.id, 'wordlist', v)} />
+                              <OptionInput label="Threads" placeholder="50" value={opts.threads || ''} onChange={v => setOption(tool.id, 'threads', v)} />
+                              <div className="text-[9px] text-zinc-600 pt-0.5">
+                                Auto-detects baseline response size and filters it. Use Port 443 for HTTPS targets.
+                                Results go to Subdomains tab with HTTP status code.
                               </div>
                             </>
                           )}
