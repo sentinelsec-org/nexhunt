@@ -31,14 +31,14 @@ class GobusterDnsAdapter(ToolAdapter):
         cmd = [
             "stdbuf", "-oL",
             self.binary_name, "dns",
-            "-d", target,
+            "--domain", target,
             "-w", wordlist,
             "-t", threads,
             "--no-color",
-            "--show-ips",
+            "--wildcard",
         ]
         if resolver:
-            cmd.extend(["-r", resolver])
+            cmd.extend(["--resolver", resolver])
 
         cmd = self._with_extra_args(cmd, options)
         yield {"_raw": True, "line": "$ " + " ".join(cmd)}
