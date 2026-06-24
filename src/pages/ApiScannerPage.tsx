@@ -230,9 +230,36 @@ function schemaType(schema: Record<string, unknown>) {
   return format ? `${type} · ${format}` : type
 }
 
+function prettyJson(raw: string): string | null {
+  try { return JSON.stringify(JSON.parse(raw), null, 2) } catch { return null }
+}
+
+function highlightJson(str: string): string {
+  const s = str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  return s
+    .replace(/^(\s*)("(?:[^"\\]|\\.)*")\s*:/gm, '$1<span class="text-teal-300">$2</span>:')
+    .replace(/:\s*("(?:[^"\\]|\\.)*")/g, ': <span class="text-green-300">$1</span>')
+    .replace(/:\s*(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)/g, ': <span class="text-yellow-300">$1</span>')
+    .replace(/:\s*(true|false)/g, ': <span class="text-cyan-300">$1</span>')
+    .replace(/:\s*(null)/g, ': <span class="text-zinc-500">$1</span>')
+}
+
 function ResponsePanel({ label, color, probe }: { label: string; color: string; probe?: ProbeResult }) {
   const [expanded, setExpanded] = useState(false)
+  const [copied, setCopied] = useState(false)
   if (!probe) return null
+
+  const jsonFormatted = probe.body ? prettyJson(probe.body) : null
+  const displayBody = jsonFormatted ?? probe.body ?? null
+
+  const handleCopy = () => {
+    if (!displayBody) return
+    navigator.clipboard.writeText(displayBody).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    })
+  }
+
   return (
     <div className="border-t border-zinc-800 pt-3 space-y-2">
       <div className="flex items-center gap-2">
@@ -240,10 +267,22 @@ function ResponsePanel({ label, color, probe }: { label: string; color: string; 
         {probe.loading && <Loader2 size={11} className="animate-spin text-teal-400" />}
         {probe.status !== undefined && <span className="font-mono text-[10px] text-zinc-300">{probe.status}</span>}
         {probe.duration_ms !== undefined && <span className="text-[9px] text-zinc-600">{Math.round(probe.duration_ms)} ms</span>}
-        {probe.body && <button onClick={() => setExpanded(value => !value)} className="ml-auto text-[9px] text-teal-400">{expanded ? 'Collapse' : 'Expand'}</button>}
+        {displayBody && (
+          <div className="ml-auto flex items-center gap-3">
+            <button onClick={handleCopy} className="text-[9px] text-zinc-500 hover:text-zinc-300">{copied ? 'Copied!' : 'Copy'}</button>
+            <button onClick={() => setExpanded(v => !v)} className="text-[9px] text-teal-400">{expanded ? 'Collapse' : 'Expand'}</button>
+          </div>
+        )}
       </div>
       {probe.error && <p className="text-[10px] text-red-400">{probe.error}</p>}
-      {probe.body && <pre className={cn('rounded bg-zinc-950 p-2 font-mono text-[10px] leading-relaxed text-zinc-400 whitespace-pre-wrap break-all overflow-auto', expanded ? 'max-h-96' : 'max-h-32')}>{probe.body}</pre>}
+      {displayBody && (
+        <div className={cn('rounded border border-zinc-800 bg-zinc-950 overflow-auto', expanded ? 'max-h-[500px]' : 'max-h-52')}>
+          {jsonFormatted
+            ? <pre className="p-3 font-mono text-[11px] leading-relaxed whitespace-pre-wrap break-all" dangerouslySetInnerHTML={{ __html: highlightJson(jsonFormatted) }} />
+            : <pre className="p-3 font-mono text-[11px] leading-relaxed text-zinc-400 whitespace-pre-wrap break-all">{displayBody}</pre>
+          }
+        </div>
+      )}
     </div>
   )
 }
