@@ -74,6 +74,7 @@ const BB_STAGES = [
       { id: 'subfinder', label: 'Subfinder', desc: 'Passive enumeration via APIs (fast)', installed: true },
       { id: 'amass', label: 'Amass', desc: 'Deep passive + active OSINT enumeration', installed: true },
       { id: 'crtsh', label: 'crt.sh', desc: 'Certificate transparency logs — passive, no binary needed', installed: true },
+      { id: 'gobuster-dns', label: 'Gobuster DNS', desc: 'Active DNS brute-force — ideal for internal/.local domains, set custom resolver for private DNS', installed: true },
     ],
   },
   {
@@ -727,6 +728,17 @@ export function ReconPage() {
                               />
                               <span className="text-[10px] text-zinc-500">Active brute (-active -brute) — finds wildcard-hidden hosts, slower &amp; noisier</span>
                             </label>
+                          )}
+                          {tool.id === 'gobuster-dns' && (
+                            <>
+                              <OptionInput label="Resolver" placeholder="192.168.1.1 (internal DNS server)" value={opts.resolver || ''} onChange={v => setOption(tool.id, 'resolver', v)} />
+                              <OptionInput label="Wordlist" placeholder="(default: subdomains-top1m-5000)" value={opts.wordlist || ''} onChange={v => setOption(tool.id, 'wordlist', v)} />
+                              <OptionInput label="Threads" placeholder="50" value={opts.threads || ''} onChange={v => setOption(tool.id, 'threads', v)} />
+                              <div className="text-[9px] text-zinc-600 pt-0.5">
+                                Set Resolver to the internal DNS IP (e.g. lab DNS server) when targeting .local or private domains.
+                                Leave blank for public domains.
+                              </div>
+                            </>
                           )}
                           {tool.id === 'httpx' && (
                             <OptionInput label="Threads" placeholder="50" value={opts.threads || ''} onChange={v => setOption(tool.id, 'threads', v)} />
