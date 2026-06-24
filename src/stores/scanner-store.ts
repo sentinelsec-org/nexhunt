@@ -19,6 +19,7 @@ interface ScannerState {
   setScanRunning: (tool: string, running: boolean) => void
   setJobId: (tool: string, jobId: string | null) => void
   clearFindings: () => void
+  removeFindingsByTool: (tool: string) => void
 }
 
 export const useScannerStore = create<ScannerState>((set) => ({
@@ -60,5 +61,8 @@ export const useScannerStore = create<ScannerState>((set) => ({
     else next[tool] = jobId
     return { activeJobIds: next }
   }),
-  clearFindings: () => set({ findings: [], scanJobs: [], rawOutput: {}, activeScans: new Set(), activeScanCounts: {}, activeJobIds: {} })
+  clearFindings: () => set({ findings: [], scanJobs: [], rawOutput: {}, activeScans: new Set(), activeScanCounts: {}, activeJobIds: {} }),
+  removeFindingsByTool: (tool) => set((state) => ({
+    findings: state.findings.filter(f => f.tool !== tool)
+  }))
 }))

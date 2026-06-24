@@ -181,6 +181,20 @@ function buildRawRequest(request: BuiltRequest) {
   return { raw: lines.join('\n'), host: url.hostname, port, https }
 }
 
+function usefulnessRank(row: ApiEndpointRow): number {
+  const status = row.status_anon
+  if (status !== null && status >= 200 && status < 300 && row.auth_required) return 0
+  if (status !== null && status >= 200 && status < 300) return 1
+  if (status === 401 || status === 403) return 2
+  if (status !== null && status >= 300 && status < 400) return 3
+  if (status === 404) return 4
+  if (status === 400 || status === 415 || status === 422) return 5
+  if (status !== null && status >= 500) return 6
+  if (row.probe_state === 'skipped_write') return 7
+  if (row.probe_state === 'not_run') return 9
+  return 8
+}
+
 function statusGroup(row: ApiEndpointRow): StatusFilter {
   if (row.probe_state === 'not_run' || row.probe_state === 'skipped_write') return 'not-run'
   if (row.probe_state === 'input_rejected') return 'inconclusive'
@@ -387,11 +401,13 @@ export function ApiScannerPage({ embedded }: { embedded?: boolean }) {
     return result
   }, {} as Record<string, number>), [rows])
 
-  const shown = rows.filter(row => {
-    if (filter !== 'all' && statusGroup(row) !== filter) return false
-    const needle = search.trim().toLowerCase()
-    return !needle || `${row.method} ${row.path} ${row.operation_id} ${row.summary} ${(row.tags || []).join(' ')}`.toLowerCase().includes(needle)
-  })
+  const shown = rows
+    .filter(row => {
+      if (filter !== 'all' && statusGroup(row) !== filter) return false
+      const needle = search.trim().toLowerCase()
+      return !needle || `${row.method} ${row.path} ${row.operation_id} ${row.summary} ${(row.tags || []).join(' ')}`.toLowerCase().includes(needle)
+    })
+    .sort((a, b) => usefulnessRank(a) - usefulnessRank(b) || a.path.localeCompare(b.path))
   const reachable = rows.filter(row => row.status_anon !== null && row.status_anon < 300).length
   const inconclusive = rows.filter(row => row.probe_state === 'input_rejected').length
   const brokenAuth = rows.filter(row => row.auth_required && row.status_anon !== null && row.status_anon < 300).length

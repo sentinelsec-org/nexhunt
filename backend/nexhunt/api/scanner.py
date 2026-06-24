@@ -187,12 +187,14 @@ async def cancel_job(job_id: str):
 # ── Findings CRUD ──────────────────────────────────────────────────────────────
 
 @router.delete("/findings")
-async def delete_all_findings(project_id: str | None = None, session: AsyncSession = Depends(get_session)):
-    """Delete findings — optionally filtered by project_id."""
+async def delete_all_findings(project_id: str | None = None, tool: str | None = None, session: AsyncSession = Depends(get_session)):
+    """Delete findings — optionally filtered by project_id and/or tool."""
     from sqlalchemy import delete as sa_delete
     q = sa_delete(Finding)
     if project_id:
         q = q.where(Finding.project_id == project_id)
+    if tool:
+        q = q.where(Finding.tool == tool)
     await session.execute(q)
     await session.commit()
     return {"status": "cleared"}

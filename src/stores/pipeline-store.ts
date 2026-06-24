@@ -73,11 +73,22 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
 
   handleEvent: (event: PipelineEvent) => {
     const { runs, activeRunId } = get()
-    if (!activeRunId) return
+
+    // Route each event to the run that owns it by pipeline type, so concurrent
+    // pipelines (e.g. JS Secrets + SQLi on the same targets) don't dump each
+    // other's URLs/findings into one run. `runs` is newest-first, so this picks
+    // the most recent still-running run of that type. Events with no pipeline
+    // tag fall back to the active (last-started) run.
+    let targetId = activeRunId
+    if (event.pipeline) {
+      const match = runs.find(r => r.type === event.pipeline && r.phase !== 'completed' && r.phase !== 'failed')
+      if (match) targetId = match.id
+    }
+    if (!targetId) return
 
     set({
       runs: runs.map(run => {
-        if (run.id !== activeRunId) return run
+        if (run.id !== targetId) return run
         const updated = { ...run, log: [...run.log] }
 
         // ── Katana phase (shared by all pipelines) ──

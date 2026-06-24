@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 SPEC_CANDIDATES = [
     "/openapi.json", "/swagger.json", "/v3/api-docs", "/v2/api-docs",
     "/api-docs", "/swagger/v1/swagger.json", "/openapi.yaml", "/swagger.yaml",
+    "/swagger/docs/v1", "/swagger/docs",
 ]
 HTTP_METHODS = ["get", "post", "put", "patch", "delete", "head", "options"]
 WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
@@ -431,6 +432,19 @@ class ApiScannerAdapter(ToolAdapter):
         if spec:
             return spec, docs_url
 
+        root_match = re.search(r"""rootUrl:\s*['"]([^'"]+)['"]""", response.text)
+        discovery_match = re.search(r"""discoveryPaths:\s*arrayFrom\(['"]([^'"]*)['"]\)""", response.text)
+        if root_match and discovery_match:
+            root_url = root_match.group(1)
+            for rel_path in discovery_match.group(1).split("|"):
+                rel_path = rel_path.strip()
+                if not rel_path:
+                    continue
+                candidate = root_url.rstrip("/") + "/" + rel_path.lstrip("/")
+                spec = await self._try_spec(client, candidate)
+                if spec:
+                    return spec, candidate
+
         patterns = (
             r"""url:\s*['"]([^'"]+)['"]""",
             r"""urls:\s*\[\s*\{[^}]*?url:\s*['"]([^'"]+)['"]""",
@@ -445,6 +459,19 @@ class ApiScannerAdapter(ToolAdapter):
                 spec = await self._try_spec(client, candidate)
                 if spec:
                     return spec, candidate
+
+        # Swagger UI bundles the spec inline in swagger-ui-init.js (NestJS, etc.).
+        # When the JSON spec endpoints are gated (403) the init bundle is still the
+        # full spec, so pull it from there.
+        for src in re.findall(r'<script[^>]+src=["\']([^"\']*swagger-ui-init[^"\']*\.js)["\']', response.text, re.I):
+            candidate = urljoin(str(response.url), src)
+            try:
+                init_response = await client.get(candidate)
+            except Exception:
+                continue
+            spec = self._extract_embedded_spec(init_response.text)
+            if spec:
+                return spec, candidate
 
         origin = f"{urlparse(docs_url).scheme}://{urlparse(docs_url).netloc}"
         for path in SPEC_CANDIDATES:
@@ -475,6 +502,45 @@ class ApiScannerAdapter(ToolAdapter):
                 return None
         if isinstance(spec, dict) and ("openapi" in spec or "swagger" in spec) and "paths" in spec:
             return spec
+        return None
+
+    @staticmethod
+    def _extract_embedded_spec(js_text):
+        # swagger-ui-init.js embeds the spec as "swaggerDoc": { ... } (or spec: {...}).
+        for key in ('"swaggerDoc"', "swaggerDoc", '"spec"'):
+            start = js_text.find(key)
+            if start == -1:
+                continue
+            brace = js_text.find("{", start)
+            if brace == -1:
+                continue
+            depth = 0
+            in_str = False
+            esc = False
+            for i in range(brace, len(js_text)):
+                ch = js_text[i]
+                if in_str:
+                    if esc:
+                        esc = False
+                    elif ch == "\\":
+                        esc = True
+                    elif ch == '"':
+                        in_str = False
+                    continue
+                if ch == '"':
+                    in_str = True
+                elif ch == "{":
+                    depth += 1
+                elif ch == "}":
+                    depth -= 1
+                    if depth == 0:
+                        try:
+                            spec = json.loads(js_text[brace:i + 1])
+                        except Exception:
+                            break
+                        if isinstance(spec, dict) and ("openapi" in spec or "swagger" in spec) and "paths" in spec:
+                            return spec
+                        break
         return None
 
     @staticmethod

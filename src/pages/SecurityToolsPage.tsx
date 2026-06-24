@@ -12,6 +12,7 @@ import {
   Play, Square, Loader2, Terminal, Copy, Check,
   Globe, Lock, Cloud, GitBranch, Radio, Info, X, BookOpen, Sparkles,
   FolderGit2, Server, ChevronDown, Share2, FileCode2, Crown, Maximize2, Crosshair, Rocket, Waypoints,
+  Pencil, Keyboard, Trash2, Zap, CheckCircle2, XCircle,
 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useWorkspaceStore } from '@/stores/workspace-store'
@@ -179,7 +180,7 @@ const TOOLS: ToolDef[] = [
     tagline: 'Tech versions -> Exploit-DB + Metasploit + auto MSF setup',
     what: 'Takes the technologies fingerprinted on your live hosts (or a product/CVE you type) and looks up known public exploits in Exploit-DB (searchsploit) and Metasploit, then prepares a ready-to-run MSF resource script for each matched module.',
     impact: 'Turns "Apache 2.4.49 / Log4j / Confluence 7.13" into a shortlist of real, downloadable exploits and one-click Metasploit setups. Closes the gap between "I know the version" and "here is the exploit and the msfconsole session".',
-    desc: 'Auto-collects the tech stack from your Recon live hosts (httpx tech-detect), or take a single product string / CVE you type. For each, it runs searchsploit (local Exploit-DB) and searches the Metasploit module DB by product name and by CVE. Each hit is a finding: Exploit-DB entries include the EDB-ID and the searchsploit -m / -x commands; Metasploit modules get a "Run in Metasploit" button that writes a resource script (RHOSTS/RPORT/LHOST pre-set) and opens msfconsole with it. Version matching is a lead, not a confirmation - verify before firing. Requires searchsploit + metasploit-framework.',
+    desc: 'Auto-collects the versioned tech stack from your Recon live hosts (httpx tech-detect) — techs with no version number are skipped, since they return decades of unrelated CVEs with no way to tell which apply. Or type a single product string / CVE. For each, it runs searchsploit (local Exploit-DB) and searches the Metasploit module DB by product name and by CVE, filtering out version mismatches and client-side/local modules that don\'t fit a remote web target. Each hit is a finding: Exploit-DB entries include the EDB-ID and the searchsploit -m / -x commands; Metasploit modules get a "Run in Metasploit" button that auto-fills RHOSTS from the host the tech was detected on, can auto-open an ngrok tunnel for LHOST, and opens msfconsole with everything pre-set. Version matching is a lead, not a confirmation - verify before firing. Requires searchsploit + metasploit-framework.',
     inputLabel: 'Product + version or CVE (optional - auto-uses live host tech)',
     placeholder: 'Apache 2.4.49  /  CVE-2021-44228  /  Confluence 7.13',
     color: 'text-rose-400',
@@ -245,24 +246,34 @@ export function SecurityToolsPage({ embedded }: { embedded?: boolean }) {
   const [graphqlExtraQueries, setGraphqlExtraQueries] = useState('')
   const [cloudTestWrite, setCloudTestWrite] = useState(false)
   const [msfRhosts, setMsfRhosts] = useState('')
+  const [msfRhostsEditing, setMsfRhostsEditing] = useState(false)
   const [msfLhost, setMsfLhost] = useState('')
+  const [msfAutoNgrok, setMsfAutoNgrok] = useState(false)
+  const [msfNgrokAddress, setMsfNgrokAddress] = useState('')
   const [msfLaunching, setMsfLaunching] = useState(false)
+  const [msfTestAllNgrok, setMsfTestAllNgrok] = useState(true)
+  const [msfTestAllStarting, setMsfTestAllStarting] = useState(false)
+  const [msfTestAllJobId, setMsfTestAllJobId] = useState<string | null>(null)
+  const [msfTestAllResults, setMsfTestAllResults] = useState<{ module: string; rhosts: string; status: string }[]>([])
   const [view, setView] = useState<ViewMode>('findings')
   const [selected, setSelected] = useState<Finding | null>(null)
   const [copied, setCopied] = useState(false)
   const [evidenceOpen, setEvidenceOpen] = useState(false)
   const [guideOpen, setGuideOpen] = useState(false)
   const [selectedJsHosts, setSelectedJsHosts] = useState<string[]>([])
+  const [selectedExploitHosts, setSelectedExploitHosts] = useState<string[]>([])
   const [notInstalled, setNotInstalled] = useState<Set<string>>(new Set())
   const termRef = useRef<HTMLPreElement>(null)
   const navigate = useNavigate()
 
   const { activeProject, globalTarget, getSessionOpts } = useAppStore()
   const { isPro } = useLicenseStore()
-  const { findings, rawOutput, activeScans, activeJobIds, clearToolOutput } = useScannerStore()
-  const { liveHosts, urls } = useReconStore()
+  const { findings, rawOutput, activeScans, activeJobIds, clearToolOutput, removeFindingsByTool } = useScannerStore()
+  const { liveHosts, urls, ports } = useReconStore()
   const jsHostUrls = [...new Set(liveHosts.map(host => host.url).filter(Boolean))]
   const jsHostKey = jsHostUrls.join('\n')
+  const exploitHosts = [...new Set(liveHosts.filter(host => host.technologies?.length).map(host => host.host).filter(Boolean))]
+  const exploitHostKey = exploitHosts.join('\n')
   const { addFinding: addToWorkspace } = useWorkspaceStore()
 
   useEffect(() => {
@@ -271,6 +282,13 @@ export function SecurityToolsPage({ embedded }: { embedded?: boolean }) {
       return stillLive.length > 0 ? stillLive : jsHostUrls
     })
   }, [jsHostKey])
+
+  useEffect(() => {
+    setSelectedExploitHosts(previous => {
+      const stillLive = previous.filter(host => exploitHosts.includes(host))
+      return stillLive.length > 0 ? stillLive : exploitHosts
+    })
+  }, [exploitHostKey])
 
   // Check which tools are installed once on mount
   useEffect(() => {
@@ -296,10 +314,25 @@ export function SecurityToolsPage({ embedded }: { embedded?: boolean }) {
     if (termRef.current) termRef.current.scrollTop = termRef.current.scrollHeight
   }, [rawOutput[activeTab]])
 
+  // Auto-fill RHOSTS from the host the technology was actually detected on.
+  useEffect(() => {
+    if (selected?.tool === 'exploit_intel' && selected.template_id?.startsWith('msf:')) {
+      setMsfRhosts(selected.url || '')
+      setMsfRhostsEditing(false)
+      setMsfNgrokAddress('')
+    }
+  }, [selected?.id])
+
   const tabFindings = findings.filter(f => f.tool === activeTab)
   const tabOutput = rawOutput[activeTab] ?? []
   const isRunning = activeScans.has(activeTab)
   const jobId = activeJobIds[activeTab]
+
+  // Metasploit-matched findings on a selected host, most important first - what "Test All" fires.
+  const SEVERITY_RANK: Record<string, number> = { high: 0, medium: 1, low: 2, info: 3 }
+  const msfTestAllCandidates = tabFindings
+    .filter(f => f.tool === 'exploit_intel' && f.template_id?.startsWith('msf:') && f.url && selectedExploitHosts.includes(f.url))
+    .sort((a, b) => (SEVERITY_RANK[a.severity] ?? 9) - (SEVERITY_RANK[b.severity] ?? 9))
 
   // OOB host extracted from interactsh findings
   const oobHost = findings.find(f => f.tool === 'interactsh' && f.template_id === 'interactsh-host')?.url?.replace('http://', '') ?? ''
@@ -311,8 +344,22 @@ export function SecurityToolsPage({ embedded }: { embedded?: boolean }) {
   const optsFor = (id: ToolId) => {
     if (id === 'cloud_buckets')
       return { ...getSessionOpts(), seed_urls: urls.map(u => u.url).filter(Boolean).slice(0, 800), test_write: cloudTestWrite }
-    if (id === 'exploit_intel')
-      return { ...getSessionOpts(), techs: [...new Set(liveHosts.flatMap(h => h.technologies ?? []).filter(Boolean))].slice(0, 100) }
+    if (id === 'exploit_intel') {
+      const exploitPorts = ports
+        .filter(p => p.version && selectedExploitHosts.some(h => h.includes(p.ip) || p.ip.includes(h.replace(/^https?:\/\//, '').split('/')[0])))
+        .map(p => ({ ip: p.ip, port: p.port, service: p.service ?? '', version: p.version ?? '' }))
+        .slice(0, 60)
+      const exploitFindings = findings
+        .filter(f => (f.tool === 'api_scanner' || f.tool === 'exposed_files') && f.url)
+        .map(f => ({ tool: f.tool ?? '', url: f.url ?? '', title: f.title }))
+        .slice(0, 100)
+      return {
+        ...getSessionOpts(),
+        hosts: liveHosts.filter(h => h.technologies?.length && selectedExploitHosts.includes(h.host)).map(h => ({ host: h.host, technologies: h.technologies })).slice(0, 100),
+        ports: exploitPorts,
+        findings_feed: exploitFindings,
+      }
+    }
     if (id === 'js_api_mapper')
       return { ...getSessionOpts(), seed_urls: urls.map(u => u.url).filter(Boolean).slice(0, 800) }
     if (id === 'graphql_audit')
@@ -320,13 +367,27 @@ export function SecurityToolsPage({ embedded }: { embedded?: boolean }) {
     return getSessionOpts()
   }
 
-  const exploitIntelTechCount = [...new Set(liveHosts.flatMap(h => h.technologies ?? []).filter(Boolean))].length
+  // Only versioned techs get searched server-side — a banner version is the only thing that
+  // makes the CVE lookup anything more than guesswork, so versionless techs are skipped there.
+  const exploitIntelTechCount = [...new Set(
+    liveHosts.filter(h => selectedExploitHosts.includes(h.host)).flatMap(h => h.technologies ?? []).filter(Boolean)
+  )].filter(tech => /\d+(\.\d+){1,3}/.test(tech)).length
+
+  const exploitIntelPortCount = ports.filter(p =>
+    p.version && selectedExploitHosts.some(h => h.includes(p.ip) || p.ip.includes(h.replace(/^https?:\/\//, '').split('/')[0]))
+  ).length
+
+  const exploitIntelFindingCount = findings.filter(f =>
+    (f.tool === 'api_scanner' || f.tool === 'exposed_files') && f.url
+  ).length
+
+  const exploitIntelTotal = exploitIntelTechCount + exploitIntelPortCount + exploitIntelFindingCount
 
   const handleRun = async () => {
     const target = targets[activeTab].trim()
-    // exploit_intel can run with no typed target if live hosts have detected tech.
-    if (activeTab === 'exploit_intel' && !target && exploitIntelTechCount === 0) {
-      toast.error('Nothing to look up', 'Type a product/CVE, or probe live hosts in Recon first so tech is detected.')
+    // exploit_intel can run with no typed target if live hosts have detected tech, ports, or findings.
+    if (activeTab === 'exploit_intel' && !target && exploitIntelTotal === 0) {
+      toast.error('Nothing to look up', 'Type a product/CVE, or run Recon (HTTPX/Nmap) or API Scanner first.')
       return
     }
     if (!target && activeTab !== 'interactsh' && activeTab !== 'exploit_intel') {
@@ -346,6 +407,13 @@ export function SecurityToolsPage({ embedded }: { embedded?: boolean }) {
     try { await api.delete(`/api/tools/jobs/${jobId}`) } catch {}
   }
 
+  const handleClearFindings = async () => {
+    removeFindingsByTool(activeTab)
+    setSelected(null)
+    const qs = new URLSearchParams({ tool: activeTab, ...(activeProject ? { project_id: activeProject } : {}) })
+    try { await api.delete(`/api/scanner/findings?${qs}`) } catch {}
+  }
+
   const handleMsfLaunch = async (module: string) => {
     if (!msfRhosts.trim()) {
       toast.error('Set a target host (RHOSTS)', 'Enter the IP/host to exploit before launching.')
@@ -353,22 +421,72 @@ export function SecurityToolsPage({ embedded }: { embedded?: boolean }) {
     }
     setMsfLaunching(true)
     try {
-      const res = await api.post<{ status: string; command?: string; rc_path?: string; note?: string }>(
+      const res = await api.post<{ status: string; command?: string; rc_path?: string; note?: string; ngrok_address?: string; error?: string }>(
         '/api/tools/exploit-intel/msf-launch',
-        { module, rhosts: msfRhosts.trim(), lhost: msfLhost.trim() },
+        { module, rhosts: msfRhosts.trim(), lhost: msfLhost.trim(), auto_ngrok: msfAutoNgrok },
       )
+      if (res.ngrok_address) setMsfNgrokAddress(res.ngrok_address)
       if (res.status === 'launched') {
-        toast.success('Metasploit launched', `${module} in a new terminal (${res.rc_path})`)
+        toast.success('Metasploit launched', res.ngrok_address ? `${module} - listening at ${res.ngrok_address}` : `${module} in a new terminal (${res.rc_path})`)
       } else if (res.status === 'manual') {
         navigator.clipboard.writeText(res.command || '').catch(() => {})
         toast.success('Resource script ready', `${res.note} Command copied: ${res.command}`)
       } else {
-        toast.error('Launch failed', (res as any).error || 'Unknown error')
+        toast.error('Launch failed', res.error || 'Unknown error')
       }
     } catch (err) {
       toast.error('Failed to launch Metasploit', err)
     } finally {
       setMsfLaunching(false)
+    }
+  }
+
+  // Poll the combined Test All run until every module reports success/failed (or we give up).
+  useEffect(() => {
+    if (!msfTestAllJobId) return
+    let attempts = 0
+    const interval = setInterval(async () => {
+      attempts += 1
+      try {
+        const res = await api.get<{ results?: { module: string; status: string }[]; done?: boolean; error?: string }>(
+          `/api/tools/exploit-intel/msf-test-all/${msfTestAllJobId}`,
+        )
+        if (res.results) {
+          setMsfTestAllResults(previous => res.results!.map((r, i) => ({ ...r, rhosts: previous[i]?.rhosts ?? '' })))
+        }
+        if (res.done || res.error || attempts >= 45) {
+          clearInterval(interval)
+          setMsfTestAllJobId(null)
+        }
+      } catch {
+        if (attempts >= 45) { clearInterval(interval); setMsfTestAllJobId(null) }
+      }
+    }, 2000)
+    return () => clearInterval(interval)
+  }, [msfTestAllJobId])
+
+  const handleTestAll = async () => {
+    if (msfTestAllCandidates.length === 0) return
+    const items = msfTestAllCandidates.map(f => ({ module: f.template_id!.slice(4), rhosts: f.url! }))
+    setMsfTestAllStarting(true)
+    setMsfTestAllResults(items.map(item => ({ ...item, status: 'pending' })))
+    try {
+      const res = await api.post<{ status: string; job_id?: string; count?: number; ngrok_address?: string; error?: string }>(
+        '/api/tools/exploit-intel/msf-test-all',
+        { items, auto_ngrok: msfTestAllNgrok },
+      )
+      if (res.status === 'started' && res.job_id) {
+        setMsfTestAllJobId(res.job_id)
+        toast.success('Test All launched', res.ngrok_address ? `${res.count} modules - listening at ${res.ngrok_address}` : `${res.count} modules running in msfconsole`)
+      } else {
+        toast.error('Test All failed', res.error || 'Unknown error')
+        setMsfTestAllResults([])
+      }
+    } catch (err) {
+      toast.error('Failed to start Test All', err)
+      setMsfTestAllResults([])
+    } finally {
+      setMsfTestAllStarting(false)
     }
   }
 
@@ -530,6 +648,71 @@ export function SecurityToolsPage({ embedded }: { embedded?: boolean }) {
               />
             )}
 
+            {activeTab === 'exploit_intel' && exploitHosts.length > 0 && (
+              <ExploitIntelHostPicker
+                selected={selectedExploitHosts}
+                onChange={setSelectedExploitHosts}
+              />
+            )}
+
+            {activeTab === 'exploit_intel' && msfTestAllCandidates.length > 0 && (
+              <div className="space-y-2 rounded-md border border-red-800/50 bg-red-950/15 p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-[10px] text-red-300 font-medium flex items-center gap-1.5">
+                    <Zap size={11} /> Test All — fires every matched module automatically
+                  </div>
+                  <label className="flex items-center gap-1.5 text-[9px] text-cyan-400/80 cursor-pointer shrink-0">
+                    <input
+                      type="checkbox"
+                      checked={msfTestAllNgrok}
+                      onChange={e => setMsfTestAllNgrok(e.target.checked)}
+                      className="w-2.5 h-2.5 accent-cyan-500"
+                    />
+                    Auto via ngrok
+                  </label>
+                </div>
+                <p className="text-[9px] text-zinc-500 leading-relaxed">
+                  Runs all <span className="text-red-400 font-medium">{msfTestAllCandidates.length}</span> Metasploit
+                  matches on your selected host(s), highest severity first, with no per-module confirmation. Active
+                  exploitation — authorized targets only.
+                </p>
+                <button
+                  onClick={handleTestAll}
+                  disabled={msfTestAllStarting || !!msfTestAllJobId}
+                  className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 text-[10px] rounded border border-red-700 text-red-300 hover:bg-red-950/40 disabled:opacity-50 transition-colors"
+                >
+                  {msfTestAllStarting || msfTestAllJobId ? <Loader2 size={10} className="animate-spin" /> : <Zap size={10} />}
+                  {msfTestAllJobId ? 'Running...' : `Test all ${msfTestAllCandidates.length} now`}
+                </button>
+
+                {msfTestAllResults.length > 0 && (
+                  <div className="pt-1 border-t border-red-900/40">
+                    <div className="flex items-center gap-2 py-1 text-[9px] text-zinc-500">
+                      <span className="text-emerald-400 font-medium">{msfTestAllResults.filter(r => r.status === 'success').length} opened a session</span>
+                      <span>·</span>
+                      <span>{msfTestAllResults.filter(r => r.status === 'pending' || r.status === 'running').length} running</span>
+                      <span>·</span>
+                      <span>{msfTestAllResults.length} total</span>
+                    </div>
+                    <div className="max-h-32 overflow-y-auto space-y-1 pr-1">
+                      {msfTestAllResults.map((r, i) => (
+                        <div key={`${r.module}-${i}`} className="flex items-center gap-2 text-[9px]">
+                          {r.status === 'success' && <CheckCircle2 size={10} className="text-emerald-500 shrink-0" />}
+                          {r.status === 'failed' && <XCircle size={10} className="text-zinc-600 shrink-0" />}
+                          {(r.status === 'pending' || r.status === 'running') && <Loader2 size={10} className="text-amber-500 animate-spin shrink-0" />}
+                          <span className={cn('font-mono truncate', r.status === 'success' ? 'text-emerald-400' : 'text-zinc-500')}>{r.module.split('/').pop()}</span>
+                          <span className="text-zinc-700 truncate">{r.rhosts}</span>
+                          <span className={cn('ml-auto shrink-0', r.status === 'success' ? 'text-emerald-500' : 'text-zinc-600')}>
+                            {r.status === 'success' ? 'session opened' : r.status === 'failed' ? 'no session' : 'running'}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Input + buttons */}
             <div className="flex gap-2">
               <Input
@@ -549,7 +732,7 @@ export function SecurityToolsPage({ embedded }: { embedded?: boolean }) {
               ) : (
                 <button
                   onClick={handleRun}
-                  disabled={(!targets[activeTab].trim() && activeTab !== 'interactsh' && !(activeTab === 'exploit_intel' && exploitIntelTechCount > 0)) || proGated}
+                  disabled={(!targets[activeTab].trim() && activeTab !== 'interactsh' && !(activeTab === 'exploit_intel' && exploitIntelTotal > 0)) || proGated}
                   className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border border-green-700/70 text-green-400 hover:bg-green-950/30 disabled:opacity-40 disabled:cursor-not-allowed transition-colors shrink-0"
                 >
                   {proGated ? <Crown size={11} /> : <Play size={11} />} {proGated ? 'PRO' : 'Run'}
@@ -642,41 +825,63 @@ export function SecurityToolsPage({ embedded }: { embedded?: boolean }) {
               </div>
             )}
 
-            {/* Exploit Intel: show how many techs will be auto-looked-up */}
+            {/* Exploit Intel: show how many leads will be auto-looked-up */}
             {activeTab === 'exploit_intel' && (
-              <div className="text-[10px] text-zinc-500 leading-relaxed">
-                {exploitIntelTechCount > 0
-                  ? <>Will look up <span className="text-rose-400 font-medium">{exploitIntelTechCount}</span> technolog{exploitIntelTechCount === 1 ? 'y' : 'ies'} detected on your live hosts{targets.exploit_intel.trim() ? ', plus what you typed' : ''}.</>
-                  : <>No tech detected yet — probe live hosts in Recon (HTTPX), or just type a product/CVE above.</>}
+              <div className="text-[10px] text-zinc-500 leading-relaxed space-y-0.5">
+                {exploitIntelTotal > 0 ? (
+                  <>
+                    <div>
+                      Will search <span className="text-rose-400 font-medium">{exploitIntelTotal}</span> lead{exploitIntelTotal !== 1 ? 's' : ''}{targets.exploit_intel.trim() ? ', plus what you typed' : ''}:
+                      {exploitIntelTechCount > 0 && <> <span className="text-rose-300">{exploitIntelTechCount} versioned tech{exploitIntelTechCount !== 1 ? 's' : ''}</span> (HTTPX)</>}
+                      {exploitIntelPortCount > 0 && <>{exploitIntelTechCount > 0 ? ',' : ''} <span className="text-orange-300">{exploitIntelPortCount} port banner{exploitIntelPortCount !== 1 ? 's' : ''}</span> (Nmap)</>}
+                      {exploitIntelFindingCount > 0 && <>{(exploitIntelTechCount > 0 || exploitIntelPortCount > 0) ? ',' : ''} <span className="text-yellow-300">{exploitIntelFindingCount} endpoint{exploitIntelFindingCount !== 1 ? 's' : ''}</span> (API Scanner / Exposed Files)</>}
+                      .
+                    </div>
+                    <div className="text-zinc-600">Versionless techs are skipped — run Nmap for service banners to get more leads.</div>
+                  </>
+                ) : (
+                  <>No leads yet — run Recon (HTTPX or Nmap) or API Scanner first, or type a product/CVE above.</>
+                )}
               </div>
             )}
           </div>
 
           {/* View tabs */}
-          <div className="flex gap-1 bg-zinc-900/50 rounded-lg p-1">
-            <button
-              onClick={() => setView('findings')}
-              className={cn(
-                'flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors',
-                view === 'findings' ? 'bg-zinc-700 text-zinc-100' : 'text-zinc-400 hover:text-zinc-200'
-              )}
-            >
-              Findings
-              {tabFindings.length > 0 && (
-                <span className="text-[9px] px-1 rounded bg-zinc-600 text-zinc-200">{tabFindings.length}</span>
-              )}
-            </button>
-            <button
-              onClick={() => setView('terminal')}
-              className={cn(
-                'flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors',
-                view === 'terminal' ? 'bg-zinc-700 text-zinc-100' : 'text-zinc-400 hover:text-zinc-200'
-              )}
-            >
-              <Terminal size={11} />
-              Raw Output
-              {isRunning && <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse shrink-0" />}
-            </button>
+          <div className="flex items-center gap-1">
+            <div className="flex gap-1 bg-zinc-900/50 rounded-lg p-1">
+              <button
+                onClick={() => setView('findings')}
+                className={cn(
+                  'flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors',
+                  view === 'findings' ? 'bg-zinc-700 text-zinc-100' : 'text-zinc-400 hover:text-zinc-200'
+                )}
+              >
+                Findings
+                {tabFindings.length > 0 && (
+                  <span className="text-[9px] px-1 rounded bg-zinc-600 text-zinc-200">{tabFindings.length}</span>
+                )}
+              </button>
+              <button
+                onClick={() => setView('terminal')}
+                className={cn(
+                  'flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors',
+                  view === 'terminal' ? 'bg-zinc-700 text-zinc-100' : 'text-zinc-400 hover:text-zinc-200'
+                )}
+              >
+                <Terminal size={11} />
+                Raw Output
+                {isRunning && <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse shrink-0" />}
+              </button>
+            </div>
+            {tabFindings.length > 0 && (
+              <button
+                onClick={handleClearFindings}
+                title={`Clear all ${tool.label} findings`}
+                className="ml-auto flex items-center gap-1.5 px-2.5 py-1.5 text-[10px] text-zinc-500 hover:text-red-400 rounded-md hover:bg-red-950/20 transition-colors"
+              >
+                <Trash2 size={12} /> Clear all
+              </button>
+            )}
           </div>
 
           {/* Terminal view */}
@@ -799,26 +1004,87 @@ export function SecurityToolsPage({ embedded }: { embedded?: boolean }) {
                     </div>
                   )}
                   {selected.tool === 'exploit_intel' && selected.template_id?.startsWith('msf:') && (
-                    <div className="space-y-1.5 rounded-md border border-rose-800/50 bg-rose-950/20 p-2">
+                    <div className="space-y-3 rounded-md border border-rose-800/50 bg-rose-950/20 p-3">
                       <div className="text-[10px] text-rose-300 font-medium flex items-center gap-1.5">
                         <Rocket size={11} /> Run in Metasploit
                       </div>
                       <div className="text-[9px] text-zinc-500 font-mono break-all">{selected.template_id.slice(4)}</div>
-                      <input
-                        value={msfRhosts}
-                        onChange={e => setMsfRhosts(e.target.value)}
-                        placeholder="RHOSTS — target IP/host"
-                        className="w-full text-[10px] bg-zinc-950 border border-zinc-800 rounded px-2 py-1 text-zinc-300 placeholder:text-zinc-700 focus:outline-none focus:border-rose-700"
-                      />
-                      <input
-                        value={msfLhost}
-                        onChange={e => setMsfLhost(e.target.value)}
-                        placeholder="LHOST — your IP (for reverse shells, optional)"
-                        className="w-full text-[10px] bg-zinc-950 border border-zinc-800 rounded px-2 py-1 text-zinc-300 placeholder:text-zinc-700 focus:outline-none focus:border-rose-700"
-                      />
+
+                      <div className="relative pl-4">
+                        <div className="absolute left-[3px] top-1.5 bottom-1.5 w-px bg-rose-900/50" />
+
+                        {/* Target node */}
+                        <div className="relative pb-3">
+                          <span className={cn('absolute -left-4 top-[3px] w-2 h-2 rounded-full ring-2 ring-rose-950/40', msfRhosts.trim() ? 'bg-emerald-500' : 'bg-zinc-700')} />
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-[9px] uppercase tracking-wide text-zinc-500">Target · RHOSTS</span>
+                            {!msfRhostsEditing && (
+                              <button onClick={() => setMsfRhostsEditing(true)} className="flex items-center gap-1 text-[9px] text-zinc-500 hover:text-rose-300 transition-colors">
+                                <Pencil size={9} /> Edit
+                              </button>
+                            )}
+                          </div>
+                          {msfRhostsEditing ? (
+                            <input
+                              value={msfRhosts}
+                              onChange={e => setMsfRhosts(e.target.value)}
+                              onBlur={() => setMsfRhostsEditing(false)}
+                              autoFocus
+                              placeholder="Target IP/host"
+                              className="mt-1 w-full text-[10px] bg-zinc-950 border border-zinc-800 rounded px-2 py-1 text-zinc-300 placeholder:text-zinc-700 focus:outline-none focus:border-rose-700"
+                            />
+                          ) : (
+                            <div className="mt-1 font-mono text-[11px] text-zinc-200 break-all">
+                              {msfRhosts || <span className="italic text-zinc-600">Not set — edit to enter a host</span>}
+                            </div>
+                          )}
+                          <div className="mt-1 flex items-center gap-1 text-[9px] text-zinc-600">
+                            {selected.url
+                              ? <><Crosshair size={9} className="text-emerald-500 shrink-0" /> Detected via httpx tech-detect on this host</>
+                              : <><Keyboard size={9} className="shrink-0" /> Manually entered query — no source host</>}
+                          </div>
+                        </div>
+
+                        {/* Callback node */}
+                        <div className="relative pt-1">
+                          <span className={cn('absolute -left-4 top-[5px] w-2 h-2 rounded-full ring-2 ring-rose-950/40', (msfAutoNgrok ? msfNgrokAddress : msfLhost.trim()) ? 'bg-rose-500' : 'bg-zinc-700')} />
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-[9px] uppercase tracking-wide text-zinc-500">Callback · LHOST</span>
+                            <label className="flex items-center gap-1.5 text-[9px] text-cyan-400/80 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={msfAutoNgrok}
+                                onChange={e => { setMsfAutoNgrok(e.target.checked); setMsfNgrokAddress('') }}
+                                className="w-2.5 h-2.5 accent-cyan-500"
+                              />
+                              Auto via ngrok
+                            </label>
+                          </div>
+                          {msfAutoNgrok ? (
+                            <div className="mt-1 font-mono text-[11px] text-zinc-200">
+                              {msfNgrokAddress ? (
+                                <span className="inline-flex items-center gap-1.5">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+                                  {msfNgrokAddress}
+                                </span>
+                              ) : (
+                                <span className="italic text-zinc-600">Tunnel opens when you launch</span>
+                              )}
+                            </div>
+                          ) : (
+                            <input
+                              value={msfLhost}
+                              onChange={e => setMsfLhost(e.target.value)}
+                              placeholder="Your IP (optional, for reverse shells)"
+                              className="mt-1 w-full text-[10px] bg-zinc-950 border border-zinc-800 rounded px-2 py-1 text-zinc-300 placeholder:text-zinc-700 focus:outline-none focus:border-rose-700"
+                            />
+                          )}
+                        </div>
+                      </div>
+
                       <button
                         onClick={() => handleMsfLaunch(selected.template_id!.slice(4))}
-                        disabled={msfLaunching}
+                        disabled={msfLaunching || !msfRhosts.trim()}
                         className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 text-[10px] rounded border border-rose-700 text-rose-300 hover:bg-rose-950/40 disabled:opacity-50 transition-colors"
                       >
                         {msfLaunching ? <Loader2 size={10} className="animate-spin" /> : <Rocket size={10} />}
@@ -1221,6 +1487,66 @@ function JsApiHostPicker({ selected, onChange }: {
   )
 }
 
+function ExploitIntelHostPicker({ selected, onChange }: {
+  selected: string[]
+  onChange: (hosts: string[]) => void
+}) {
+  const { liveHosts } = useReconStore()
+  const [open, setOpen] = useState(false)
+  const [filter, setFilter] = useState('')
+  const ref = useRef<HTMLDivElement>(null)
+  const hosts = [...new Map(liveHosts.filter(host => host.technologies?.length).map(host => [host.host, host])).values()]
+  const visible = hosts.filter(host => !filter || `${host.host} ${(host.technologies || []).join(' ')}`.toLowerCase().includes(filter.toLowerCase()))
+
+  useEffect(() => {
+    if (!open) return
+    const close = (event: MouseEvent) => {
+      if (ref.current && !ref.current.contains(event.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', close)
+    return () => document.removeEventListener('mousedown', close)
+  }, [open])
+
+  if (hosts.length === 0) return null
+
+  const toggle = (host: string) => onChange(
+    selected.includes(host) ? selected.filter(item => item !== host) : [...selected, host]
+  )
+
+  return (
+    <div className="relative" ref={ref}>
+      <button onClick={() => setOpen(value => !value)} className="w-full h-9 flex items-center justify-between gap-2 rounded-md border border-rose-900/70 bg-rose-950/15 px-3 text-xs text-rose-300 hover:border-rose-700 transition-colors">
+        <span className="flex items-center gap-2">
+          <Server size={12} />
+          <span>{selected.length === hosts.length ? `All ${hosts.length} live hosts` : `${selected.length} of ${hosts.length} live hosts`} selected</span>
+        </span>
+        <ChevronDown size={12} className={cn('transition-transform', open && 'rotate-180')} />
+      </button>
+      {open && (
+        <div className="absolute z-50 top-full left-0 right-0 mt-1 rounded-lg border border-zinc-700 bg-zinc-900 shadow-xl shadow-black/50 overflow-hidden">
+          <div className="flex items-center gap-2 p-2 border-b border-zinc-800">
+            <input autoFocus value={filter} onChange={event => setFilter(event.target.value)} placeholder="Filter hostname or tech" className="flex-1 h-7 rounded border border-zinc-800 bg-zinc-950 px-2 text-[10px] text-zinc-300 focus:outline-none focus:border-rose-800" />
+            <button onClick={() => onChange(hosts.map(host => host.host))} className="text-[10px] text-rose-400 hover:text-rose-300">Select all</button>
+            <button onClick={() => onChange([])} className="text-[10px] text-zinc-500 hover:text-zinc-300">Clear</button>
+          </div>
+          <div className="max-h-56 overflow-y-auto p-1">
+            {visible.map(host => {
+              const checked = selected.includes(host.host)
+              const techCount = (host.technologies || []).filter(tech => /\d+(\.\d+){1,3}/.test(tech)).length
+              return <button key={host.host} onClick={() => toggle(host.host)} className={cn('w-full grid grid-cols-[20px_minmax(0,1fr)_auto] items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-zinc-800/70', checked && 'bg-rose-950/20')}>
+                <span className={cn('w-3.5 h-3.5 rounded border grid place-items-center', checked ? 'border-rose-600 bg-rose-600 text-zinc-950' : 'border-zinc-700')}>{checked && <Check size={10} />}</span>
+                <span className="font-mono text-[10px] text-zinc-300 truncate">{host.host}</span>
+                <span className="text-[9px] text-zinc-600 shrink-0">{techCount} versioned</span>
+              </button>
+            })}
+            {visible.length === 0 && <div className="px-3 py-5 text-center text-[10px] text-zinc-600">No hosts match this filter.</div>}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function GraphqlGuide() {
   return (
     <>
@@ -1462,14 +1788,14 @@ function ExploitIntelGuide() {
       </GuideSection>
       <GuideSection title="How it works">
         <div className="space-y-1.5 text-[10px] text-zinc-500 leading-relaxed">
-          <p><span className="text-rose-400 font-semibold">Input:</span> leave the box empty to auto-use every technology fingerprinted on your Recon live hosts, or type a product + version ("Apache 2.4.49") or a CVE ("CVE-2021-44228").</p>
-          <p><span className="text-rose-400 font-semibold">Exploit-DB:</span> runs searchsploit per tech. Each hit shows the EDB-ID, type and the commands to pull (<code className="text-green-400">searchsploit -m ID</code>) and read (<code className="text-green-400">searchsploit -x ID</code>) it.</p>
-          <p><span className="text-rose-400 font-semibold">Metasploit:</span> searches the module DB by product name and by CVE. Exploit modules rank highest. Each one gets a "Run in Metasploit" button.</p>
+          <p><span className="text-rose-400 font-semibold">Input:</span> leave the box empty to auto-use every fingerprinted technology that has a detected version number, or type a product + version ("Apache 2.4.49") or a CVE ("CVE-2021-44228"). Techs with no version are skipped automatically — "nginx" or "Ruby on Rails" with no number returns every historical CVE for the product, which is noise, not a lead.</p>
+          <p><span className="text-rose-400 font-semibold">Exploit-DB:</span> runs searchsploit per tech, then drops hits whose title cites a clearly different major version than the one detected.</p>
+          <p><span className="text-rose-400 font-semibold">Metasploit:</span> searches by CVE (precise) and by product name (fuzzy, requires 2+ specific words so a single generic term like "Rails" can't match half the module DB). Client-side, local and file-format modules are excluded from name matches — they don't apply to a remote web target. Exploit modules rank highest. Each one gets a "Run in Metasploit" button.</p>
         </div>
       </GuideSection>
       <GuideSection title="Run in Metasploit">
         <div className="space-y-1 text-[10px] text-zinc-500 leading-relaxed">
-          <p>Open a Metasploit finding, set RHOSTS (target) and optionally LHOST (your IP for reverse shells), then Launch. It writes a resource script with everything pre-set and opens msfconsole stopped at <code className="text-green-400">show options</code> — review, then type <code className="text-green-400">exploit</code>.</p>
+          <p>Open a Metasploit finding — RHOSTS auto-fills from the live host the tech was actually detected on (edit it if you need to). For LHOST, either type your IP, or flip "Auto via ngrok" to have NexHunt open a reverse tunnel and wire LHOST/the local listener together for you. Launch writes a resource script with everything pre-set and opens msfconsole stopped at <code className="text-green-400">show options</code> — review, then type <code className="text-green-400">exploit</code>.</p>
         </div>
       </GuideSection>
       <Tip>Version matching is a LEAD, not proof. A banner version can be patched/backported and still report old. Confirm the module's check (<code className="text-green-400">check</code> in msf) or verify manually before firing — and only against authorized targets.</Tip>

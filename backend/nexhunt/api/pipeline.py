@@ -28,6 +28,11 @@ logger = logging.getLogger(__name__)
 _KATANA_CACHE: dict[str, tuple[float, list, list]] = {}
 _KATANA_CACHE_TTL = 1800  # seconds (30 min)
 
+# Crawls currently in progress, keyed the same as the cache. Lets a second pipeline
+# launched in parallel (e.g. SQLi started while JS Secrets is still crawling the same
+# target) wait for and reuse the running crawl instead of starting a duplicate one.
+_KATANA_INFLIGHT: dict[str, "asyncio.Future"] = {}
+
 
 def _crawl_cache_key(target: str, opts: dict) -> str:
     """Key on the inputs that actually change the crawl result (not speed knobs)."""
@@ -343,64 +348,99 @@ async def _katana_crawl_streaming(target: str, opts: dict, *, pipeline: str):
             })
             return list(all_results), list(param_results)
 
-    # Cache miss (or forced) — now we actually crawl. Emit "started" only here so
-    # a cache hit never shows a misleading "Crawling..." in the UI.
-    await ws_manager.broadcast("pipeline", {
-        "phase": "katana", "event": "started",
-        "pipeline": pipeline,
-        "message": f"Crawling {target} with Katana...",
-    })
+        # No finished crawl, but one may be running right now for the same target+config
+        # (the other pipeline launched in parallel). Wait for it instead of crawling again.
+        inflight = _KATANA_INFLIGHT.get(cache_key)
+        if inflight is not None:
+            await ws_manager.broadcast("pipeline", {
+                "phase": "katana", "event": "started",
+                "pipeline": pipeline,
+                "message": f"Another pipeline is already crawling {target} — waiting for it to share the crawl...",
+            })
+            all_results, param_results = await inflight
+            await ws_manager.broadcast("pipeline", {
+                "phase": "katana", "event": "cached",
+                "pipeline": pipeline,
+                "total": len(all_results),
+                "xss_candidates": len(param_results),
+                "message": f"Reusing the shared crawl — {len(all_results)} URLs, {len(param_results)} with params (skipped Katana)",
+            })
+            return list(all_results), list(param_results)
 
-    katana = get_adapter("katana")
-    if not katana or not await katana.check_installed():
-        raise RuntimeError("katana is not installed")
+    # We are the crawler. Register an in-flight future so a parallel pipeline can join us.
+    loop = asyncio.get_event_loop()
+    crawl_future: asyncio.Future = loop.create_future()
+    _KATANA_INFLIGHT[cache_key] = crawl_future
 
-    base = _base_domain(target)
-    restrict_scope = opts.get("restrict_scope", True)  # default: stay in scope
-
-    katana_opts = {
-        "depth": int(opts.get("depth", 3)),
-        "js_crawl": opts.get("js_crawl", True),
-        "crawl_forms": opts.get("crawl_forms", True),
-        "cookie": opts.get("cookie", "") or opts.get("session_cookies", ""),
-        "session_headers": opts.get("session_headers", ""),
-        "headless": opts.get("headless", False),
-        "concurrency": int(opts.get("concurrency", 10)),
-        "rate_limit": int(opts.get("rate_limit", 150)),
-        # Only pass scope restriction to katana when enabled
-        "scope": base if restrict_scope else "",
-    }
-
-    all_results: list[dict] = []
-    param_results: list[dict] = []
-
-    async for result in katana.run(target, katana_opts):
-        url = result.get("url", "")
-        if not url:
-            continue
-        # Post-filter: drop off-scope URLs when restrict_scope is on
-        if restrict_scope:
-            parsed = urlparse(url)
-            if base and base not in parsed.netloc:
-                continue
-        all_results.append(result)
-        has_p = result.get("has_params") or result.get("is_form")
-        if has_p:
-            param_results.append(result)
-
+    try:
+        # Cache miss (or forced) — now we actually crawl. Emit "started" only here so
+        # a cache hit never shows a misleading "Crawling..." in the UI.
         await ws_manager.broadcast("pipeline", {
-            "phase": "katana", "event": "url_found",
+            "phase": "katana", "event": "started",
             "pipeline": pipeline,
-            "url": url,
-            "has_params": result.get("has_params", False),
-            "is_form": result.get("is_form", False),
-            "total": len(all_results),
-            "xss_candidates": len(param_results),
+            "message": f"Crawling {target} with Katana...",
         })
 
-    # Store for reuse by later pipelines on the same target + config
-    _KATANA_CACHE[cache_key] = (time.time(), all_results, param_results)
-    return all_results, param_results
+        katana = get_adapter("katana")
+        if not katana or not await katana.check_installed():
+            raise RuntimeError("katana is not installed")
+
+        base = _base_domain(target)
+        restrict_scope = opts.get("restrict_scope", True)  # default: stay in scope
+
+        katana_opts = {
+            "depth": int(opts.get("depth", 3)),
+            "js_crawl": opts.get("js_crawl", True),
+            "crawl_forms": opts.get("crawl_forms", True),
+            "cookie": opts.get("cookie", "") or opts.get("session_cookies", ""),
+            "session_headers": opts.get("session_headers", ""),
+            "headless": opts.get("headless", False),
+            "concurrency": int(opts.get("concurrency", 10)),
+            "rate_limit": int(opts.get("rate_limit", 150)),
+            # Only pass scope restriction to katana when enabled
+            "scope": base if restrict_scope else "",
+        }
+
+        all_results: list[dict] = []
+        param_results: list[dict] = []
+
+        async for result in katana.run(target, katana_opts):
+            url = result.get("url", "")
+            if not url:
+                continue
+            # Post-filter: drop off-scope URLs when restrict_scope is on
+            if restrict_scope:
+                parsed = urlparse(url)
+                if base and base not in parsed.netloc:
+                    continue
+            all_results.append(result)
+            has_p = result.get("has_params") or result.get("is_form")
+            if has_p:
+                param_results.append(result)
+
+            await ws_manager.broadcast("pipeline", {
+                "phase": "katana", "event": "url_found",
+                "pipeline": pipeline,
+                "url": url,
+                "has_params": result.get("has_params", False),
+                "is_form": result.get("is_form", False),
+                "total": len(all_results),
+                "xss_candidates": len(param_results),
+            })
+
+        # Store for reuse by later pipelines on the same target + config
+        _KATANA_CACHE[cache_key] = (time.time(), all_results, param_results)
+        if not crawl_future.done():
+            crawl_future.set_result((all_results, param_results))
+        return all_results, param_results
+    except Exception as e:
+        if not crawl_future.done():
+            crawl_future.set_exception(e)
+        raise
+    finally:
+        # Only clear the slot if it's still ours (a forced re-crawl could have replaced it).
+        if _KATANA_INFLIGHT.get(cache_key) is crawl_future:
+            _KATANA_INFLIGHT.pop(cache_key, None)
 
 
 # ── Pipeline 2: SQLi Probe ────────────────────────────────────────────────────

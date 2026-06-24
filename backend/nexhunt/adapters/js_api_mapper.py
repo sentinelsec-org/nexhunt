@@ -188,8 +188,9 @@ class JsApiMapperAdapter(ToolAdapter):
             base_url = target if target.startswith("http") else f"https://{target}"
             try:
                 home = await client.get(base_url, timeout=12)
+                final_base = str(home.url)  # resolve relative <script src> against the post-redirect URL
                 srcs = re.findall(r'<script[^>]+src=["\']([^"\']+)["\']', home.text, re.I)
-                js_urls += [urljoin(base_url, s) for s in srcs if ".js" in s.lower()]
+                js_urls += [urljoin(final_base, s) for s in srcs if ".js" in s.lower()]
             except Exception:
                 pass
 
