@@ -96,9 +96,9 @@ def _has_explicit_value(schema: dict) -> bool:
     return any(key in schema for key in ("example", "x-example", "default", "enum"))
 
 
-def _sample(schema, root, name=""):
+def _sample(schema, root, name="", depth=0):
     schema = _normalize_schema(schema, root)
-    if not schema:
+    if not schema or depth > 6:
         return "test"
     for key in ("example", "x-example", "default"):
         if key in schema:
@@ -122,9 +122,9 @@ def _sample(schema, root, name=""):
     if schema_type == "boolean":
         return True
     if schema_type == "array":
-        return [_sample(schema.get("items", {}), root, name)]
+        return [_sample(schema.get("items", {}), root, name, depth + 1)]
     if schema_type == "object":
-        return _build_body(schema, root)
+        return _build_body(schema, root, depth + 1)
 
     fmt = schema.get("format", "")
     if fmt == "uuid":
@@ -155,10 +155,10 @@ def _build_body(schema, root, depth=0):
     if not schema or depth > 5:
         return {}
     if schema.get("type") == "array":
-        return [_sample(schema.get("items", {}), root)]
+        return [_sample(schema.get("items", {}), root, "", depth + 1)]
     props = schema.get("properties", {})
     if not isinstance(props, dict) or not props:
-        return _sample(schema, root) if schema.get("type") not in (None, "object") else {}
+        return _sample(schema, root, "", depth + 1) if schema.get("type") not in (None, "object") else {}
     required = set(schema.get("required") or [])
     ordered = list(required) + [key for key in props if key not in required]
     body = {}
@@ -170,7 +170,7 @@ def _build_body(schema, root, depth=0):
             if isinstance(child, dict) and (child.get("type") == "object" or "properties" in child):
                 body[key] = _build_body(child, root, depth + 1)
             else:
-                body[key] = _sample(child, root, key)
+                body[key] = _sample(child, root, key, depth + 1)
         except Exception:
             body[key] = "test"
     return body
@@ -187,6 +187,9 @@ def _schema_view(schema, root, depth=0):
             view[key] = schema[key]
     if schema.get("enum"):
         view["enum"] = schema["enum"][:30]
+    for key in ("x-enumNames", "x-enum-varnames", "x-ms-enum"):
+        if key in schema:
+            view[key] = schema[key]
     if "example" in schema:
         view["example"] = schema["example"]
     if "default" in schema:
@@ -204,6 +207,112 @@ def _schema_view(schema, root, depth=0):
         view["type"] = view.get("type", "array")
         view["items"] = _schema_view(schema["items"], root, depth + 1)
     return view
+
+
+def _field_token(value) -> str:
+    return re.sub(r"[^a-z0-9]", "", str(value).casefold())
+
+
+def _error_field_name(value) -> str:
+    parts = [part for part in re.split(r"[.\[\]]+", str(value).lstrip("$.")) if part]
+    return parts[-1] if parts else str(value)
+
+
+def _is_missing_error(messages) -> bool:
+    if not isinstance(messages, list):
+        messages = [messages]
+    text = " ".join(str(message) for message in messages).casefold()
+    markers = (
+        "required", "missing", "must not be empty", "must not be null",
+        "is mandatory", "obligatorio", "requerido", "requerida",
+    )
+    return any(marker in text for marker in markers)
+
+
+def _missing_form_fields(response, body) -> list[str]:
+    if response.status_code != 400 or not isinstance(body, dict) or not body:
+        return []
+    try:
+        payload = response.json()
+    except Exception:
+        return []
+    errors = payload.get("errors") if isinstance(payload, dict) else None
+    if not isinstance(errors, dict):
+        return []
+
+    sent = {_field_token(name): name for name in body}
+    missing = []
+    matched = set()
+    for raw_name, messages in errors.items():
+        form_name = _error_field_name(raw_name)
+        token = _field_token(form_name)
+        if token in sent and token not in matched and _is_missing_error(messages):
+            missing.append(form_name)
+            matched.add(token)
+    return missing if len(matched) / len(sent) > 0.5 else []
+
+
+def _enum_names(schema: dict) -> list[str]:
+    for key in ("x-enumNames", "x-enum-varnames"):
+        values = schema.get(key)
+        if isinstance(values, list):
+            names = [str(value) for value in values if str(value)]
+            if names:
+                return names
+    ms_enum = schema.get("x-ms-enum")
+    if isinstance(ms_enum, dict) and isinstance(ms_enum.get("values"), list):
+        names = [
+            str(value.get("name"))
+            for value in ms_enum["values"]
+            if isinstance(value, dict) and value.get("name")
+        ]
+        if names:
+            return names
+    values = schema.get("enum")
+    if isinstance(values, list) and values and all(isinstance(value, str) for value in values):
+        return values
+    return []
+
+
+def _form_scalar(value):
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (dict, list)):
+        return json.dumps(value, separators=(",", ":"))
+    return str(value)
+
+
+def _form_payloads(body: dict, schema: dict, missing_names: list[str]) -> list[dict[str, str]]:
+    aliases = {_field_token(name): name for name in missing_names}
+    properties = schema.get("properties", {}) if isinstance(schema, dict) else {}
+    property_lookup = {
+        _field_token(name): (name, value)
+        for name, value in properties.items()
+        if isinstance(value, dict)
+    } if isinstance(properties, dict) else {}
+    symbolic: dict[str, str] = {}
+    numeric: dict[str, str] = {}
+    has_enum_alternative = False
+
+    for original_name, value in body.items():
+        token = _field_token(original_name)
+        schema_name, field_schema = property_lookup.get(token, (original_name, {}))
+        form_name = aliases.get(token, schema_name)
+        enum_values = field_schema.get("enum") if isinstance(field_schema, dict) else None
+        enum_names = _enum_names(field_schema) if isinstance(field_schema, dict) else []
+        if enum_names or isinstance(enum_values, list) and enum_values:
+            has_enum_alternative = True
+            symbolic[form_name] = enum_names[0] if enum_names else _form_scalar(enum_values[0])
+            numeric_values = [item for item in (enum_values or []) if isinstance(item, (int, float)) and not isinstance(item, bool)]
+            preferred = next((item for item in numeric_values if item != 0), None)
+            numeric[form_name] = _form_scalar(preferred if preferred is not None else (numeric_values[0] if numeric_values else 1))
+        else:
+            symbolic[form_name] = _form_scalar(value)
+            numeric[form_name] = _form_scalar(value)
+
+    return [symbolic, numeric] if has_enum_alternative and numeric != symbolic else [symbolic]
 
 
 def _parameter_contract(parameter, root):
@@ -428,9 +537,11 @@ class ApiScannerAdapter(ToolAdapter):
         except Exception as error:
             logger.warning("api_scanner fetch failed: %s", error)
             return None, None
+        # Use the final URL after redirects as the base for relative resolution.
+        effective_url = str(response.url)
         spec = self._as_spec(response.text)
         if spec:
-            return spec, docs_url
+            return spec, effective_url
 
         root_match = re.search(r"""rootUrl:\s*['"]([^'"]+)['"]""", response.text)
         discovery_match = re.search(r"""discoveryPaths:\s*arrayFrom\(['"]([^'"]*)['"]\)""", response.text)
@@ -455,7 +566,7 @@ class ApiScannerAdapter(ToolAdapter):
         )
         for pattern in patterns:
             for match in re.findall(pattern, response.text):
-                candidate = urljoin(docs_url, match.replace("\\/", "/"))
+                candidate = urljoin(effective_url, match.replace("\\/", "/"))
                 spec = await self._try_spec(client, candidate)
                 if spec:
                     return spec, candidate
@@ -464,7 +575,7 @@ class ApiScannerAdapter(ToolAdapter):
         # When the JSON spec endpoints are gated (403) the init bundle is still the
         # full spec, so pull it from there.
         for src in re.findall(r'<script[^>]+src=["\']([^"\']*swagger-ui-init[^"\']*\.js)["\']', response.text, re.I):
-            candidate = urljoin(str(response.url), src)
+            candidate = urljoin(effective_url, src)
             try:
                 init_response = await client.get(candidate)
             except Exception:
@@ -473,7 +584,7 @@ class ApiScannerAdapter(ToolAdapter):
             if spec:
                 return spec, candidate
 
-        origin = f"{urlparse(docs_url).scheme}://{urlparse(docs_url).netloc}"
+        origin = f"{urlparse(effective_url).scheme}://{urlparse(effective_url).netloc}"
         for path in SPEC_CANDIDATES:
             spec = await self._try_spec(client, origin + path)
             if spec:
@@ -641,8 +752,9 @@ class ApiScannerAdapter(ToolAdapter):
         authenticated = None
         if auth_headers:
             authenticated = await self._request(client, endpoint, auth_headers)
-        status_anon, length, content_type = anon
+        status_anon, length, content_type, format_anon = anon
         status_auth = authenticated[0] if authenticated else None
+        format_auth = authenticated[3] if authenticated else ""
 
         if status_anon is None:
             probe_state, note = "request_error", "request error"
@@ -659,12 +771,25 @@ class ApiScannerAdapter(ToolAdapter):
         else:
             probe_state, note = "completed", ""
 
+        retry_formats = []
+        if format_anon:
+            retry_formats.append(f"anon {format_anon}")
+        if format_auth:
+            retry_formats.append(f"auth {format_auth}")
+        if retry_formats:
+            note = f"{note}; " if note else ""
+            note += "body retry: " + ", ".join(retry_formats)
+
         row = self._row(
             endpoint, status_anon, status_auth, length, content_type, probe_state, note
         )
         raw = f"  {endpoint['method']} {endpoint['url']} -> anon {status_anon}"
+        if format_anon:
+            raw += f" ({format_anon})"
         if status_auth is not None:
             raw += f" | auth {status_auth}"
+            if format_auth:
+                raw += f" ({format_auth})"
         if note:
             raw += f" [{note}]"
 
@@ -705,30 +830,50 @@ class ApiScannerAdapter(ToolAdapter):
 
     async def _request(self, client, endpoint, auth_headers):
         try:
-            headers = {**endpoint.get("request_headers", {}), **auth_headers}
-            kwargs = {"headers": headers}
             body = endpoint.get("body")
             content_type = endpoint.get("body_content_type", "")
-            if body is not None:
-                if "json" in content_type:
-                    kwargs["json"] = body
-                elif content_type == "application/x-www-form-urlencoded":
-                    kwargs["data"] = body
-                elif "multipart/form-data" in content_type:
-                    kwargs["data"] = {
-                        key: value for key, value in (body or {}).items()
-                        if not isinstance(value, (dict, list))
-                    }
-                else:
-                    kwargs["content"] = body if isinstance(body, str) else json.dumps(body)
-            response = await client.request(endpoint["method"], endpoint["url"], **kwargs)
+
+            async def send(payload=body, media_type=content_type):
+                headers = {**endpoint.get("request_headers", {}), **auth_headers}
+                if media_type in ("application/x-www-form-urlencoded", "multipart/form-data"):
+                    headers = {key: value for key, value in headers.items() if key.casefold() != "content-type"}
+                kwargs = {"headers": headers}
+                if payload is not None:
+                    if "json" in media_type:
+                        kwargs["json"] = payload
+                    elif media_type == "application/x-www-form-urlencoded":
+                        kwargs["data"] = payload
+                    elif media_type == "multipart/form-data":
+                        kwargs["files"] = {key: (None, value) for key, value in payload.items()}
+                    else:
+                        kwargs["content"] = payload if isinstance(payload, str) else json.dumps(payload)
+                return await client.request(endpoint["method"], endpoint["url"], **kwargs)
+
+            response = await send()
+            retry_format = ""
+            missing_names = _missing_form_fields(response, body) if "json" in content_type else []
+            if missing_names:
+                payloads = _form_payloads(body, endpoint.get("body_schema") or {}, missing_names)
+                for payload in payloads:
+                    response = await send(payload, "application/x-www-form-urlencoded")
+                    retry_format = "form-urlencoded"
+                    if response.status_code not in (400, 415, 422):
+                        break
+                if response.status_code in (400, 415, 422):
+                    for payload in payloads:
+                        response = await send(payload, "multipart/form-data")
+                        retry_format = "multipart"
+                        if response.status_code not in (400, 415, 422):
+                            break
             return (
                 response.status_code,
                 len(response.content),
                 response.headers.get("content-type", "").split(";")[0],
+                retry_format,
             )
-        except Exception:
-            return None, 0, ""
+        except Exception as error:
+            logger.debug("api scanner request failed: %s", error)
+            return None, 0, "", ""
 
     async def _ai_triage(self, rows, base_url):
         from nexhunt.services.copilot_service import copilot_service

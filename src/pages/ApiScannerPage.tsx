@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   AlertTriangle, Check, ChevronDown, ChevronUp, ExternalLink, FileJson2,
-  Loader2, Lock, Network, Play, Repeat2, Send, ShieldCheck, Sparkles,
+  Loader2, Lock, Network, Play, Plus, Repeat2, Send, ShieldCheck, Sparkles,
   Search, Square, Terminal, X,
 } from 'lucide-react'
 import { WorkspaceShell } from '@/components/layout/WorkspaceShell'
@@ -205,6 +205,19 @@ function statusGroup(row: ApiEndpointRow): StatusFilter {
   return '5xx'
 }
 
+function matchesStatusFilter(row: ApiEndpointRow, filter: StatusFilter, probe?: { anon?: ProbeResult; auth?: ProbeResult }): boolean {
+  if (filter === 'all') return true
+
+  const statuses = [row.status_anon, row.status_auth, probe?.anon?.status, probe?.auth?.status]
+    .filter((status): status is number => typeof status === 'number')
+
+  if (filter === '2xx') return statuses.some(status => status >= 200 && status < 300)
+  if (filter === '3xx') return statuses.some(status => status >= 300 && status < 400)
+  if (filter === '4xx') return statuses.some(status => status >= 400 && status < 500)
+  if (filter === '5xx') return statuses.some(status => status >= 500 && status < 600)
+  return statusGroup(row) === filter
+}
+
 function StatusPill({ row, auth = false }: { row: ApiEndpointRow; auth?: boolean }) {
   const code = auth ? row.status_auth : row.status_anon
   if (!auth && row.probe_state === 'skipped_write') {
@@ -234,14 +247,60 @@ function prettyJson(raw: string): string | null {
   try { return JSON.stringify(JSON.parse(raw), null, 2) } catch { return null }
 }
 
-function highlightJson(str: string): string {
-  const s = str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-  return s
-    .replace(/^(\s*)("(?:[^"\\]|\\.)*")\s*:/gm, '$1<span class="text-teal-300">$2</span>:')
-    .replace(/:\s*("(?:[^"\\]|\\.)*")/g, ': <span class="text-green-300">$1</span>')
-    .replace(/:\s*(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)/g, ': <span class="text-yellow-300">$1</span>')
-    .replace(/:\s*(true|false)/g, ': <span class="text-cyan-300">$1</span>')
-    .replace(/:\s*(null)/g, ': <span class="text-zinc-500">$1</span>')
+function JsonString({ value }: { value: string }) {
+  const [exp, setExp] = useState(false)
+  const long = value.length > 100
+  return (
+    <span>
+      <span className="text-green-300">"{!long || exp ? value : value.slice(0, 80) + '…'}"</span>
+      {long && <button onClick={() => setExp(v => !v)} className="ml-1 text-[9px] text-zinc-600 hover:text-zinc-400">{exp ? '▲' : `+${value.length - 80}ch`}</button>}
+    </span>
+  )
+}
+
+function JsonNode({ value, depth = 0 }: { value: unknown; depth?: number }) {
+  const isArr = Array.isArray(value)
+  const isObj = value !== null && typeof value === 'object' && !isArr
+  const entries = isArr
+    ? (value as unknown[]).map((v, i) => [String(i), v] as [string, unknown])
+    : isObj ? Object.entries(value as Record<string, unknown>) : []
+  const count = entries.length
+  const [open, setOpen] = useState(depth < 2 && !(isArr && count > 15))
+
+  if (value === null) return <span className="text-zinc-500">null</span>
+  if (typeof value === 'boolean') return <span className="text-cyan-400">{String(value)}</span>
+  if (typeof value === 'number') return <span className="text-yellow-300">{value}</span>
+  if (typeof value === 'string') return <JsonString value={value} />
+  if (!isArr && !isObj) return <span className="text-zinc-300">{String(value)}</span>
+
+  const [o, c] = isArr ? ['[', ']'] : ['{', '}']
+  if (count === 0) return <span className="text-zinc-600">{o}{c}</span>
+
+  return (
+    <>
+      <button onClick={() => setOpen(v => !v)} className="text-zinc-400 hover:text-white">
+        {open ? o : <><span>{o}</span><span className="text-amber-400/80 text-[10px] px-0.5">{count}</span><span>{c}</span></>}
+      </button>
+      {open && (
+        <div className="pl-4 border-l border-zinc-800/50 ml-0.5 mt-0.5">
+          {entries.map(([key, val], i) => (
+            <div key={key} className="leading-5">
+              {isObj && <><span className="text-teal-300">"{key}"</span><span className="text-zinc-600">: </span></>}
+              <JsonNode value={val} depth={depth + 1} />
+              {i < count - 1 && <span className="text-zinc-700">,</span>}
+            </div>
+          ))}
+        </div>
+      )}
+      {open && <div className="text-zinc-400">{c}</div>}
+    </>
+  )
+}
+
+function JsonViewer({ raw }: { raw: string }) {
+  const parsed = useMemo(() => { try { return { ok: true, val: JSON.parse(raw) } } catch { return { ok: false, val: null } } }, [raw])
+  if (!parsed.ok) return <pre className="p-3 font-mono text-xs text-zinc-400 whitespace-pre-wrap break-words">{raw}</pre>
+  return <div className="p-3 font-mono text-xs leading-5 select-text"><JsonNode value={parsed.val} /></div>
 }
 
 function ResponsePanel({ label, color, probe }: { label: string; color: string; probe?: ProbeResult }) {
@@ -249,12 +308,11 @@ function ResponsePanel({ label, color, probe }: { label: string; color: string; 
   const [copied, setCopied] = useState(false)
   if (!probe) return null
 
-  const jsonFormatted = probe.body ? prettyJson(probe.body) : null
-  const displayBody = jsonFormatted ?? probe.body ?? null
+  const copyText = probe.body ? (prettyJson(probe.body) ?? probe.body) : ''
 
   const handleCopy = () => {
-    if (!displayBody) return
-    navigator.clipboard.writeText(displayBody).then(() => {
+    if (!copyText) return
+    navigator.clipboard.writeText(copyText).then(() => {
       setCopied(true)
       setTimeout(() => setCopied(false), 1500)
     })
@@ -267,7 +325,7 @@ function ResponsePanel({ label, color, probe }: { label: string; color: string; 
         {probe.loading && <Loader2 size={11} className="animate-spin text-teal-400" />}
         {probe.status !== undefined && <span className="font-mono text-[10px] text-zinc-300">{probe.status}</span>}
         {probe.duration_ms !== undefined && <span className="text-[9px] text-zinc-600">{Math.round(probe.duration_ms)} ms</span>}
-        {displayBody && (
+        {probe.body && (
           <div className="ml-auto flex items-center gap-3">
             <button onClick={handleCopy} className="text-[9px] text-zinc-500 hover:text-zinc-300">{copied ? 'Copied!' : 'Copy'}</button>
             <button onClick={() => setExpanded(v => !v)} className="text-[9px] text-teal-400">{expanded ? 'Collapse' : 'Expand'}</button>
@@ -275,12 +333,9 @@ function ResponsePanel({ label, color, probe }: { label: string; color: string; 
         )}
       </div>
       {probe.error && <p className="text-[10px] text-red-400">{probe.error}</p>}
-      {displayBody && (
-        <div className={cn('rounded border border-zinc-800 bg-zinc-950 overflow-auto', expanded ? 'max-h-[500px]' : 'max-h-52')}>
-          {jsonFormatted
-            ? <pre className="p-3 font-mono text-[11px] leading-relaxed whitespace-pre-wrap break-all" dangerouslySetInnerHTML={{ __html: highlightJson(jsonFormatted) }} />
-            : <pre className="p-3 font-mono text-[11px] leading-relaxed text-zinc-400 whitespace-pre-wrap break-all">{displayBody}</pre>
-          }
+      {probe.body && (
+        <div className={cn('rounded border border-zinc-800 bg-zinc-950 overflow-auto', expanded ? 'max-h-[700px]' : 'max-h-80')}>
+          <JsonViewer raw={probe.body} />
         </div>
       )}
     </div>
@@ -378,7 +433,7 @@ function RequestBuilder({ row, draft, onDraftChange, accountAuth, probes, onSend
 
       <section>
         <div className="mb-1 text-[9px] font-semibold uppercase text-zinc-600">HTTP preview</div>
-        <pre className="max-h-48 overflow-auto rounded border border-zinc-800 bg-black p-2 font-mono text-[9px] leading-relaxed text-zinc-400 whitespace-pre-wrap break-all">
+        <pre className="max-h-48 overflow-auto rounded border border-zinc-800 bg-black p-2 font-mono text-[10px] leading-relaxed text-zinc-400 whitespace-pre-wrap break-words">
           {anonymous.error ? anonymous.error : [
             `${anonymous.method} ${anonymous.url}`,
             ...Object.entries(anonymous.headers).map(([key, value]) => `${key}: ${value}`),
@@ -410,6 +465,8 @@ export function ApiScannerPage({ embedded }: { embedded?: boolean }) {
   const [baseUrl, setBaseUrl] = useState('')
   const [accountAuth, setAccountAuth] = useState('')
   const [authOpen, setAuthOpen] = useState(false)
+  const [customHeaders, setCustomHeaders] = useState('')
+  const [customHeadersOpen, setCustomHeadersOpen] = useState(false)
   const [aiAssist, setAiAssist] = useState(false)
   const [probeWrites, setProbeWrites] = useState(false)
   const [loadingSpec, setLoadingSpec] = useState(false)
@@ -434,15 +491,16 @@ export function ApiScannerPage({ embedded }: { embedded?: boolean }) {
   const selected = rows.find(row => rowKey(row) === selectedKey) || null
   const selectedDraft = selected ? (drafts[rowKey(selected)] || draftFor(selected)) : null
 
-  const counts = useMemo(() => rows.reduce((result, row) => {
-    const group = statusGroup(row)
-    result[group] = (result[group] || 0) + 1
+  const counts = useMemo(() => FILTERS.reduce((result, item) => {
+    if (item.id !== 'all') {
+      result[item.id] = rows.filter(row => matchesStatusFilter(row, item.id, probes[rowKey(row)])).length
+    }
     return result
-  }, {} as Record<string, number>), [rows])
+  }, {} as Record<string, number>), [rows, probes])
 
   const shown = rows
     .filter(row => {
-      if (filter !== 'all' && statusGroup(row) !== filter) return false
+      if (!matchesStatusFilter(row, filter, probes[rowKey(row)])) return false
       const needle = search.trim().toLowerCase()
       return !needle || `${row.method} ${row.path} ${row.operation_id} ${row.summary} ${(row.tags || []).join(' ')}`.toLowerCase().includes(needle)
     })
@@ -526,8 +584,9 @@ export function ApiScannerPage({ embedded }: { embedded?: boolean }) {
   const sendProbe = async (row: ApiEndpointRow, pass: 'anon' | 'auth') => {
     const key = rowKey(row)
     const draft = drafts[key] || draftFor(row)
+    const extra = parseAccountAuthHeaders(customHeaders)
     const authHeaders = pass === 'auth' ? parseAccountAuthHeaders(accountAuth) : {}
-    const request = buildRequest(row, draft, authHeaders)
+    const request = buildRequest(row, draft, { ...extra, ...authHeaders })
     if (request.error) {
       toast.error('Invalid request', request.error)
       return
@@ -552,7 +611,8 @@ export function ApiScannerPage({ embedded }: { embedded?: boolean }) {
 
   const sendToRepeater = (row: ApiEndpointRow, auth: boolean) => {
     const draft = drafts[rowKey(row)] || draftFor(row)
-    const request = buildRequest(row, draft, auth ? parseAccountAuthHeaders(accountAuth) : {})
+    const extra = parseAccountAuthHeaders(customHeaders)
+    const request = buildRequest(row, draft, { ...extra, ...(auth ? parseAccountAuthHeaders(accountAuth) : {}) })
     if (request.error) {
       toast.error('Invalid request', request.error)
       return
@@ -599,6 +659,9 @@ export function ApiScannerPage({ embedded }: { embedded?: boolean }) {
           <button onClick={() => setAuthOpen(open => !open)} className="flex items-center gap-1.5 text-[10px] text-cyan-400/80">
             <Lock size={11} /> Account auth {accountAuth.trim() && <Check size={10} className="text-green-400" />}{authOpen ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
           </button>
+          <button onClick={() => setCustomHeadersOpen(open => !open)} className="flex items-center gap-1.5 text-[10px] text-amber-400/80">
+            <Plus size={11} /> Custom headers {customHeaders.trim() && <Check size={10} className="text-green-400" />}{customHeadersOpen ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
+          </button>
           <label className="flex items-center gap-1.5 text-[10px] text-zinc-400 cursor-pointer">
             <input type="checkbox" checked={aiAssist} onChange={event => setAiAssist(event.target.checked)} className="w-3 h-3 accent-teal-500" />
             <Sparkles size={10} className="text-teal-400" /> AI triage
@@ -612,6 +675,9 @@ export function ApiScannerPage({ embedded }: { embedded?: boolean }) {
 
         {authOpen && (
           <textarea value={accountAuth} onChange={event => setAccountAuth(event.target.value)} rows={2} placeholder={"Authorization: Bearer eyJ...\nCookie: session=..."} className="w-full resize-none rounded border border-zinc-800 bg-zinc-900/80 px-2 py-1.5 font-mono text-[10px] text-zinc-300 focus:outline-none focus:border-cyan-800" />
+        )}
+        {customHeadersOpen && (
+          <textarea value={customHeaders} onChange={event => setCustomHeaders(event.target.value)} rows={2} placeholder={"X-Forwarded-For: 127.0.0.1\nX-Real-IP: 127.0.0.1"} className="w-full resize-none rounded border border-amber-900/60 bg-zinc-900/80 px-2 py-1.5 font-mono text-[10px] text-zinc-300 focus:outline-none focus:border-amber-700" />
         )}
 
         {rows.length > 0 && (
