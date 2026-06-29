@@ -11,7 +11,7 @@
 
 **Bug Bounty Automation Platform for Linux**
 
-[![Version](https://img.shields.io/badge/version-1.4.0--beta-amber?style=flat-square)](https://github.com/sentinelsec-org/nexhunt/releases)
+[![Version](https://img.shields.io/badge/version-1.5.0--beta-amber?style=flat-square)](https://github.com/sentinelsec-org/nexhunt/releases)
 [![Platform](https://img.shields.io/badge/platform-Linux-green?style=flat-square)]()
 [![License](https://img.shields.io/badge/license-Free%20%2F%20PRO-blue?style=flat-square)](https://nexhunt.myshopify.com/products/nexhunt-pro)
 [![Made by](https://img.shields.io/badge/by-Sentinel%20Security-green?style=flat-square)](https://nexhunt.myshopify.com)
@@ -81,6 +81,7 @@ Find what's actually exploitable, not just what's detectable.
 - **Directory brute-force** — ffuf, gobuster, and dirsearch with smart wordlist selection based on detected server type
 - **Web server audit** — nikto catches misconfigurations, outdated headers, and known server vulnerabilities
 - **API Scanner** *(PRO)* — point it at a Swagger/OpenAPI docs URL and it probes every endpoint and method, anonymous vs authenticated, flagging broken access control from the status-code delta
+- **Repository Intelligence** *(PRO)* — confirms exposed `/.git`, reconstructs the repository, searches current and deleted history for cleartext secrets, identifies GitHub/GitLab/Bitbucket access, and turns referenced services into Recon assets
 
 ---
 
@@ -172,6 +173,7 @@ The free tier is genuinely useful. No time limits, no feature degradation, no na
 | Automated XSS pipeline + JS Secrets pipeline | ✅ | ✅ |
 | **AI Copilot** (analysis, tips, report generation) | ❌ | ✅ |
 | **API Scanner** (OpenAPI/Swagger endpoint probing, anon vs authed) | ❌ | ✅ |
+| **Repository Intelligence** (Git recovery, history secrets, providers, architecture) | ❌ | ✅ |
 | **Cloud bucket exposure** (S3/GCS/Azure, write-takeover proof) | ❌ | ✅ |
 | **JS API Mapper** (JS bundles → API attack map) | ❌ | ✅ |
 | **Automated SQLi pipeline** (Katana → mine JS → 3-layer probe) | ❌ | ✅ |
@@ -195,7 +197,7 @@ curl -fsSL https://raw.githubusercontent.com/sentinelsec-org/nexhunt/main/instal
 
 The installer:
 - Selects the package for your CPU architecture and verifies its published SHA-256 checksum
-- Installs all 20+ security tools (nmap, nuclei, subfinder, ffuf, sqlmap, dalfox, gowitness, katana, gau, waybackurls, gobuster, nikto, dirsearch, commix, arjun, paramspider, xsstrike, amass, httpx, interactsh...)
+- Installs all 20+ security tools (nmap, nuclei, subfinder, ffuf, sqlmap, dalfox, gowitness, katana, gau, waybackurls, gobuster, nikto, dirsearch, commix, arjun, paramspider, xsstrike, amass, httpx, interactsh, TruffleHog, git-dumper...)
 - Sets up the Python backend in an isolated venv
 - Builds the Electron frontend
 - Adds `nexhunt` to your PATH
