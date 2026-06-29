@@ -11,7 +11,7 @@
 
 **Plataforma de Automatización para Bug Bounty en Linux**
 
-[![Version](https://img.shields.io/badge/version-1.5.0--beta-amber?style=flat-square)](https://github.com/sentinelsec-org/nexhunt/releases)
+[![Version](https://img.shields.io/badge/version-1.6.0--beta-amber?style=flat-square)](https://github.com/sentinelsec-org/nexhunt/releases)
 [![Platform](https://img.shields.io/badge/plataforma-Linux-green?style=flat-square)]()
 [![License](https://img.shields.io/badge/licencia-Free%20%2F%20PRO-blue?style=flat-square)](https://nexhunt.myshopify.com/products/nexhunt-pro)
 [![Made by](https://img.shields.io/badge/by-Sentinel%20Security-green?style=flat-square)](https://nexhunt.myshopify.com)
@@ -67,7 +67,7 @@ El pipeline de recon más completo que podés correr con un solo clic.
 
 - **Enumeración de subdominios** — subfinder + amass corriendo en paralelo, resultados mergeados y deduplicados automáticamente
 - **Sondeo de hosts activos** — httpx identifica códigos de estado, tecnologías, títulos y fingerprints de respuesta en todos los hosts descubiertos
-- **Escaneo de puertos** — nmap en todos los hosts activos, con detección de servicios
+- **Escaneo avanzado de puertos** — perfiles Nmap rápido, estándar, TCP completo, UDP y vulnerabilidades NSE, con fingerprints estructurados de servicios/versiones, CPE, OS, scripts y traceroute
 - **Crawling web** — katana y linkfinder extraen todos los endpoints, archivos JS y formularios de los targets activos
 - **Historial de URLs** — gau + waybackurls traen años de URLs archivadas de Wayback Machine y Common Crawl
 - **Descubrimiento de parámetros** — paramspider y arjun encuentran parámetros HTTP ocultos en todas las URLs recolectadas
@@ -112,6 +112,7 @@ Chequeos especializados que la mayoría de los scanners pasan por alto.
 - **Escaneo de secretos GitHub** — TruffleHog escanea los repositorios públicos de la org objetivo buscando credenciales filtradas, API keys y tokens
 - **Interacciones OOB** — listener de interactsh para callbacks DNS/HTTP de puntos de inyección ciegos
 - **JS API Mapper** *(PRO)* — convierte bundles JS en un mapa de ataque de API: framework, bases de API, rutas y una matriz de acceso anónimo/usuario/admin
+- **GraphQL Auditor** *(PRO)* — explorador interactivo de schema y consola de queries con comparación autenticado-vs-anónimo, descubrimiento de operaciones, candidatos IDOR, error leaks e inventario de mutaciones
 
 ---
 
@@ -169,7 +170,8 @@ El tier gratuito es genuinamente útil. Sin límites de tiempo, sin degradación
 | Terminal integrada + gestión de sesión | ✅ | ✅ |
 | **Exposure Intelligence** (Shodan, dorks y endpoints del proyecto) | ✅ | ✅ |
 | Suite WordPress + fuerza bruta de credenciales | ✅ | ✅ |
-| GraphQL Auditor + VIEWSTATE Auditor | ✅ | ✅ |
+| VIEWSTATE Auditor | ✅ | ✅ |
+| **GraphQL Auditor** (explorador de schema, comparación auth, IDOR y auditoría de operaciones) | ❌ | ✅ |
 | Pipeline automatizado de XSS + pipeline de JS Secrets | ✅ | ✅ |
 | **AI Copilot** (análisis, sugerencias, generación de reportes) | ❌ | ✅ |
 | **API Scanner** (prueba de endpoints OpenAPI/Swagger, anónimo vs autenticado) | ❌ | ✅ |
@@ -269,6 +271,6 @@ NexHunt es software propietario. El **tier gratuito** es libre de usar indefinid
 
 Hecho con 🖤 por **[Sentinel Security](https://nexhunt.myshopify.com)**
 
-*NexHunt v1.5.0 beta — Linux*
+*NexHunt v1.6.0 beta — Linux*
 
 </div>
