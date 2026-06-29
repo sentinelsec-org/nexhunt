@@ -73,15 +73,15 @@ app.include_router(cve.router)
 app.include_router(security_tools.router)
 app.include_router(license.router)
 app.include_router(update.router)
-app.include_router(bruteforce.router)  # /start is PRO-gated per-route
-app.include_router(wordlists.router)   # POST/DELETE are PRO-gated per-route
+app.include_router(bruteforce.router)
+app.include_router(wordlists.router)
+app.include_router(wordpress.router)
+app.include_router(pipeline.router)  # XSS is Free; SQLi and JS Secrets are gated per-route
 
 # PRO-only routers (whole feature gated behind a valid license)
 app.include_router(copilot.router, dependencies=[Depends(require_pro("AI Copilot"))])
-app.include_router(pipeline.router, dependencies=[Depends(require_pro("Automated pipelines"))])
 app.include_router(jwt_attacks.router, dependencies=[Depends(require_pro("JWT attack suite"))])
 app.include_router(bizlogic.router, dependencies=[Depends(require_pro("Business logic suite"))])
-app.include_router(wordpress.router, dependencies=[Depends(require_pro("WordPress pentest suite"))])
 app.include_router(exposure_intel.router, dependencies=[Depends(require_pro("Exposure Intelligence"))])
 app.include_router(api_scanner.router, dependencies=[Depends(require_pro("API Scanner"))])
 app.include_router(repository_intelligence.router, dependencies=[Depends(require_pro("Repository Intelligence"))])

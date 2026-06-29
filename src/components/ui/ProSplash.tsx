@@ -5,9 +5,9 @@ import { useLicenseStore } from '@/stores/license-store'
 
 const BENEFITS = [
   { icon: Bot,     text: 'AI Copilot — attack surface analysis, JS secret mining, report generation' },
-  { icon: Zap,     text: 'Automated pipelines — XSS, SQLi, and full recon chains in one click' },
+  { icon: Zap,     text: 'Advanced automation — SQLi, JS Secrets, and full recon chains in one click' },
   { icon: Layers,  text: 'Bulk scanning — nuclei, screenshots and CORS across all live hosts at once' },
-  { icon: Shield,  text: 'Proxy Intruder, JWT attack suite, brute force module' },
+  { icon: Shield,  text: 'GraphQL, Repository Intelligence, JWT, and business-logic suites' },
 ]
 
 const UPGRADE_URL = 'https://nexhunt.myshopify.com/products/nexhunt-pro'

@@ -4,10 +4,10 @@ import { useLicenseStore } from '@/stores/license-store'
 
 const PRO_BENEFITS = [
   'AI Copilot: analysis, attack-surface profiling, and report generation',
-  'Automated pipelines: XSS, SQLi, and JS secret scanning',
+  'Automated SQLi and JS secret pipelines',
   'Bulk and parallel scanning across all live hosts',
   'JWT attack suite and business-logic testing',
-  'Proxy Intruder (cluster bomb, pitchfork)',
+  'GraphQL Auditor, API Scanner, and Repository Intelligence',
   'Professional report export and priority updates',
 ]
 

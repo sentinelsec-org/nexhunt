@@ -124,19 +124,19 @@ A revoked (suspended) key drops the app to Free on its next re-validation (withi
 
 ### Pricing - Free vs PRO
 **Free ($0)**
-- Full recon suite (subfinder, amass, httpx, nmap, katana, gau, arjun)
+- Individual recon stages (subfinder, amass, httpx, Nmap Advanced, katana, gau, arjun)
 - Single-target scanning (nuclei, ffuf, nikto, gobuster, dirsearch)
-- Proxy: capture, repeater, site map
+- Proxy: capture, repeater, site map, Intruder
 - Single-target exploitation
 - Findings database & projects
-- Utilities: CORS, 403 bypass, cloud bucket scanner, GitHub secret scanner
+- WordPress, credential brute force, XSS pipeline, CORS, 403 bypass
 
 **PRO - lifetime, one-time** (everything in Free, plus)
 - AI Copilot: active attack-surface analysis + report generation
-- Automated full XSS / SQLi / recon chains (with crawl caching across pipelines)
+- Advanced SQLi / JS Secrets / full recon chains (with crawl caching across pipelines)
 - Bulk scanning across all discovered hosts
 - 10 JWT attack techniques with guidance
-- Proxy Intruder: cluster bomb & pitchfork
+- GraphQL Auditor and Repository Intelligence
 - Priority support
 
 ### Install snippet (copy-to-clipboard)

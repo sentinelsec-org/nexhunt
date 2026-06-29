@@ -15,7 +15,6 @@ export const PRO_FEATURES = {
   fullRecon: 'Full automated recon',
   endpointBulk: 'Bulk endpoint discovery',
   corsBulk: 'Bulk CORS scanning',
-  intruder: 'Proxy Intruder',
   jwt: 'JWT attack suite',
   bizlogic: 'Business logic suite',
   reportExport: 'Professional report export',

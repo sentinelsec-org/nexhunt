@@ -896,7 +896,7 @@ def _grep_js(url: str, content: str) -> list[dict]:
     return findings
 
 
-@router.post("/js_scan")
+@router.post("/js_scan", dependencies=[Depends(require_pro("JS Secrets pipeline"))])
 async def run_js_scan_pipeline(req: PipelineRequest):
     """
     JS scan pipeline:

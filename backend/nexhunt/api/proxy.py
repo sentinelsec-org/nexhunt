@@ -17,7 +17,6 @@ from nexhunt.schemas.proxy import (
     RawRepeaterRequest, IntruderConfig,
 )
 from nexhunt.proxy.engine import proxy_engine
-from nexhunt.licensing.guard import require_pro
 
 router = APIRouter(prefix="/api/proxy", tags=["proxy"])
 logger = logging.getLogger(__name__)
@@ -471,7 +470,7 @@ async def repeat_raw(req: RawRepeaterRequest):
         return {"error": str(e), "status": 0, "headers": {}, "body": "", "duration_ms": 0}
 
 
-@router.post("/intruder/start", dependencies=[Depends(require_pro("Proxy Intruder"))])
+@router.post("/intruder/start")
 async def intruder_start(config: IntruderConfig):
     """Start an intruder attack. Results stream via WebSocket channel 'intruder'."""
     job_id = str(uuid.uuid4())

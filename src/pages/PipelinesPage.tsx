@@ -331,6 +331,7 @@ export function PipelinesPage({ embedded }: { embedded?: boolean }) {
             runLabel={runLabel('Run JS Scanner')}
             disabled={noTarget}
             onRun={handleJs}
+            locked={!isPro}
           >
             <CrawlOpts opts={jsOpts} set={setJsOpts} accent={ACCENTS.js_scan.accentInput} />
             <div className="space-y-1.5 border border-zinc-800 rounded-lg p-3">
