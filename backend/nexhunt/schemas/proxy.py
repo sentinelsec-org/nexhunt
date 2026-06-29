@@ -8,6 +8,15 @@ class ProxySettings(BaseModel):
 
 class InterceptToggle(BaseModel):
     enabled: bool
+    scope_only: bool = False
+    scope: list[str] = Field(default_factory=list)
+    out_of_scope: list[str] = Field(default_factory=list)
+
+
+class InterceptConfig(BaseModel):
+    scope_only: bool = False
+    scope: list[str] = Field(default_factory=list)
+    out_of_scope: list[str] = Field(default_factory=list)
 
 
 class InterceptAction(BaseModel):

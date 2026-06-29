@@ -4,10 +4,12 @@ The addon (mitm_addon.py) POSTs each flow to /api/proxy/flow, which
 broadcasts it via WebSocket and saves it to SQLite.
 """
 import asyncio
+import json
 import logging
 import os
 import signal
 import subprocess
+import tempfile
 from pathlib import Path
 
 from nexhunt.proxy.cert_manager import get_cert_path
@@ -23,6 +25,32 @@ class ProxyEngine:
         self.running: bool = False
         self._proc: asyncio.subprocess.Process | None = None
         self._intercept_flag = [False]
+        self._intercept_scope_only = False
+        self._intercept_scope: list[str] = []
+        self._intercept_out_of_scope: list[str] = []
+        self._intercept_state_path = Path(tempfile.gettempdir()) / f"nexhunt-proxy-{os.getpid()}.intercept"
+        self._write_intercept_state()
+
+    def _write_intercept_state(self):
+        """Publish intercept state for the standalone mitmdump process."""
+        try:
+            state = {
+                "enabled": self._intercept_flag[0],
+                "scope_only": self._intercept_scope_only,
+                "scope": self._intercept_scope,
+                "out_of_scope": self._intercept_out_of_scope,
+            }
+            temp_path = self._intercept_state_path.with_suffix(".tmp")
+            temp_path.write_text(json.dumps(state))
+            temp_path.replace(self._intercept_state_path)
+        except OSError as exc:
+            logger.warning(f"Could not write proxy intercept state: {exc}")
+
+    def configure_intercept(self, scope_only: bool, scope: list[str], out_of_scope: list[str]):
+        self._intercept_scope_only = scope_only
+        self._intercept_scope = scope
+        self._intercept_out_of_scope = out_of_scope
+        self._write_intercept_state()
 
     def _kill_existing(self, port: int):
         """Kill any mitmdump process already listening on this port."""
@@ -51,7 +79,12 @@ class ProxyEngine:
         self._kill_existing(port)
         await asyncio.sleep(0.3)  # let the port free up
 
-        env = {**os.environ, "NEXHUNT_PORT": "17707"}
+        self._write_intercept_state()
+        env = {
+            **os.environ,
+            "NEXHUNT_PORT": "17707",
+            "NEXHUNT_INTERCEPT_STATE": str(self._intercept_state_path),
+        }
 
         self._proc = await asyncio.create_subprocess_exec(
             "mitmdump",
@@ -128,6 +161,19 @@ class ProxyEngine:
     @intercept_enabled.setter
     def intercept_enabled(self, value: bool):
         self._intercept_flag[0] = value
+        self._write_intercept_state()
+
+    @property
+    def intercept_scope_only(self) -> bool:
+        return self._intercept_scope_only
+
+    @property
+    def intercept_scope(self) -> list[str]:
+        return self._intercept_scope
+
+    @property
+    def intercept_out_of_scope(self) -> list[str]:
+        return self._intercept_out_of_scope
 
 
 # Global singleton

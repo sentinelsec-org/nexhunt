@@ -70,13 +70,25 @@ _FRAMEWORKS = {
 }
 
 # Quoted absolute path:  "/something/here"
-_PATH_RE = re.compile(r'["\'`](/[a-zA-Z0-9/_.:{}$-]{2,70})["\'`]')
+_PATH_RE = re.compile(r'["\'`](/[a-zA-Z0-9/_.:{}$?&=+,%@~\[\]-]{2,300})["\'`]')
+_DYNAMIC_PATH_RE = re.compile(
+    r'["\'`](/[a-zA-Z0-9/_.:{}$?&=+,%@~\[\]-]{2,280}/)["\'`]\s*\+\s*'
+    r'(?:encodeURIComponent\(\s*)?([a-zA-Z_$][a-zA-Z0-9_$]*)', re.I
+)
 # path -> method map:  "/admin/list-users":"GET"
-_METHOD_MAP_RE = re.compile(r'["\'`](/[a-zA-Z0-9/_.:{}$-]{2,70})["\'`]\s*:\s*["\'`](GET|POST|PUT|PATCH|DELETE)["\'`]', re.I)
+_METHOD_MAP_RE = re.compile(r'["\'`](/[a-zA-Z0-9/_.:{}$?&=+,%@~\[\]-]{2,300})["\'`]\s*:\s*["\'`](GET|POST|PUT|PATCH|DELETE)["\'`]', re.I)
+_CALL_METHOD_RE = re.compile(
+    r'\b(?:fetch|api|request)\s*\(\s*["\'`](/[a-zA-Z0-9/_.:{}$?&=+,%@~\[\]-]{2,300})["\'`]'
+    r'\s*,\s*\{[\s\S]{0,800}?\bmethod\s*:\s*["\'`](GET|POST|PUT|PATCH|DELETE)["\'`]', re.I
+)
+_AXIOS_METHOD_RE = re.compile(
+    r'\baxios\.(get|post|put|patch|delete)\s*\(\s*["\'`](/[a-zA-Z0-9/_.:{}$?&=+,%@~\[\]-]{2,300})["\'`]', re.I
+)
 # array of lowercase action strings (role/permission definitions)
 _ROLE_RE = re.compile(r'\[((?:\s*["\'][a-z][a-z0-9_-]{1,20}["\']\s*,){2,}\s*["\'][a-z][a-z0-9_-]{1,20}["\']\s*)\]')
 # absolute API URLs referenced in the bundle
 _URL_RE = re.compile(r'https?://[a-zA-Z0-9.-]+(?:/[a-zA-Z0-9/_.-]*)?')
+_PROTOCOL_REL_URL_RE = re.compile(r'(?<!:)//[a-zA-Z0-9.-]+(?:/[a-zA-Z0-9/_.-]*)?')
 
 # Keywords that make a route privileged / worth an access-control test.
 _PRIV_KW = ("admin", "impersonate", "set-role", "setrole", "set-password", "setpassword",
@@ -87,6 +99,21 @@ _DANGER_ACTIONS = {"set-role", "impersonate", "set-password", "ban", "delete", "
 
 # Noise paths to ignore (static assets, mime types, etc.)
 _IGNORE_RE = re.compile(r'\.(js|css|png|jpe?g|svg|gif|woff2?|ttf|ico|map|webp|mp4)(\?|$)', re.I)
+_HTML_PAGE_RE = re.compile(r'\.(?:html?|php|aspx?)(?:\?|$)', re.I)
+_HTML_REF_RE = re.compile(r'["\']([^"\']+\.(?:html?|php|aspx?)(?:\?[^"\']*)?)["\']', re.I)
+_JS_REF_RE = re.compile(r'["\']([^"\']+\.js(?:\?[^"\']*)?)["\']', re.I)
+_MAX_HTML_PAGES = 20
+_MAX_JS_FILES = 40
+
+
+def _site_root(host: str) -> str:
+    parts = (host or "").lower().strip(".").split(".")
+    if len(parts) <= 2:
+        return ".".join(parts)
+    common_second_level = {"co", "com", "net", "org", "gov", "edu", "ac"}
+    if len(parts[-1]) == 2 and parts[-2] in common_second_level and len(parts) >= 3:
+        return ".".join(parts[-3:])
+    return ".".join(parts[-2:])
 
 
 def _kw_match(path: str, kws) -> bool:
@@ -103,6 +130,8 @@ def _is_privileged(path: str) -> bool:
 def _looks_like_route(path: str) -> bool:
     if _IGNORE_RE.search(path):
         return False
+    if re.search(r'\.html?(?:\?|$)', path, re.I):
+        return False
     if path in ("/", "//") or path.startswith("//"):
         return False
     # require at least one letter (drop "/2", "/1.0" version-ish noise unless it has words)
@@ -110,16 +139,58 @@ def _looks_like_route(path: str) -> bool:
 
 
 def _same_site_url(url: str, target: str) -> bool:
-    """Keep Recon seeds on the target host or one of its subdomains."""
+    """Keep Recon seeds on the same site, including sibling subdomains."""
     target_host = (urlparse(target if target.startswith("http") else f"https://{target}").hostname or "").lower()
     seed_host = (urlparse(url if url.startswith("http") else f"https://{url}").hostname or "").lower()
     target_host = target_host.removeprefix("www.")
     seed_host = seed_host.removeprefix("www.")
-    return bool(target_host and seed_host and (
-        seed_host == target_host
-        or seed_host.endswith(f".{target_host}")
-        or target_host.endswith(f".{seed_host}")
-    ))
+    return bool(target_host and seed_host and _site_root(target_host) == _site_root(seed_host))
+
+
+def _target_candidates(target: str) -> list[str]:
+    if target.startswith(("http://", "https://")):
+        return [target]
+    return [f"https://{target}", f"http://{target}"]
+
+
+def _looks_like_html_page(url: str) -> bool:
+    path = urlparse(url).path.lower()
+    if not path or path.endswith("/"):
+        return True
+    if "/api/" in path or path.startswith("/api"):
+        return False
+    if any(word in path for word in ("logout", "signout", "delete", "remove")):
+        return False
+    filename = path.rsplit("/", 1)[-1]
+    return "." not in filename or bool(_HTML_PAGE_RE.search(url))
+
+
+def _auth_signals(blob: str) -> list[str]:
+    signals = []
+    storage_keys = sorted(set(re.findall(
+        r'(?:localStorage|sessionStorage)\.getItem\(\s*["\']([^"\']+)["\']\s*\)', blob, re.I
+    )))
+    if storage_keys:
+        signals.append("browser storage token key(s): " + ", ".join(storage_keys[:10]))
+    if re.search(r'Authorization["\']?\s*\]?\s*[:=,)]', blob, re.I):
+        signals.append("Authorization header")
+    if re.search(r'Bearer\s+', blob, re.I):
+        signals.append("Bearer token")
+    return signals
+
+
+def _session_request_headers(options: dict) -> dict[str, str]:
+    headers = {"User-Agent": "Mozilla/5.0 (NexHunt JS API Mapper)"}
+    cookies = str(options.get("session_cookies") or options.get("cookie") or "").strip()
+    if cookies:
+        headers["Cookie"] = cookies
+    for line in str(options.get("session_headers") or "").replace("\r", "").split("\n"):
+        if ":" not in line:
+            continue
+        key, value = line.split(":", 1)
+        if key.strip() and key.strip().casefold() not in {"host", "content-length"}:
+            headers[key.strip()] = value.strip()
+    return headers
 
 
 def _fingerprint(blob: str) -> list[str]:
@@ -134,14 +205,17 @@ def _fingerprint(blob: str) -> list[str]:
 
 def _api_bases(blob: str, target: str) -> list[str]:
     """Candidate API base URLs referenced in the JS, same registrable domain as target."""
-    host = urlparse(target if target.startswith("http") else f"https://{target}").netloc
-    root = ".".join(host.split(".")[-2:]) if host else ""
+    parsed_target = urlparse(target if target.startswith("http") else f"https://{target}")
+    host = parsed_target.hostname or ""
+    root = _site_root(host)
     bases: list[str] = []
     seen = set()
-    for m in _URL_RE.finditer(blob):
-        u = m.group(0).rstrip("/")
+    candidates = [match.group(0) for match in _URL_RE.finditer(blob)]
+    candidates += [f"{parsed_target.scheme or 'https'}:{match.group(0)}" for match in _PROTOCOL_REL_URL_RE.finditer(blob)]
+    for candidate in candidates:
+        u = candidate.rstrip("/")
         pu = urlparse(u)
-        if root and root not in pu.netloc:
+        if root and _site_root(pu.hostname or "") != root:
             continue
         # keep scheme://host(/path-prefix) — prefer ones that look like API roots
         base = f"{pu.scheme}://{pu.netloc}{pu.path}".rstrip("/")
@@ -178,39 +252,118 @@ class JsApiMapperAdapter(ToolAdapter):
         return True
 
     async def _collect_js(self, client, target: str, seed_urls: list[str]) -> list[tuple]:
-        """Return [(url, content)] for JS bundles to analyze."""
+        """Return external JS and inline scripts from a small passive HTML crawl."""
         out: list[tuple] = []
-        js_urls: list[str] = []
+        source_keys = set()
+        page_queue: list[tuple[str, int, str | None]] = []
+        js_queue: list[str] = []
+        visited_pages = set()
+        visited_js = set()
+        successful_assets = set()
+        home_host = ""
+
+        def add_source(url: str, content: str):
+            if url in source_keys or not content or len(out) >= _MAX_JS_FILES + _MAX_HTML_PAGES * 8:
+                return
+            source_keys.add(url)
+            out.append((url, content[:2_000_000]))
+
+        def queue_page(url: str, depth: int):
+            linked = url.split("#", 1)[0]
+            if (home_host and (urlparse(linked).hostname or "").lower() == home_host
+                    and _looks_like_html_page(linked)
+                    and linked not in visited_pages
+                    and not any(existing[0] == linked for existing in page_queue)):
+                page_queue.append((linked, depth, None))
+
+        def queue_page_refs(content: str, base_url: str, depth: int):
+            if depth > 2:
+                return
+            for ref in _HTML_REF_RE.findall(content):
+                queue_page(urljoin(base_url, ref), depth)
+
+        def queue_js(url: str):
+            if url not in visited_js and url not in js_queue:
+                js_queue.append(url)
+
+        def queue_js_refs(content: str, base_url: str):
+            for ref in _JS_REF_RE.findall(content):
+                linked = urljoin(base_url, ref)
+                if _same_site_url(linked, target):
+                    queue_js(linked)
 
         if target.split("?")[0].lower().endswith(".js"):
-            js_urls.append(target if target.startswith("http") else f"https://{target}")
+            for candidate in _target_candidates(target):
+                queue_js(candidate)
+            home_host = (urlparse(_target_candidates(target)[0]).hostname or "").lower()
         elif target:
-            base_url = target if target.startswith("http") else f"https://{target}"
-            try:
-                home = await client.get(base_url, timeout=12)
-                final_base = str(home.url)  # resolve relative <script src> against the post-redirect URL
-                srcs = re.findall(r'<script[^>]+src=["\']([^"\']+)["\']', home.text, re.I)
-                js_urls += [urljoin(final_base, s) for s in srcs if ".js" in s.lower()]
-            except Exception:
-                pass
+            home = None
+            for base_url in _target_candidates(target):
+                try:
+                    candidate = await client.get(base_url, timeout=12)
+                    if candidate.status_code < 400 and candidate.text:
+                        home = candidate
+                        break
+                except Exception:
+                    continue
+
+            if home is not None:
+                home_url = str(home.url)
+                home_host = (urlparse(home_url).hostname or "").lower()
+                page_queue.append((home_url, 0, home.text))
+                for seed in seed_urls:
+                    if _looks_like_html_page(seed) and (urlparse(seed).hostname or "").lower() == home_host:
+                        queue_page(seed, 1)
 
         # JS among recon seed URLs
-        js_urls += [u for u in seed_urls if u.split("?")[0].lower().endswith(".js")]
+        for seed in seed_urls:
+            if seed.split("?")[0].lower().endswith(".js"):
+                queue_js(seed)
 
-        # Treat root/www variants of the same asset as one bundle.
-        unique_urls: dict[tuple[str, str, str], str] = {}
-        for url in js_urls:
-            parsed = urlparse(url)
-            host = (parsed.hostname or "").lower().removeprefix("www.")
-            key = (host, parsed.path, parsed.query)
-            unique_urls.setdefault(key, url)
-        js_urls = list(unique_urls.values())[:25]
+        while ((page_queue and len(visited_pages) < _MAX_HTML_PAGES)
+               or (js_queue and len(visited_js) < _MAX_JS_FILES * 2)):
+            if page_queue and len(visited_pages) < _MAX_HTML_PAGES:
+                page_url, depth, prefetched = page_queue.pop(0)
+                if page_url in visited_pages:
+                    continue
+                visited_pages.add(page_url)
+                try:
+                    page = None if prefetched is not None else await client.get(page_url, timeout=12)
+                    if page is not None and (page.status_code >= 400 or not page.text):
+                        continue
+                    html = prefetched if prefetched is not None else page.text
+                    final_url = page_url if page is None else str(page.url)
+                except Exception:
+                    continue
 
-        for u in js_urls:
+                for index, match in enumerate(re.finditer(r'<script\b([^>]*)>(.*?)</script\s*>', html, re.I | re.S)):
+                    attrs, script_body = match.group(1), match.group(2).strip()
+                    src_match = re.search(r'\bsrc=["\']([^"\']+)["\']', attrs, re.I)
+                    if src_match:
+                        queue_js(urljoin(final_url, src_match.group(1)))
+                    elif script_body:
+                        add_source(f"{final_url}#inline-{index + 1}", script_body)
+                        queue_page_refs(script_body, final_url, depth + 1)
+                        queue_js_refs(script_body, final_url)
+                queue_page_refs(html, final_url, depth + 1)
+                continue
+
+            js_url = js_queue.pop(0)
+            if js_url in visited_js:
+                continue
+            visited_js.add(js_url)
+            parsed = urlparse(js_url)
+            asset_key = ((parsed.hostname or "").lower().removeprefix("www."), parsed.path, parsed.query)
+            if asset_key in successful_assets:
+                continue
             try:
-                r = await client.get(u, timeout=12)
-                if r.status_code == 200 and r.text:
-                    out.append((u, r.text[:2_000_000]))
+                response = await client.get(js_url, timeout=12)
+                if response.status_code == 200 and response.text:
+                    successful_assets.add(asset_key)
+                    final_url = str(response.url)
+                    add_source(final_url, response.text)
+                    queue_page_refs(response.text, final_url, 1)
+                    queue_js_refs(response.text, final_url)
             except Exception:
                 continue
         return out
@@ -221,7 +374,12 @@ class JsApiMapperAdapter(ToolAdapter):
             if isinstance(u, str) and u and _same_site_url(u, target)
         ]
 
-        async with httpx.AsyncClient(verify=False, follow_redirects=True, timeout=12) as client:
+        async with httpx.AsyncClient(
+            verify=False,
+            follow_redirects=True,
+            timeout=12,
+            headers=_session_request_headers(options),
+        ) as client:
             js_files = await self._collect_js(client, target, seed_urls)
             if not js_files:
                 yield {"_raw": True, "line": f"  No JS files found for {target}. Give a .js URL or a host with linked bundles, or run Recon first."}
@@ -237,11 +395,26 @@ class JsApiMapperAdapter(ToolAdapter):
                 p, meth = m.group(1), m.group(2).upper()
                 if _looks_like_route(p):
                     method_map[p] = meth
+            for m in _CALL_METHOD_RE.finditer(blob):
+                p, meth = m.group(1), m.group(2).upper()
+                if _looks_like_route(p):
+                    method_map[p] = meth
+            for m in _AXIOS_METHOD_RE.finditer(blob):
+                meth, p = m.group(1).upper(), m.group(2)
+                if _looks_like_route(p):
+                    method_map[p] = meth
             declared_paths = {p for m in _PATH_RE.finditer(blob) for p in [m.group(1)] if _looks_like_route(p)}
+            for match in _DYNAMIC_PATH_RE.finditer(blob):
+                base_path, parameter = match.group(1), match.group(2)
+                dynamic_path = f"{base_path}{{{parameter}}}"
+                if _looks_like_route(dynamic_path):
+                    declared_paths.discard(base_path)
+                    declared_paths.add(dynamic_path)
 
             # 2. Framework fingerprint + route expansion
             frameworks = _fingerprint(blob)
             bases = _api_bases(blob, target)
+            auth_signals = _auth_signals(blob)
             primary_base = bases[0]
 
             expanded: dict[tuple, str] = {}  # (path, method) -> source
@@ -287,6 +460,7 @@ class JsApiMapperAdapter(ToolAdapter):
                     f"Frameworks: {', '.join(frameworks) or 'none detected'}\n"
                     f"Bundles analyzed: {len(js_files)}\n"
                     f"API base candidates: {', '.join(bases)}\n\n"
+                    f"Auth signals: {', '.join(auth_signals) or 'none detected'}\n\n"
                     f"Route map (declared in JS + expanded from the library's known API):\n{route_list}"
                 ),
                 "description": (

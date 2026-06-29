@@ -38,7 +38,10 @@ import type { HttpFlow, Finding, SubdomainResult, Project, PipelineEvent } from 
 
 function App() {
   const { setBackendConnected, activeProject, setActiveProjectData } = useAppStore()
-  const { addFlow, setProxyRunning, addIntruderResult, setIntruderRunning } = useProxyStore()
+  const {
+    addFlow, setProxyRunning, addIntruderResult, setIntruderRunning,
+    addToInterceptQueue, removeFromInterceptQueue,
+  } = useProxyStore()
   const { addFinding, appendToolOutput, setScanRunning, setJobId } = useScannerStore()
   const { addSubdomains, addUrls, addLiveHosts, addPorts, addScreenshots, addEndpoints, setScreenshotRunning, setReconToolRunning, setReconJobId } = useReconStore()
   const { handleEvent: handlePipelineEvent } = usePipelineStore()
@@ -114,6 +117,14 @@ function App() {
 
     const unsubProxy = wsClient.subscribe('proxy_feed', (data) => {
       addFlow(data as HttpFlow)
+    })
+
+    const unsubProxyIntercept = wsClient.subscribe('proxy_intercept', (data) => {
+      addToInterceptQueue(data as HttpFlow)
+    })
+
+    const unsubProxyInterceptResolved = wsClient.subscribe('proxy_intercept_resolved', (data) => {
+      removeFromInterceptQueue((data as { id: string }).id)
     })
 
     const unsubFindings = wsClient.subscribe('findings', (data) => {
@@ -235,6 +246,8 @@ function App() {
     return () => {
       clearInterval(healthInterval)
       unsubProxy()
+      unsubProxyIntercept()
+      unsubProxyInterceptResolved()
       unsubFindings()
       unsubRecon()
       unsubStatus()

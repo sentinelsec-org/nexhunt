@@ -1,13 +1,13 @@
 #!/bin/bash
 # Build NexHunt for distribution:
 #   1. npm build (frontend + Electron)
-#   2. PyArmor obfuscation on backend/nexhunt
+#   2. Compile premium/licensing modules with Cython Stable ABI
 #   3. Tarball + SHA256SUMS in dist/
 #
 # Usage:
 #   bash tools/build-prod.sh
-#   bash tools/build-prod.sh --skip-obfuscate
-#   bash tools/build-prod.sh --obfuscate-licensing-only
+#   bash tools/build-prod.sh --skip-protection
+#   bash tools/build-prod.sh --skip-obfuscate  # backwards-compatible alias
 # Run from the nexhunt-prod root.
 set -euo pipefail
 
@@ -15,16 +15,34 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DIST="$ROOT/dist"
 VERSION="$(python3 -c "import sys; sys.path.insert(0,'$ROOT/backend'); from nexhunt.version import __version__; print(__version__)")"
 ARCHIVE="nexhunt-${VERSION}.tar.gz"
-SKIP_OBF=0
-OBF_SCOPE="backend"
+SKIP_PROTECTION=0
+CYTHON_VERSION="3.2.6"
+CYTHON_VENV="$DIST/cython-venv"
+CYTHON_BUILD="$DIST/cython-build"
 
 for arg in "$@"; do
   case "$arg" in
-    --skip-obfuscate) SKIP_OBF=1 ;;
-    --obfuscate-licensing-only) OBF_SCOPE="licensing" ;;
+    --skip-protection|--skip-obfuscate) SKIP_PROTECTION=1 ;;
     *) echo "Unknown argument: $arg" >&2; exit 1 ;;
   esac
 done
+
+if [ "$SKIP_PROTECTION" -eq 0 ]; then
+  PYTHON_HEADER="$(python3 -c 'import sysconfig; print(sysconfig.get_path("include") + "/Python.h")')"
+  if [ ! -f "$PYTHON_HEADER" ]; then
+    echo "Missing Python development headers. Install them with: sudo apt install python3-dev" >&2
+    exit 2
+  fi
+  if [ ! -x "$CYTHON_VENV/bin/python" ]; then
+    mkdir -p "$DIST"
+    python3 -m venv "$CYTHON_VENV"
+  fi
+  INSTALLED_CYTHON="$($CYTHON_VENV/bin/python -c 'import Cython; print(Cython.__version__)' 2>/dev/null || true)"
+  if [ "$INSTALLED_CYTHON" != "$CYTHON_VERSION" ]; then
+    "$CYTHON_VENV/bin/pip" install -q --upgrade \
+      "Cython==$CYTHON_VERSION" setuptools wheel
+  fi
+fi
 
 ok()   { echo "  [ok] $1"; }
 step() { echo; echo "==> $1"; }
@@ -42,7 +60,7 @@ mkdir -p "$BUNDLE"
 
 # Copy backend (excluding venv, __pycache__, *.db, *.pyc, token.txt)
 rsync -a --exclude='venv/' --exclude='__pycache__/' --exclude='*.pyc' \
-         --exclude='*.db' --exclude='token.txt' \
+         --exclude='*.db' --exclude='token.txt' --exclude='/nikto_*.txt' \
          "$ROOT/backend/" "$BUNDLE/backend/"
 
 # Copy built Electron app
@@ -53,39 +71,20 @@ cp "$ROOT/package.json" "$BUNDLE/"
 cp "$ROOT/package-lock.json" "$BUNDLE/" 2>/dev/null || true
 cp "$ROOT/start.sh" "$BUNDLE/" 2>/dev/null || true
 cp "$ROOT/install.sh" "$BUNDLE/"
+cp "$ROOT/install-toolchain.sh" "$BUNDLE/"
+chmod +x "$BUNDLE/install.sh" "$BUNDLE/install-toolchain.sh" "$BUNDLE/start.sh" 2>/dev/null || true
 
 ok "Bundle assembled at $BUNDLE"
 
-if [ "$SKIP_OBF" -eq 0 ]; then
-  step "Obfuscating ${OBF_SCOPE} with PyArmor"
-  if ! command -v pyarmor &>/dev/null; then
-    pip install --break-system-packages -q pyarmor
-  fi
-  TMP_OBF="$(mktemp -d)"
-  cd "$BUNDLE/backend"
-
-  if [ "$OBF_SCOPE" = "licensing" ]; then
-    pyarmor gen --output "$TMP_OBF" nexhunt/licensing
-    rm -rf nexhunt/licensing
-    cp -r "$TMP_OBF/licensing" nexhunt/licensing
-  else
-    pyarmor gen --recursive --output "$TMP_OBF" nexhunt
-    rm -rf nexhunt
-    cp -r "$TMP_OBF/nexhunt" nexhunt
-    # PyArmor only transforms Python modules. Preserve package data files.
-    if [ -d "$ROOT/backend/nexhunt/data" ]; then
-      mkdir -p nexhunt/data
-      rsync -a "$ROOT/backend/nexhunt/data/" nexhunt/data/
-    fi
-  fi
-
-  # Runtime at backend root (same level as nexhunt/), importable as top-level package.
-  cp -r "$TMP_OBF"/pyarmor_runtime_* ./
-  rm -rf "$TMP_OBF"
-  cd "$ROOT"
-  ok "${OBF_SCOPE} obfuscated"
+if [ "$SKIP_PROTECTION" -eq 0 ]; then
+  step "Compiling premium modules with Cython Stable ABI"
+  "$CYTHON_VENV/bin/python" "$ROOT/tools/build-premium-cython.py" \
+    "$BUNDLE/backend" "$CYTHON_BUILD"
+  PYTHONPATH="$BUNDLE/backend" python3 -c \
+    "from nexhunt.main import app; print(f'  [ok] compiled backend imports ({len(app.routes)} routes)')"
+  ok "Premium modules compiled; original premium .py files removed"
 else
-  ok "Obfuscation skipped (--skip-obfuscate)"
+  ok "Premium compilation skipped (--skip-protection)"
 fi
 
 step "Creating tarball"

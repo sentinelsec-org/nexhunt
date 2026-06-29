@@ -15,7 +15,7 @@ import { useLicenseStore } from '@/stores/license-store'
 import {
   Play, Loader2, Database, Zap, Bug, Trash2, FileCode,
   ChevronDown, Server, Settings2, CheckSquare, Square as SquareIcon,
-  Sparkles, X, History, Crown,
+  Sparkles, X, History, Crown, Copy,
 } from 'lucide-react'
 
 // Tools tagged by the pipelines themselves — used to show persisted results after a restart.
@@ -64,6 +64,25 @@ export function PipelinesPage({ embedded }: { embedded?: boolean }) {
 
   // AI secret analysis modal state
   const [secretAi, setSecretAi] = useState<{ title: string; loading: boolean; result: string } | null>(null)
+
+  // AI sqlmap command generator modal state
+  const [sqlmapAi, setSqlmapAi] = useState<{ title: string; loading: boolean; command: string } | null>(null)
+
+  const generateSqlmap = async (f: { label: string; url?: string; param?: string; text?: string }, extraHeaders: string[] = []) => {
+    setSqlmapAi({ title: `${f.label} — ${f.param ?? '?'}`, loading: true, command: '' })
+    try {
+      const res = await api.post<{ command: string }>('/api/copilot/generate-sqlmap', {
+        url: f.url ?? '',
+        param: f.param ?? '',
+        method: f.label === 'BOOLEAN' ? 'boolean-based' : f.label === 'TIME-BASED' ? 'time-based' : 'error-based',
+        evidence: f.text ?? '',
+        extra_headers: extraHeaders,
+      })
+      setSqlmapAi({ title: `${f.label} — ${f.param ?? '?'}`, loading: false, command: res.command })
+    } catch (err) {
+      setSqlmapAi({ title: `${f.label} — ${f.param ?? '?'}`, loading: false, command: `# Error: ${err}` })
+    }
+  }
 
   const analyzeSecret = async (f: { label: string; url?: string; match?: string; context?: string; line?: number }) => {
     setSecretAi({ title: f.label, loading: true, result: '' })
@@ -487,6 +506,16 @@ export function PipelinesPage({ embedded }: { embedded?: boolean }) {
                       {f.url && <div className="text-[9px] text-zinc-500 font-mono truncate mt-0.5">{f.url}</div>}
                       {f.text && <div className="text-[9px] text-zinc-400 font-mono truncate mt-0.5">{f.text}</div>}
                     </div>
+                    {/* sqlmap command generator — only for SQLi findings */}
+                    {f.param && viewRun.type === 'sqli' && (
+                      <button
+                        onClick={() => generateSqlmap(f)}
+                        title="Generate optimal sqlmap command with AI"
+                        className="shrink-0 flex items-center gap-1 px-1.5 py-1 rounded border border-red-800/60 text-red-300 hover:bg-red-950/40 text-[9px] transition-colors mt-0.5"
+                      >
+                        <Sparkles size={10} /> sqlmap
+                      </button>
+                    )}
                     {/* AI analysis for JS secrets — explains what the secret is + what to test */}
                     {f.match && (
                       <button
@@ -526,6 +555,45 @@ export function PipelinesPage({ embedded }: { embedded?: boolean }) {
               {secretAi.loading
                 ? <span className="flex items-center gap-2 text-zinc-500"><Loader2 size={13} className="animate-spin" /> Analyzing the secret, its file and host context...</span>
                 : secretAi.result}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* sqlmap command generator modal */}
+      {sqlmapAi && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
+          onClick={() => setSqlmapAi(null)}
+        >
+          <div
+            className="w-full max-w-2xl flex flex-col rounded-xl border border-red-800/50 bg-zinc-950 shadow-2xl overflow-hidden"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-5 py-3 border-b border-zinc-800 bg-zinc-900 shrink-0">
+              <div className="flex items-center gap-2 min-w-0">
+                <Sparkles size={14} className="text-red-400 shrink-0" />
+                <span className="text-sm font-semibold text-zinc-100 truncate">sqlmap — {sqlmapAi.title}</span>
+              </div>
+              <button onClick={() => setSqlmapAi(null)} className="text-zinc-600 hover:text-zinc-300 shrink-0"><X size={14} /></button>
+            </div>
+            <div className="p-5">
+              {sqlmapAi.loading
+                ? <span className="flex items-center gap-2 text-[12px] text-zinc-500"><Loader2 size={13} className="animate-spin" /> Generating optimal command...</span>
+                : (
+                  <div className="relative group">
+                    <pre className="text-[12px] font-mono text-green-300 bg-black rounded-lg p-4 whitespace-pre-wrap break-all leading-relaxed border border-zinc-800">
+                      {sqlmapAi.command}
+                    </pre>
+                    <button
+                      onClick={() => { navigator.clipboard.writeText(sqlmapAi.command); toast.success('Copied') }}
+                      className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded border border-zinc-700 bg-zinc-900 text-zinc-400 hover:text-zinc-200"
+                      title="Copy command"
+                    >
+                      <Copy size={11} />
+                    </button>
+                  </div>
+                )}
             </div>
           </div>
         </div>

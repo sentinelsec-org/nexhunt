@@ -1,17 +1,19 @@
 import asyncio
+import ipaddress
 import json
 import logging
 import os
 import re
 import time
 import uuid
-from fastapi import APIRouter, Depends, Query
+from urllib.parse import urlsplit
+from fastapi import APIRouter, Depends, Query, HTTPException, Response
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, desc
+from sqlalchemy import delete, select, desc
 from nexhunt.database import get_session
 from nexhunt.models.http_flow import HttpFlow
 from nexhunt.schemas.proxy import (
-    ProxySettings, InterceptToggle, RepeaterRequest,
+    ProxySettings, InterceptToggle, InterceptConfig, InterceptAction, RepeaterRequest,
     RawRepeaterRequest, IntruderConfig,
 )
 from nexhunt.proxy.engine import proxy_engine
@@ -22,6 +24,58 @@ logger = logging.getLogger(__name__)
 
 # ── Intruder job registry ──────────────────────────────────────────────────────
 _INTRUDER_JOBS: dict[str, asyncio.Task] = {}
+
+# Held mitmproxy requests. The standalone addon long-polls its per-flow queue
+# while the frontend edits the request and chooses Forward or Drop.
+_INTERCEPT_PENDING: dict[str, dict] = {}
+_INTERCEPT_ACTIONS: dict[str, asyncio.Queue] = {}
+
+
+async def _resolve_intercept(flow_id: str, action: str, modified_request: str | None = None) -> bool:
+    pending = _INTERCEPT_PENDING.pop(flow_id, None)
+    if pending is None:
+        return False
+    queue = _INTERCEPT_ACTIONS.setdefault(flow_id, asyncio.Queue(maxsize=1))
+    if queue.empty():
+        await queue.put({"action": action, "modified_request": modified_request})
+    from nexhunt.ws.manager import ws_manager
+    await ws_manager.broadcast("proxy_intercept_resolved", {"id": flow_id, "action": action})
+    return True
+
+
+async def _forward_all_intercepted() -> None:
+    for flow_id in list(_INTERCEPT_PENDING):
+        await _resolve_intercept(flow_id, "forward")
+
+
+def _matches_scope(host: str, entry: str) -> bool:
+    host = host.lower().rstrip(".").strip("[]")
+    raw = entry.strip().lower()
+    if not raw:
+        return False
+    try:
+        return ipaddress.ip_address(host) in ipaddress.ip_network(raw, strict=False)
+    except ValueError:
+        pass
+    if "://" in raw:
+        candidate = urlsplit(raw).hostname or ""
+    else:
+        candidate = urlsplit(f"//{raw.split('/', 1)[0]}").hostname or raw
+    candidate = candidate.removeprefix("*.").lstrip(".").rstrip(".")
+    return bool(candidate) and (host == candidate or host.endswith(f".{candidate}"))
+
+
+def _host_is_in_scope(host: str, scope: list[str], out_of_scope: list[str]) -> bool:
+    return (
+        any(_matches_scope(host, entry) for entry in scope)
+        and not any(_matches_scope(host, entry) for entry in out_of_scope)
+    )
+
+
+async def _forward_out_of_scope(scope: list[str], out_of_scope: list[str]) -> None:
+    for flow_id, flow in list(_INTERCEPT_PENDING.items()):
+        if not _host_is_in_scope(str(flow.get("request_host", "")), scope, out_of_scope):
+            await _resolve_intercept(flow_id, "forward")
 
 
 def _parse_raw_request(raw: str, host: str, port: int, use_https: bool):
@@ -170,6 +224,8 @@ async def start_proxy():
 @router.post("/stop")
 async def stop_proxy():
     """Stop the intercepting proxy."""
+    proxy_engine.intercept_enabled = False
+    await _forward_all_intercepted()
     await proxy_engine.stop()
     return {"status": "stopped"}
 
@@ -202,9 +258,17 @@ async def open_browser():
     if "DISPLAY" not in env:
         env["DISPLAY"] = ":0"
 
+    profile_dir = os.path.expanduser("~/.config/nexhunt/proxy-browser")
+    os.makedirs(profile_dir, exist_ok=True)
+
     subprocess.Popen(
         [chromium,
+         f"--user-data-dir={profile_dir}",
          f"--proxy-server=127.0.0.1:{port}",
+         "--proxy-bypass-list=<-loopback>",
+         "--disk-cache-size=1",
+         "--media-cache-size=1",
+         "--disable-application-cache",
          "--ignore-certificate-errors",
          "--no-first-run",
          "--no-default-browser-check",
@@ -222,7 +286,9 @@ async def proxy_status():
     return {
         "running": proxy_engine.running,
         "port": proxy_engine.port,
-        "intercept_enabled": proxy_engine.intercept_enabled
+        "intercept_enabled": proxy_engine.intercept_enabled,
+        "intercept_scope_only": proxy_engine.intercept_scope_only,
+        "pending_count": len(_INTERCEPT_PENDING),
     }
 
 
@@ -255,6 +321,14 @@ async def get_history(
     return [_flow_to_dict(f) for f in flows]
 
 
+@router.delete("/history")
+async def clear_history(session: AsyncSession = Depends(get_session)):
+    """Delete persisted proxy history so cleared rows do not reappear after hydration."""
+    await session.execute(delete(HttpFlow))
+    await session.commit()
+    return {"status": "cleared"}
+
+
 @router.get("/flow/{flow_id}")
 async def get_flow(flow_id: str, session: AsyncSession = Depends(get_session)):
     """Get full details of a specific flow."""
@@ -268,8 +342,89 @@ async def get_flow(flow_id: str, session: AsyncSession = Depends(get_session)):
 @router.post("/intercept/toggle")
 async def toggle_intercept(data: InterceptToggle):
     """Toggle intercept mode."""
+    proxy_engine.configure_intercept(data.scope_only, data.scope, data.out_of_scope)
     proxy_engine.intercept_enabled = data.enabled
-    return {"intercept_enabled": data.enabled}
+    if data.enabled and data.scope_only:
+        await _forward_out_of_scope(data.scope, data.out_of_scope)
+    if not data.enabled:
+        await _forward_all_intercepted()
+    return {"intercept_enabled": data.enabled, "intercept_scope_only": data.scope_only}
+
+
+@router.post("/intercept/config")
+async def configure_intercept(data: InterceptConfig):
+    """Update scope filtering without changing the current ON/OFF state."""
+    proxy_engine.configure_intercept(data.scope_only, data.scope, data.out_of_scope)
+    if data.scope_only:
+        await _forward_out_of_scope(data.scope, data.out_of_scope)
+    return {"intercept_scope_only": data.scope_only}
+
+
+@router.post("/intercept/capture")
+async def capture_intercept(data: dict):
+    """Register a request paused by the standalone mitmproxy addon."""
+    flow_id = str(data.get("id", ""))
+    if not flow_id:
+        raise HTTPException(status_code=400, detail="Missing flow id")
+
+    queue = _INTERCEPT_ACTIONS.setdefault(flow_id, asyncio.Queue(maxsize=1))
+    should_hold = proxy_engine.intercept_enabled and (
+        not proxy_engine.intercept_scope_only
+        or _host_is_in_scope(
+            str(data.get("request_host", "")),
+            proxy_engine.intercept_scope,
+            proxy_engine.intercept_out_of_scope,
+        )
+    )
+    if not should_hold:
+        if queue.empty():
+            await queue.put({"action": "forward", "modified_request": None})
+        return {"held": False}
+
+    _INTERCEPT_PENDING[flow_id] = data
+    from nexhunt.ws.manager import ws_manager
+    await ws_manager.broadcast("proxy_intercept", data, "intercepted")
+    return {"held": True}
+
+
+@router.get("/intercept/pending")
+async def pending_intercepts():
+    """Hydrate the intercept tray after a frontend reload."""
+    return list(_INTERCEPT_PENDING.values())
+
+
+@router.get("/intercept/dropped")
+async def dropped_intercept_response():
+    """Local sink used by the addon to terminate a dropped HTTP flow."""
+    return Response(
+        content=b"Request dropped by NexHunt Intercept\n",
+        status_code=444,
+        media_type="text/plain",
+        headers={"X-NexHunt-Intercept": "dropped"},
+    )
+
+
+@router.get("/intercept/wait/{flow_id}")
+async def wait_for_intercept_action(flow_id: str):
+    """Long-poll endpoint used only by the local mitmproxy addon."""
+    queue = _INTERCEPT_ACTIONS.setdefault(flow_id, asyncio.Queue(maxsize=1))
+    try:
+        command = await asyncio.wait_for(queue.get(), timeout=24)
+    except asyncio.TimeoutError:
+        return {"action": "wait"}
+    _INTERCEPT_ACTIONS.pop(flow_id, None)
+    return command
+
+
+@router.post("/intercept/action")
+async def intercept_action(data: InterceptAction):
+    """Forward (optionally modified) or drop a held request."""
+    if data.action not in {"forward", "drop"}:
+        raise HTTPException(status_code=400, detail="Action must be forward or drop")
+    resolved = await _resolve_intercept(data.flow_id, data.action, data.modified_request)
+    if not resolved:
+        raise HTTPException(status_code=404, detail="Intercepted flow is no longer pending")
+    return {"status": "released", "flow_id": data.flow_id, "action": data.action}
 
 
 @router.post("/repeater")

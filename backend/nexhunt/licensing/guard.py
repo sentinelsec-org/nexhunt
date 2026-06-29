@@ -7,7 +7,7 @@ from nexhunt.licensing.manager import license_manager
 
 def require_pro(feature: str = "this feature"):
     """Return a dependency that 402s when the current tier is not PRO."""
-    def _dep():
+    async def _dep():
         if not license_manager.is_pro():
             raise HTTPException(
                 status_code=402,

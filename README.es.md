@@ -11,7 +11,7 @@
 
 **Plataforma de Automatización para Bug Bounty en Linux**
 
-[![Version](https://img.shields.io/badge/version-1.3.0--beta-amber?style=flat-square)](https://github.com/sentinelsec-org/nexhunt/releases)
+[![Version](https://img.shields.io/badge/version-1.4.0--beta-amber?style=flat-square)](https://github.com/sentinelsec-org/nexhunt/releases)
 [![Platform](https://img.shields.io/badge/plataforma-Linux-green?style=flat-square)]()
 [![License](https://img.shields.io/badge/licencia-Free%20%2F%20PRO-blue?style=flat-square)](https://nexhunt.myshopify.com/products/nexhunt-pro)
 [![Made by](https://img.shields.io/badge/by-Sentinel%20Security-green?style=flat-square)](https://nexhunt.myshopify.com)
@@ -194,6 +194,7 @@ curl -fsSL https://raw.githubusercontent.com/sentinelsec-org/nexhunt/main/instal
 ```
 
 El instalador:
+- Selecciona el paquete para la arquitectura de tu CPU y verifica su checksum SHA-256 publicado
 - Instala las 20+ herramientas de seguridad (nmap, nuclei, subfinder, ffuf, sqlmap, dalfox, gowitness, katana, gau, waybackurls, gobuster, nikto, dirsearch, commix, arjun, paramspider, xsstrike, amass, httpx, interactsh...)
 - Configura el backend Python en un venv aislado
 - Construye el frontend Electron
@@ -204,10 +205,11 @@ El instalador:
 
 | Requisito | Notas |
 |---|---|
-| Linux | Kali, Debian, Ubuntu — probado en Kali 2024+ |
+| Linux | Kali, Debian, Ubuntu, Arch Linux y CachyOS — flujo compatible probado para Kali/CachyOS |
+| CPU | x86-64 / amd64 |
 | Python 3.10+ | Disponible en todas las distros soportadas |
 | Node.js 18+ | Se instala automáticamente si no está |
-| Go 1.21+ | Se instala automáticamente si no está |
+| Go 1.24+ | Se instala automáticamente si falta o está desactualizado |
 | ~2 GB disco | Para todas las herramientas + venv + build |
 | Internet | Solo para la instalación inicial |
 
@@ -265,6 +267,6 @@ NexHunt es software propietario. El **tier gratuito** es libre de usar indefinid
 
 Hecho con 🖤 por **[Sentinel Security](https://nexhunt.myshopify.com)**
 
-*NexHunt v1.3.0 beta — Linux*
+*NexHunt v1.4.0 beta — Linux*
 
 </div>

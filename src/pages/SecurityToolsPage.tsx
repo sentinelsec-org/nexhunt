@@ -12,7 +12,7 @@ import {
   Play, Square, Loader2, Terminal, Copy, Check,
   Globe, Lock, Cloud, GitBranch, Radio, Info, X, BookOpen, Sparkles,
   FolderGit2, Server, ChevronDown, Share2, FileCode2, Crown, Maximize2, Crosshair, Rocket, Waypoints,
-  Pencil, Keyboard, Trash2, Zap, CheckCircle2, XCircle,
+  Pencil, Keyboard, Trash2, CheckCircle2, XCircle,
 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useWorkspaceStore } from '@/stores/workspace-store'
@@ -251,7 +251,6 @@ export function SecurityToolsPage({ embedded }: { embedded?: boolean }) {
   const [msfAutoNgrok, setMsfAutoNgrok] = useState(false)
   const [msfNgrokAddress, setMsfNgrokAddress] = useState('')
   const [msfLaunching, setMsfLaunching] = useState(false)
-  const [msfTestAllNgrok, setMsfTestAllNgrok] = useState(true)
   const [msfTestAllStarting, setMsfTestAllStarting] = useState(false)
   const [msfTestAllJobId, setMsfTestAllJobId] = useState<string | null>(null)
   const [msfTestAllResults, setMsfTestAllResults] = useState<{ module: string; rhosts: string; status: string }[]>([])
@@ -305,7 +304,7 @@ export function SecurityToolsPage({ embedded }: { embedded?: boolean }) {
 
   // Auto-fill target from global store when tab changes
   useEffect(() => {
-    if (globalTarget && !targets[activeTab]) {
+    if (globalTarget && !targets[activeTab] && activeTab !== 'exploit_intel') {
       setTargets(prev => ({ ...prev, [activeTab]: globalTarget }))
     }
   }, [activeTab, globalTarget])
@@ -328,11 +327,20 @@ export function SecurityToolsPage({ embedded }: { embedded?: boolean }) {
   const isRunning = activeScans.has(activeTab)
   const jobId = activeJobIds[activeTab]
 
-  // Metasploit-matched findings on a selected host, most important first - what "Test All" fires.
+  // Only actionable-confidence, deduplicated candidates enter bulk `check` validation.
   const SEVERITY_RANK: Record<string, number> = { high: 0, medium: 1, low: 2, info: 3 }
-  const msfTestAllCandidates = tabFindings
-    .filter(f => f.tool === 'exploit_intel' && f.template_id?.startsWith('msf:') && f.url && selectedExploitHosts.includes(f.url))
-    .sort((a, b) => (SEVERITY_RANK[a.severity] ?? 9) - (SEVERITY_RANK[b.severity] ?? 9))
+  const selectedExploitHostnames = new Set(selectedExploitHosts.map(hostForPicker => {
+    try { return new URL(hostForPicker.includes('://') ? hostForPicker : `https://${hostForPicker}`).hostname }
+    catch { return hostForPicker }
+  }))
+  const msfTestAllCandidates = [...new Map(tabFindings
+    .filter(f => {
+      const confidenceOk = /^Confidence:\s*(high|medium)\b/im.test(f.evidence ?? '')
+      const selectedHost = f.url && selectedExploitHostnames.has(f.url)
+      return f.tool === 'exploit_intel' && f.template_id?.startsWith('msf:') && confidenceOk && selectedHost
+    })
+    .map(f => [`${f.template_id}|${f.url}|${f.evidence?.match(/^RPORT:\s*(\d+)/m)?.[1] ?? ''}`, f] as const)
+  ).values()].sort((a, b) => (SEVERITY_RANK[a.severity] ?? 9) - (SEVERITY_RANK[b.severity] ?? 9))
 
   // OOB host extracted from interactsh findings
   const oobHost = findings.find(f => f.tool === 'interactsh' && f.template_id === 'interactsh-host')?.url?.replace('http://', '') ?? ''
@@ -441,18 +449,18 @@ export function SecurityToolsPage({ embedded }: { embedded?: boolean }) {
     }
   }
 
-  // Poll the combined Test All run until every module reports success/failed (or we give up).
+  // Poll the combined, non-exploiting Metasploit check run.
   useEffect(() => {
     if (!msfTestAllJobId) return
     let attempts = 0
     const interval = setInterval(async () => {
       attempts += 1
       try {
-        const res = await api.get<{ results?: { module: string; status: string }[]; done?: boolean; error?: string }>(
+        const res = await api.get<{ results?: { module: string; rhosts: string; status: string }[]; done?: boolean; error?: string }>(
           `/api/tools/exploit-intel/msf-test-all/${msfTestAllJobId}`,
         )
         if (res.results) {
-          setMsfTestAllResults(previous => res.results!.map((r, i) => ({ ...r, rhosts: previous[i]?.rhosts ?? '' })))
+          setMsfTestAllResults(res.results)
         }
         if (res.done || res.error || attempts >= 45) {
           clearInterval(interval)
@@ -467,23 +475,27 @@ export function SecurityToolsPage({ embedded }: { embedded?: boolean }) {
 
   const handleTestAll = async () => {
     if (msfTestAllCandidates.length === 0) return
-    const items = msfTestAllCandidates.map(f => ({ module: f.template_id!.slice(4), rhosts: f.url! }))
+    const items = msfTestAllCandidates.map(f => ({
+      module: f.template_id!.slice(4),
+      rhosts: f.url!,
+      rport: f.evidence?.match(/^RPORT:\s*(\d+)/m)?.[1] ?? '',
+    }))
     setMsfTestAllStarting(true)
     setMsfTestAllResults(items.map(item => ({ ...item, status: 'pending' })))
     try {
-      const res = await api.post<{ status: string; job_id?: string; count?: number; ngrok_address?: string; error?: string }>(
+      const res = await api.post<{ status: string; job_id?: string; count?: number; error?: string }>(
         '/api/tools/exploit-intel/msf-test-all',
-        { items, auto_ngrok: msfTestAllNgrok },
+        { items },
       )
       if (res.status === 'started' && res.job_id) {
         setMsfTestAllJobId(res.job_id)
-        toast.success('Test All launched', res.ngrok_address ? `${res.count} modules - listening at ${res.ngrok_address}` : `${res.count} modules running in msfconsole`)
+        toast.success('Validation started', `${res.count} candidate checks running in Metasploit`)
       } else {
-        toast.error('Test All failed', res.error || 'Unknown error')
+        toast.error('Validation failed', res.error || 'Unknown error')
         setMsfTestAllResults([])
       }
     } catch (err) {
-      toast.error('Failed to start Test All', err)
+      toast.error('Failed to start validation', err)
       setMsfTestAllResults([])
     } finally {
       setMsfTestAllStarting(false)
@@ -575,7 +587,7 @@ export function SecurityToolsPage({ embedded }: { embedded?: boolean }) {
         <div className="flex-1 flex flex-col gap-3 min-h-0 min-w-0">
 
           {/* Tool header */}
-          <div className={cn('rounded-lg border p-3 space-y-2.5', tool.border, tool.bg)}>
+          <div className={cn('rounded-lg border p-3 space-y-2.5 shrink-0 overflow-y-auto max-h-[46vh]', tool.border, tool.bg)}>
             {TOOL_BINARY[activeTab] && notInstalled.has(TOOL_BINARY[activeTab]!) && (
               <div className="flex items-start gap-2 rounded border border-orange-700/50 bg-orange-950/20 px-3 py-2 text-[11px] text-orange-300">
                 <span className="shrink-0 font-bold">!</span>
@@ -656,54 +668,46 @@ export function SecurityToolsPage({ embedded }: { embedded?: boolean }) {
             )}
 
             {activeTab === 'exploit_intel' && msfTestAllCandidates.length > 0 && (
-              <div className="space-y-2 rounded-md border border-red-800/50 bg-red-950/15 p-3">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="text-[10px] text-red-300 font-medium flex items-center gap-1.5">
-                    <Zap size={11} /> Test All — fires every matched module automatically
-                  </div>
-                  <label className="flex items-center gap-1.5 text-[9px] text-cyan-400/80 cursor-pointer shrink-0">
-                    <input
-                      type="checkbox"
-                      checked={msfTestAllNgrok}
-                      onChange={e => setMsfTestAllNgrok(e.target.checked)}
-                      className="w-2.5 h-2.5 accent-cyan-500"
-                    />
-                    Auto via ngrok
-                  </label>
+              <div className="space-y-2 rounded-md border border-amber-700/40 bg-amber-950/10 p-3">
+                <div className="text-[10px] text-amber-300 font-medium flex items-center gap-1.5">
+                  <CheckCircle2 size={11} /> Validate candidates — Metasploit check
                 </div>
                 <p className="text-[9px] text-zinc-500 leading-relaxed">
-                  Runs all <span className="text-red-400 font-medium">{msfTestAllCandidates.length}</span> Metasploit
-                  matches on your selected host(s), highest severity first, with no per-module confirmation. Active
-                  exploitation — authorized targets only.
+                  Runs the non-exploiting <code className="text-amber-400">check</code> command for the{' '}
+                  <span className="text-amber-300 font-medium">{msfTestAllCandidates.length}</span> deduplicated
+                  medium/high-confidence candidates. No payloads, listeners, sessions, or ngrok tunnel.
                 </p>
                 <button
                   onClick={handleTestAll}
                   disabled={msfTestAllStarting || !!msfTestAllJobId}
-                  className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 text-[10px] rounded border border-red-700 text-red-300 hover:bg-red-950/40 disabled:opacity-50 transition-colors"
+                  className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 text-[10px] rounded border border-amber-700 text-amber-300 hover:bg-amber-950/30 disabled:opacity-50 transition-colors"
                 >
-                  {msfTestAllStarting || msfTestAllJobId ? <Loader2 size={10} className="animate-spin" /> : <Zap size={10} />}
-                  {msfTestAllJobId ? 'Running...' : `Test all ${msfTestAllCandidates.length} now`}
+                  {msfTestAllStarting || msfTestAllJobId ? <Loader2 size={10} className="animate-spin" /> : <CheckCircle2 size={10} />}
+                  {msfTestAllJobId ? 'Checking...' : `Check ${msfTestAllCandidates.length} candidates`}
                 </button>
 
                 {msfTestAllResults.length > 0 && (
-                  <div className="pt-1 border-t border-red-900/40">
+                  <div className="pt-1 border-t border-amber-900/30">
                     <div className="flex items-center gap-2 py-1 text-[9px] text-zinc-500">
-                      <span className="text-emerald-400 font-medium">{msfTestAllResults.filter(r => r.status === 'success').length} opened a session</span>
+                      <span className="text-rose-400 font-medium">{msfTestAllResults.filter(r => r.status === 'vulnerable').length} vulnerable</span>
+                      <span>·</span>
+                      <span className="text-emerald-500">{msfTestAllResults.filter(r => r.status === 'safe').length} safe</span>
+                      <span>·</span>
+                      <span>{msfTestAllResults.filter(r => r.status === 'unknown').length} unknown</span>
                       <span>·</span>
                       <span>{msfTestAllResults.filter(r => r.status === 'pending' || r.status === 'running').length} running</span>
-                      <span>·</span>
-                      <span>{msfTestAllResults.length} total</span>
                     </div>
                     <div className="max-h-32 overflow-y-auto space-y-1 pr-1">
                       {msfTestAllResults.map((r, i) => (
                         <div key={`${r.module}-${i}`} className="flex items-center gap-2 text-[9px]">
-                          {r.status === 'success' && <CheckCircle2 size={10} className="text-emerald-500 shrink-0" />}
-                          {r.status === 'failed' && <XCircle size={10} className="text-zinc-600 shrink-0" />}
+                          {r.status === 'vulnerable' && <XCircle size={10} className="text-rose-500 shrink-0" />}
+                          {r.status === 'safe' && <CheckCircle2 size={10} className="text-emerald-500 shrink-0" />}
+                          {r.status === 'unknown' && <Info size={10} className="text-zinc-500 shrink-0" />}
                           {(r.status === 'pending' || r.status === 'running') && <Loader2 size={10} className="text-amber-500 animate-spin shrink-0" />}
-                          <span className={cn('font-mono truncate', r.status === 'success' ? 'text-emerald-400' : 'text-zinc-500')}>{r.module.split('/').pop()}</span>
+                          <span className={cn('font-mono truncate', r.status === 'vulnerable' ? 'text-rose-400' : r.status === 'safe' ? 'text-emerald-500' : 'text-zinc-500')}>{r.module.split('/').pop()}</span>
                           <span className="text-zinc-700 truncate">{r.rhosts}</span>
-                          <span className={cn('ml-auto shrink-0', r.status === 'success' ? 'text-emerald-500' : 'text-zinc-600')}>
-                            {r.status === 'success' ? 'session opened' : r.status === 'failed' ? 'no session' : 'running'}
+                          <span className={cn('ml-auto shrink-0', r.status === 'vulnerable' ? 'text-rose-500' : r.status === 'safe' ? 'text-emerald-600' : 'text-zinc-600')}>
+                            {r.status === 'vulnerable' ? 'vulnerable' : r.status === 'safe' ? 'not vulnerable' : r.status}
                           </span>
                         </div>
                       ))}
@@ -915,7 +919,7 @@ export function SecurityToolsPage({ embedded }: { embedded?: boolean }) {
             <JsApiMapResults findings={tabFindings} running={isRunning} />
           )}
           {view === 'findings' && activeTab !== 'js_api_mapper' && (
-            <div className="flex-1 flex gap-3 min-h-0">
+            <div className="flex-1 flex gap-3 min-h-[160px]">
               {/* Findings table */}
               <div className="flex-1 overflow-auto rounded-lg border border-zinc-800">
                 <table className="w-full text-xs">
@@ -1797,6 +1801,11 @@ function ExploitIntelGuide() {
         <div className="space-y-1 text-[10px] text-zinc-500 leading-relaxed">
           <p>Open a Metasploit finding — RHOSTS auto-fills from the live host the tech was actually detected on (edit it if you need to). For LHOST, either type your IP, or flip "Auto via ngrok" to have NexHunt open a reverse tunnel and wire LHOST/the local listener together for you. Launch writes a resource script with everything pre-set and opens msfconsole stopped at <code className="text-green-400">show options</code> — review, then type <code className="text-green-400">exploit</code>.</p>
         </div>
+      </GuideSection>
+      <GuideSection title="Validate candidates">
+        <p className="text-[10px] text-zinc-500 leading-relaxed">
+          Bulk validation only includes deduplicated medium/high-confidence matches and runs Metasploit's <code className="text-amber-400">check</code> command. It does not launch payloads or need ngrok. Use the individual finding's "Run in Metasploit" action when you intentionally want to configure a payload; its optional ngrok callback remains available there.
+        </p>
       </GuideSection>
       <Tip>Version matching is a LEAD, not proof. A banner version can be patched/backported and still report old. Confirm the module's check (<code className="text-green-400">check</code> in msf) or verify manually before firing — and only against authorized targets.</Tip>
     </>

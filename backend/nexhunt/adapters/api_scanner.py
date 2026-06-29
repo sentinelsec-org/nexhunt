@@ -7,7 +7,7 @@ import json
 import logging
 import re
 from typing import AsyncIterator
-from urllib.parse import quote, urlencode, urljoin, urlparse
+from urllib.parse import parse_qsl, quote, urlencode, urljoin, urlparse
 
 import httpx
 
@@ -24,6 +24,14 @@ HTTP_METHODS = ["get", "post", "put", "patch", "delete", "head", "options"]
 WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 MAX_ENDPOINTS = 500
 CONCURRENCY = 10
+
+
+def _is_http_url(value: str) -> bool:
+    try:
+        parsed = urlparse((value or "").strip())
+        return parsed.scheme in ("http", "https") and bool(parsed.hostname) and not any(char.isspace() for char in parsed.netloc)
+    except ValueError:
+        return False
 
 
 def _parse_auth(account_auth: str) -> dict[str, str]:
@@ -423,6 +431,8 @@ class ApiScannerAdapter(ToolAdapter):
         docs_url = (target or "").strip()
         if "://" not in docs_url:
             docs_url = f"https://{docs_url}"
+        if base_override and not _is_http_url(base_override):
+            raise ValueError("Base URL override must be an absolute HTTP(S) URL")
         headers = {"User-Agent": "Mozilla/5.0 (NexHunt API Scanner)"}
         async with httpx.AsyncClient(
             verify=False, timeout=20, follow_redirects=True, headers=headers
@@ -453,8 +463,15 @@ class ApiScannerAdapter(ToolAdapter):
         manual_endpoints = options.get("endpoints")
         probe_writes = bool(options.get("probe_writes", False))
 
+        if base_override and not _is_http_url(base_override):
+            yield {"_raw": True, "line": "  Invalid base URL override: expected an absolute HTTP(S) URL"}
+            return
+
         if manual_endpoints:
             base_url = base_override or docs_url
+            if not _is_http_url(base_url):
+                yield {"_raw": True, "line": "  Invalid route-set base URL: expected an absolute HTTP(S) URL"}
+                return
             endpoints = self._build_manual_endpoints(manual_endpoints, base_url)[:MAX_ENDPOINTS]
             yield {"_raw": True, "line": f"$ api-scan {len(endpoints)} supplied route(s) - base {base_url}"}
         else:
@@ -510,25 +527,48 @@ class ApiScannerAdapter(ToolAdapter):
             if not isinstance(item, dict):
                 continue
             method = str(item.get("method", "GET")).upper()
-            path = str(item.get("path", "")).strip()
+            supplied_path = str(item.get("path", "")).strip()
+            path, _, query_string = supplied_path.partition("?")
+            path = re.sub(r'(?<![\w{]):([a-zA-Z_][a-zA-Z0-9_]*)', r'{\1}', path)
             if method.lower() not in HTTP_METHODS or not path:
                 continue
-            endpoints.append({
+            parameters = [{
+                "name": name,
+                "in": "path",
+                "required": True,
+                "description": "Discovered path parameter",
+                "value": "1",
+                "enabled": True,
+                "schema": {"type": "string"},
+            } for name in dict.fromkeys(re.findall(r'\{([^}]+)\}', path))]
+            parameters += [{
+                "name": name,
+                "in": "query",
+                "required": False,
+                "description": "Discovered query parameter",
+                "value": value or "test",
+                "enabled": True,
+                "schema": {"type": "string"},
+            } for name, value in parse_qsl(query_string, keep_blank_values=True)]
+            endpoint = {
                 "method": method,
                 "path": path,
-                "url": base_url.rstrip("/") + "/" + path.lstrip("/"),
+                "url": "",
                 "base_url": base_url,
                 "secured": bool(item.get("secured")),
                 "mutating": method in WRITE_METHODS,
                 "operation_id": "",
                 "summary": "",
                 "tags": [],
-                "parameters": [],
-                "body": None,
-                "body_content_type": "",
+                "parameters": parameters,
+                "body": {} if method in WRITE_METHODS else None,
+                "body_content_type": "application/json" if method in WRITE_METHODS else "",
+                "body_required": False,
                 "body_schema": {},
                 "request_headers": {},
-            })
+            }
+            endpoint["url"], endpoint["request_headers"] = ApiScannerAdapter._materialize(endpoint)
+            endpoints.append(endpoint)
         return endpoints
 
     async def _resolve_spec(self, client, docs_url):

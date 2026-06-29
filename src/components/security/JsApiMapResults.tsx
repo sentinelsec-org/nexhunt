@@ -149,6 +149,7 @@ export function JsApiMapResults({ findings, running }: { findings: Finding[]; ru
   const [basesInfoOpen, setBasesInfoOpen] = useState(false)
   const [probes, setProbes] = useState<Record<string, ProbeResult>>({})
   const [scopeAll, setScopeAll] = useState(false)
+  const [includeWriteMethods, setIncludeWriteMethods] = useState(false)
   const [scanning, setScanning] = useState(false)
 
   const filteredRoutes = parsed.routes.filter(route => {
@@ -202,6 +203,7 @@ export function JsApiMapResults({ findings, running }: { findings: Finding[]; ru
           base_url: baseUrl,
           endpoints: bulkTargets.map(r => ({ method: r.method, path: r.path, secured: r.privileged })),
           account_auth: buildAccountAuthString(sessionCookies, sessionHeaders),
+          probe_writes: includeWriteMethods,
         },
         project_id: activeProject ?? '',
       })
@@ -255,6 +257,10 @@ export function JsApiMapResults({ findings, running }: { findings: Finding[]; ru
           <label className="flex items-center gap-1.5 text-[10px] text-zinc-400 cursor-pointer shrink-0">
             <input type="checkbox" checked={scopeAll} onChange={e => setScopeAll(e.target.checked)} className="w-3 h-3 accent-teal-500" />
             All ({parsed.routes.length}) — otherwise only privileged ({privilegedRoutes.length})
+          </label>
+          <label className="flex items-center gap-1.5 text-[10px] text-amber-400 cursor-pointer shrink-0" title="May create, update, or delete data. Bodies start as editable empty JSON when no schema is available.">
+            <input type="checkbox" checked={includeWriteMethods} onChange={e => setIncludeWriteMethods(e.target.checked)} className="w-3 h-3 accent-amber-500" />
+            Include writes
           </label>
           <button
             onClick={probeWithApiScanner}

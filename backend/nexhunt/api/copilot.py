@@ -38,6 +38,14 @@ class SecretAnalysisRequest(BaseModel):
     live_hosts: list[dict] = []   # for host/tech context
 
 
+class SqlmapCommandRequest(BaseModel):
+    url: str
+    param: str
+    method: str = "error-based"
+    evidence: str = ""
+    extra_headers: list[str] = []
+
+
 class AgentChatRequest(BaseModel):
     message: str
     context: dict = {}
@@ -216,6 +224,55 @@ Analyze concretely and practically with these sections:
     except Exception as e:
         logger.error(f"Copilot analyze-secret error: {e}")
         return {"response": f"Error: {e}"}
+
+
+@router.post("/generate-sqlmap")
+async def generate_sqlmap(req: SqlmapCommandRequest):
+    """Generate the optimal sqlmap command for a confirmed SQLi finding."""
+    if not req.url or not req.param:
+        return {"command": ""}
+    try:
+        es = settings.language == "es"
+        headers_block = ""
+        if req.extra_headers:
+            headers_block = "\n".join(f'  - "{h}"' for h in req.extra_headers)
+            headers_block = f"\nExtra headers que se usaron durante la deteccion:\n{headers_block}"
+
+        system = (
+            "Eres un experto en SQL injection. Tu unica tarea es generar el comando sqlmap optimo "
+            "para un punto de inyeccion ya confirmado. Razona en silencio y devuelve UNICAMENTE el "
+            "comando sqlmap, sin explicaciones, sin markdown, sin comillas envolventes.\n\n"
+            "Reglas de razonamiento:\n"
+            "1. Detecta el DBMS desde el mensaje de error:\n"
+            "   - 'near X: syntax error', 'unrecognized token', 'no such column/table' -> SQLite -> --dbms=sqlite --technique=U --no-cast\n"
+            "   - 'You have an error in your SQL syntax', 'check the manual that corresponds to your MySQL' -> MySQL -> --dbms=mysql --technique=EBU\n"
+            "   - 'ORA-' -> Oracle -> --dbms=oracle --technique=EU\n"
+            "   - 'Incorrect syntax near', 'Unclosed quotation mark' -> MSSQL -> --dbms=mssql --technique=EBS\n"
+            "   - 'syntax error at or near', 'PSQLException', 'PG::' -> PostgreSQL -> --dbms=postgresql --technique=EBU\n"
+            "   - Sin error claro (boolean o time-based) -> omitir --dbms, usar --technique=BT --level=3 --risk=2\n"
+            "2. Si el metodo fue error-based agrega --dbs para enumerar bases de datos.\n"
+            "3. Incluye --batch siempre.\n"
+            "4. Si hay extra_headers con Authorization, agrega -H con el valor exacto.\n"
+            "5. Si hay extra_headers que son cookies, usa --cookie.\n"
+            "6. Devuelve SOLO el comando. Nada mas."
+        )
+
+        prompt = (
+            f"Punto de inyeccion confirmado:\n"
+            f"- URL: {req.url}\n"
+            f"- Parametro: {req.param}\n"
+            f"- Metodo de deteccion: {req.method}\n"
+            f"- Evidencia / error: {req.evidence[:500] or '(sin evidencia)'}"
+            f"{headers_block}\n\n"
+            "Genera el comando sqlmap optimo."
+        )
+
+        command = await copilot_service._dispatch(prompt, system=system, max_tokens=300)
+        command = command.strip().removeprefix("```bash").removeprefix("```").removesuffix("```").strip()
+        return {"command": command}
+    except Exception as e:
+        logger.error(f"Copilot generate-sqlmap error: {e}")
+        return {"command": f"# Error: {e}"}
 
 
 @router.post("/agent")

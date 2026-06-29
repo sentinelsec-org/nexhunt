@@ -258,6 +258,7 @@ class MsfTestAllItem(BaseModel):
 
 class MsfTestAllRequest(BaseModel):
     items: list[MsfTestAllItem]
+    # Kept for API compatibility. Bulk validation never creates a payload/listener.
     auto_ngrok: bool = True
     lport: str = "4444"
 
@@ -267,10 +268,7 @@ _MSF_TEST_ALL_JOBS: dict[str, dict] = {}  # job_id -> {"log_path": str, "modules
 
 @router.post("/exploit-intel/msf-test-all")
 async def msf_test_all(req: MsfTestAllRequest):
-    """Fire every matched Metasploit module in one combined resource script, in the order
-    given (most important first), each non-blocking. No per-module confirmation - active
-    testing against whatever RHOSTS each item carries, authorized targets only.
-    """
+    """Run Metasploit's non-exploiting `check` for a bounded, deduplicated candidate list."""
     import shutil, tempfile, subprocess
     from nexhunt.adapters.exploit_intel import build_test_all_rc
 
@@ -279,40 +277,40 @@ async def msf_test_all(req: MsfTestAllRequest):
     if not shutil.which("msfconsole"):
         return {"error": "msfconsole not installed"}
 
-    lhost, lport, bind_address, bind_port, ngrok_address = "", req.lport, "", "", None
-    if req.auto_ngrok:
-        from nexhunt.services.ngrok_manager import get_tcp_tunnel
-        local_port = int(req.lport or "4444")
-        host, port, error = await get_tcp_tunnel(local_port)
-        if error:
-            return {"error": f"Could not open the ngrok tunnel: {error}"}
-        lhost, lport = host, port
-        bind_address, bind_port = "0.0.0.0", str(local_port)
-        ngrok_address = f"{host}:{port}"
-
     job_id = str(uuid.uuid4())
     log_fd, log_path = tempfile.mkstemp(suffix=".log", prefix="nexhunt_msf_testall_")
     os.close(log_fd)
     os.remove(log_path)  # msfconsole's `spool` creates it fresh - a stale empty file confuses tailing
 
-    items = [item.model_dump() for item in req.items]
-    rc = build_test_all_rc(items, lhost, lport, bind_address, bind_port, spool_path=log_path)
+    items, seen = [], set()
+    for item_model in req.items:
+        item = item_model.model_dump()
+        key = (item["module"], item["rhosts"], item["rport"])
+        if not item["module"] or not item["rhosts"] or key in seen:
+            continue
+        seen.add(key)
+        items.append(item)
+        if len(items) >= 100:
+            break
+    if not items:
+        return {"error": "No valid module/host candidates"}
+
+    rc = build_test_all_rc(items, spool_path=log_path)
     fd, rc_path = tempfile.mkstemp(suffix=".rc", prefix="nexhunt_msf_testall_")
     with os.fdopen(fd, "w") as f:
         f.write(rc)
 
-    launch_cmd = f"msfconsole -r {rc_path}"
-    term = shutil.which("x-terminal-emulator") or shutil.which("qterminal") or shutil.which("xterm")
-    if not (term and os.environ.get("DISPLAY")):
-        return {"error": "No GUI terminal detected — Test All needs one to keep msfconsole open for any sessions opened."}
     try:
-        subprocess.Popen([term, "-e", "bash", "-c", f"{launch_cmd}; exec bash"], start_new_session=True)
+        process = subprocess.Popen(
+            ["msfconsole", "-q", "-r", rc_path],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True,
+        )
     except Exception as e:
         logger.warning(f"msf test-all terminal launch failed: {e}")
         return {"error": f"Could not open a terminal: {e}"}
 
-    _MSF_TEST_ALL_JOBS[job_id] = {"log_path": log_path, "modules": [item["module"] for item in items]}
-    return {"status": "started", "job_id": job_id, "count": len(items), "ngrok_address": ngrok_address}
+    _MSF_TEST_ALL_JOBS[job_id] = {"log_path": log_path, "items": items, "process": process}
+    return {"status": "started", "job_id": job_id, "count": len(items), "mode": "check"}
 
 
 @router.get("/exploit-intel/msf-test-all/{job_id}")
@@ -322,8 +320,10 @@ async def msf_test_all_status(job_id: str):
     job = _MSF_TEST_ALL_JOBS.get(job_id)
     if not job:
         return {"error": "Job not found"}
-    results = parse_test_all_log(job["log_path"], job["modules"])
-    done = all(r["status"] in ("success", "failed") for r in results)
+    results = parse_test_all_log(job["log_path"], [item["module"] for item in job["items"]])
+    for result, item in zip(results, job["items"]):
+        result["rhosts"] = item["rhosts"]
+    done = all(r["status"] in ("vulnerable", "safe", "unknown") for r in results)
     return {"results": results, "done": done}
 
 

@@ -49,7 +49,7 @@ Section: utils
 Priority: optional
 Architecture: ${ARCH}
 Maintainer: Sentinel Security <license@sentinelsec.online>
-Depends: bash, curl, python3, python3-venv, python3-pip, nodejs, npm, libgtk-3-0, libnotify4, libnss3, libasound2, libxtst6, xdg-utils
+Depends: bash, ca-certificates, curl, wget, git, build-essential, python3, python3-venv, python3-pip, nodejs, npm, ruby, psmisc, x11-xserver-utils, libgtk-3-0, libnotify4, libnss3, libasound2, libxtst6, xdg-utils
 Description: NexHunt bug bounty automation platform
  Local desktop app for recon, scanning, proxy workflows, exploitation, and PRO automation.
 CONTROL
@@ -76,6 +76,7 @@ pip install -q -r requirements.txt
 deactivate
 
 chmod +x /opt/nexhunt/start.sh 2>/dev/null || true
+chmod +x /opt/nexhunt/install-toolchain.sh 2>/dev/null || true
 chmod +x /usr/local/bin/nexhunt 2>/dev/null || true
 xdg-desktop-menu install /usr/share/applications/nexhunt.desktop 2>/dev/null || true
 exit 0

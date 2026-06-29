@@ -54,7 +54,7 @@ export interface IntruderResult {
   content_type: string
 }
 
-function flowToRaw(flow: HttpFlow): string {
+export function flowToRaw(flow: HttpFlow): string {
   const lines: string[] = []
   lines.push(`${flow.request_method} ${flow.request_path} HTTP/1.1`)
   lines.push(`Host: ${flow.request_host}`)
@@ -72,6 +72,7 @@ interface ProxyState {
   flows: HttpFlow[]
   selectedFlowId: string | null
   interceptEnabled: boolean
+  interceptScopeOnly: boolean
   interceptQueue: HttpFlow[]
   proxyPort: number
   proxyRunning: boolean
@@ -93,8 +94,11 @@ interface ProxyState {
 
   addFlow: (flow: HttpFlow) => void
   setFlows: (flows: HttpFlow[]) => void
+  mergeFlows: (flows: HttpFlow[]) => void
   selectFlow: (id: string | null) => void
   setInterceptEnabled: (enabled: boolean) => void
+  setInterceptScopeOnly: (enabled: boolean) => void
+  setInterceptQueue: (flows: HttpFlow[]) => void
   addToInterceptQueue: (flow: HttpFlow) => void
   removeFromInterceptQueue: (id: string) => void
   setProxyPort: (port: number) => void
@@ -134,6 +138,7 @@ export const useProxyStore = create<ProxyState>((set) => ({
   flows: [],
   selectedFlowId: null,
   interceptEnabled: false,
+  interceptScopeOnly: false,
   interceptQueue: [],
   proxyPort: 8080,
   proxyRunning: false,
@@ -159,11 +164,23 @@ export const useProxyStore = create<ProxyState>((set) => ({
     useBruteForceStore.getState().setPrefill(buildBruteForceConfig(flow))
   },
 
-  addFlow: (flow) => set((s) => ({ flows: [flow, ...s.flows].slice(0, 10000) })),
+  addFlow: (flow) => set((s) => ({
+    flows: [flow, ...s.flows.filter(existing => existing.id !== flow.id)].slice(0, 10000),
+  })),
   setFlows: (flows) => set({ flows }),
+  mergeFlows: (flows) => set((s) => {
+    const known = new Set(s.flows.map(flow => flow.id))
+    const merged = [...s.flows, ...flows.filter(flow => !known.has(flow.id))]
+    merged.sort((a, b) => String(b.timestamp || '').localeCompare(String(a.timestamp || '')))
+    return { flows: merged.slice(0, 10000) }
+  }),
   selectFlow: (id) => set({ selectedFlowId: id }),
   setInterceptEnabled: (enabled) => set({ interceptEnabled: enabled }),
-  addToInterceptQueue: (flow) => set((s) => ({ interceptQueue: [...s.interceptQueue, flow] })),
+  setInterceptScopeOnly: (enabled) => set({ interceptScopeOnly: enabled }),
+  setInterceptQueue: (flows) => set({ interceptQueue: flows }),
+  addToInterceptQueue: (flow) => set((s) => ({
+    interceptQueue: [...s.interceptQueue.filter(existing => existing.id !== flow.id), flow],
+  })),
   removeFromInterceptQueue: (id) => set((s) => ({ interceptQueue: s.interceptQueue.filter(f => f.id !== id) })),
   setProxyPort: (port) => set({ proxyPort: port }),
   setProxyRunning: (running) => set({ proxyRunning: running }),

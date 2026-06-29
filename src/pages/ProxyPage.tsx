@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { WorkspaceShell } from '@/components/layout/WorkspaceShell'
-import { useProxyStore } from '@/stores/proxy-store'
+import { flowToRaw, useProxyStore } from '@/stores/proxy-store'
 import { useAppStore } from '@/stores/app-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useLicenseStore } from '@/stores/license-store'
@@ -23,7 +23,7 @@ import {
   Key, Copy, Check, ChevronUp, ExternalLink, Network, KeyRound, Folder, Crown,
 } from 'lucide-react'
 
-type Tab = 'history' | 'sitemap' | 'repeater' | 'intruder' | 'jwt'
+type Tab = 'intercept' | 'history' | 'sitemap' | 'repeater' | 'intruder' | 'jwt'
 
 type PayloadSetConfig = {
   type: 'builtin' | 'custom' | 'numbers'
@@ -82,22 +82,68 @@ export function ProxyPage() {
   const isPro = useLicenseStore((s) => s.isPro())
   const [activeTab, setActiveTab] = useState<Tab>(() => {
     const t = params.get('tab')
-    return (t === 'history' || t === 'sitemap' || t === 'repeater' || t === 'intruder' || t === 'jwt') ? t : 'history'
+    return (t === 'intercept' || t === 'history' || t === 'sitemap' || t === 'repeater' || t === 'intruder' || t === 'jwt') ? t : 'history'
   })
   const {
     flows, selectedFlowId, selectFlow,
     interceptEnabled, setInterceptEnabled,
+    interceptScopeOnly, setInterceptScopeOnly,
+    interceptQueue, setInterceptQueue, removeFromInterceptQueue,
     proxyRunning, setProxyRunning,
-    filter, setFilter, clearFlows,
+    filter, setFilter, clearFlows, mergeFlows,
     sendToRepeater, sendToIntruder, sendToJwt, sendToBruteForce,
   } = useProxyStore()
   const { activeProjectData } = useAppStore()
   const navigate = useNavigate()
+  const historyEpoch = useRef(0)
 
   const selectedFlow = flows.find(f => f.id === selectedFlowId)
+  const scopeDomains: string[] = activeProjectData?.scope ?? []
+  const outOfScopeDomains: string[] = activeProjectData?.out_of_scope ?? []
+
+  useEffect(() => {
+    api.get<{ running: boolean; intercept_enabled: boolean; intercept_scope_only: boolean }>('/api/proxy/status')
+      .then(status => {
+        setProxyRunning(status.running)
+        setInterceptEnabled(status.intercept_enabled)
+        setInterceptScopeOnly(status.intercept_scope_only)
+      })
+      .catch(() => {})
+    api.get<HttpFlow[]>('/api/proxy/intercept/pending')
+      .then(setInterceptQueue)
+      .catch(() => {})
+  }, [setProxyRunning, setInterceptEnabled, setInterceptScopeOnly, setInterceptQueue])
+
+  useEffect(() => {
+    if (!interceptScopeOnly) return
+    api.post('/api/proxy/intercept/config', {
+      scope_only: true,
+      scope: scopeDomains,
+      out_of_scope: outOfScopeDomains,
+    }).catch(() => {})
+    // Reconfigure when the user switches projects while Scope only is active.
+  }, [activeProjectData?.id])
+
+  useEffect(() => {
+    let cancelled = false
+    const hydrateHistory = async () => {
+      const epoch = historyEpoch.current
+      try {
+        const persisted = await api.get<HttpFlow[]>('/api/proxy/history', { limit: '1000' })
+        if (!cancelled && epoch === historyEpoch.current) mergeFlows(persisted)
+      } catch {
+        // Live WebSocket capture remains available if persistence hydration fails.
+      }
+    }
+    hydrateHistory()
+    const interval = proxyRunning ? window.setInterval(hydrateHistory, 5000) : null
+    return () => {
+      cancelled = true
+      if (interval !== null) window.clearInterval(interval)
+    }
+  }, [proxyRunning, mergeFlows])
 
   // Scope filter: check host against active project domains
-  const scopeDomains: string[] = activeProjectData?.scope ?? []
   const inScope = useCallback((host: string) => {
     if (!filter.scopeOnly || scopeDomains.length === 0) return true
     return scopeDomains.some(d => host === d || host.endsWith(`.${d}`))
@@ -137,19 +183,68 @@ export function ProxyPage() {
     catch (err) { toast.error('Failed to start proxy', err) }
   }
   const handleStopProxy = async () => {
-    try { await api.post('/api/proxy/stop'); setProxyRunning(false) }
+    try {
+      await api.post('/api/proxy/stop')
+      setProxyRunning(false)
+      setInterceptEnabled(false)
+      setInterceptQueue([])
+    }
     catch (err) { toast.error('Failed to stop proxy', err) }
   }
   const handleToggleIntercept = async () => {
     try {
-      await api.post('/api/proxy/intercept/toggle', { enabled: !interceptEnabled })
+      if (!interceptEnabled && !proxyRunning) {
+        await api.post('/api/proxy/start')
+        setProxyRunning(true)
+      }
+      await api.post('/api/proxy/intercept/toggle', {
+        enabled: !interceptEnabled,
+        scope_only: interceptScopeOnly,
+        scope: scopeDomains,
+        out_of_scope: outOfScopeDomains,
+      })
       setInterceptEnabled(!interceptEnabled)
+      if (!interceptEnabled) setActiveTab('intercept')
+      else setInterceptQueue([])
     } catch (err) { toast.error('Failed to toggle intercept', err) }
   }
 
+  const handleScopeOnly = async () => {
+    const next = !interceptScopeOnly
+    try {
+      await api.post('/api/proxy/intercept/config', {
+        scope_only: next,
+        scope: scopeDomains,
+        out_of_scope: outOfScopeDomains,
+      })
+      setInterceptScopeOnly(next)
+      if (next && scopeDomains.length === 0) {
+        toast.warning('Scope only has no targets', 'Add domains to the active project scope; traffic will pass through until then.')
+      }
+    } catch (err) {
+      toast.error('Failed to update intercept scope', err)
+    }
+  }
+
   const handleOpenBrowser = async () => {
-    try { await api.post('/api/proxy/open-browser') }
+    try {
+      if (!proxyRunning) {
+        await api.post('/api/proxy/start')
+        setProxyRunning(true)
+      }
+      await api.post('/api/proxy/open-browser')
+    }
     catch (err) { toast.error('Failed to open browser', err) }
+  }
+
+  const handleClearHistory = async () => {
+    try {
+      historyEpoch.current += 1
+      await api.delete('/api/proxy/history')
+      clearFlows()
+    } catch (err) {
+      toast.error('Failed to clear proxy history', err)
+    }
   }
 
   return (
@@ -168,9 +263,24 @@ export function ProxyPage() {
           )}
           <Button variant={interceptEnabled ? 'default' : 'outline'} size="sm" onClick={handleToggleIntercept}>
             {interceptEnabled
-              ? <><Shield size={13} className="mr-1" /> Intercept ON</>
+              ? <><Shield size={13} className="mr-1" /> Intercept ON{interceptQueue.length > 0 && ` · ${interceptQueue.length} held`}</>
               : <><ShieldOff size={13} className="mr-1" /> Intercept OFF</>}
           </Button>
+          <button
+            onClick={handleScopeOnly}
+            className={cn(
+              'h-8 px-2.5 rounded-md border text-[11px] font-medium flex items-center gap-1.5 transition-colors',
+              interceptScopeOnly
+                ? 'border-blue-700/70 bg-blue-950/40 text-blue-300'
+                : 'border-zinc-700 text-zinc-500 hover:text-zinc-300'
+            )}
+            title={scopeDomains.length > 0
+              ? `Only intercept: ${scopeDomains.join(', ')}`
+              : 'No targets in the active project scope'}
+          >
+            <Filter size={12} /> Scope only
+            <span className="font-mono text-[9px] opacity-70">{scopeDomains.length}</span>
+          </button>
 
           {proxyRunning && (
             <span className="text-[10px] text-green-500 font-mono">● 127.0.0.1:8080</span>
@@ -186,6 +296,7 @@ export function ProxyPage() {
 
           <div className="flex gap-1 bg-zinc-900 rounded-lg p-1">
             {([
+              { id: 'intercept', label: 'Intercept', icon: Shield },
               { id: 'history', label: 'HTTP History', icon: Search },
               { id: 'sitemap', label: 'Site Map', icon: Network },
               { id: 'repeater', label: 'Repeater', icon: Repeat2 },
@@ -197,17 +308,29 @@ export function ProxyPage() {
                   activeTab === t.id ? 'bg-zinc-700 text-zinc-100' : 'text-zinc-400 hover:text-zinc-200')}>
                 <t.icon size={12} />
                 {t.label}
+                {t.id === 'intercept' && interceptQueue.length > 0 && (
+                  <span className="ml-0.5 min-w-4 h-4 px-1 rounded-full bg-amber-500 text-[9px] font-bold text-zinc-950 grid place-items-center">
+                    {interceptQueue.length}
+                  </span>
+                )}
                 {t.id === 'jwt' && !isPro && <Crown size={11} className="text-amber-400" />}
               </button>
             ))}
           </div>
 
-          <Button variant="ghost" size="icon" onClick={clearFlows} title="Clear history">
+          <Button variant="ghost" size="icon" onClick={handleClearHistory} title="Clear history">
             <Trash2 size={13} />
           </Button>
         </div>
 
         {/* Content */}
+        {activeTab === 'intercept' && (
+          <InterceptTab
+            queue={interceptQueue}
+            enabled={interceptEnabled}
+            removeFromQueue={removeFromInterceptQueue}
+          />
+        )}
         {activeTab === 'history' && (
           <HistoryTab
             filteredFlows={filteredFlows}
@@ -238,6 +361,141 @@ export function ProxyPage() {
         {activeTab === 'jwt' && <ProGate feature="JWT Attack Suite"><JwtAttackTab /></ProGate>}
       </div>
     </WorkspaceShell>
+  )
+}
+
+// ── Intercept tab ─────────────────────────────────────────────────────────────
+function InterceptTab({ queue, enabled, removeFromQueue }: {
+  queue: HttpFlow[]
+  enabled: boolean
+  removeFromQueue: (id: string) => void
+}) {
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [drafts, setDrafts] = useState<Record<string, string>>({})
+  const [releasing, setReleasing] = useState(false)
+  const selected = queue.find(flow => flow.id === selectedId) ?? queue[0]
+  const rawRequest = selected ? (drafts[selected.id] ?? flowToRaw(selected)) : ''
+
+  useEffect(() => {
+    if (queue.length === 0) {
+      setSelectedId(null)
+    } else if (!selectedId || !queue.some(flow => flow.id === selectedId)) {
+      setSelectedId(queue[0].id)
+    }
+  }, [queue, selectedId])
+
+  const release = useCallback(async (action: 'forward' | 'drop') => {
+    if (!selected || releasing) return
+    setReleasing(true)
+    try {
+      await api.post('/api/proxy/intercept/action', {
+        flow_id: selected.id,
+        action,
+        modified_request: action === 'forward' ? rawRequest : null,
+      })
+      removeFromQueue(selected.id)
+      setDrafts(current => {
+        const next = { ...current }
+        delete next[selected.id]
+        return next
+      })
+    } catch (err) {
+      toast.error(`Failed to ${action} request`, err)
+    } finally {
+      setReleasing(false)
+    }
+  }, [selected, releasing, rawRequest, removeFromQueue])
+
+  useEffect(() => {
+    const handler = (event: KeyboardEvent) => {
+      if (event.ctrlKey && event.key === 'Enter' && selected) {
+        event.preventDefault()
+        void release('forward')
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [release, selected])
+
+  if (!selected) {
+    return (
+      <div className="flex-1 min-h-0 rounded-lg border border-zinc-800 bg-zinc-950 grid place-items-center">
+        <div className="max-w-sm text-center px-6">
+          <div className={cn(
+            'mx-auto mb-4 h-12 w-12 rounded-xl border grid place-items-center',
+            enabled ? 'border-amber-800/70 bg-amber-950/30 text-amber-400' : 'border-zinc-800 bg-zinc-900 text-zinc-600'
+          )}>
+            {enabled ? <Shield size={22} /> : <ShieldOff size={22} />}
+          </div>
+          <p className="text-sm font-semibold text-zinc-300">
+            {enabled ? 'Intercept is armed' : 'Intercept is off'}
+          </p>
+          <p className="mt-1.5 text-xs leading-relaxed text-zinc-600">
+            {enabled
+              ? 'The next HTTP or HTTPS request will stop here before it reaches the server.'
+              : 'Turn Intercept ON to hold requests for editing, forwarding, or dropping.'}
+          </p>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex-1 min-h-0 flex overflow-hidden rounded-lg border border-amber-900/60 bg-zinc-950 shadow-[inset_3px_0_0_#f59e0b]">
+      <aside className="w-72 shrink-0 border-r border-zinc-800 flex flex-col min-h-0">
+        <div className="h-11 px-3 border-b border-zinc-800 bg-amber-950/20 flex items-center gap-2">
+          <span className="relative flex h-2 w-2">
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-400 opacity-60" />
+            <span className="relative inline-flex h-2 w-2 rounded-full bg-amber-400" />
+          </span>
+          <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-amber-400">Request held</span>
+          <span className="ml-auto font-mono text-[10px] text-zinc-500">{queue.length} queued</span>
+        </div>
+        <div className="flex-1 overflow-auto">
+          {queue.map((flow, index) => (
+            <button
+              key={flow.id}
+              onClick={() => setSelectedId(flow.id)}
+              className={cn(
+                'w-full px-3 py-3 border-b border-zinc-800/70 text-left transition-colors',
+                selected.id === flow.id ? 'bg-amber-950/25' : 'hover:bg-zinc-900'
+              )}
+            >
+              <div className="flex items-center gap-2">
+                <span className={cn('text-[10px] font-mono font-bold', getMethodColor(flow.request_method))}>{flow.request_method}</span>
+                <span className="truncate text-[11px] font-mono text-zinc-400">{flow.request_host}</span>
+                <span className="ml-auto text-[9px] font-mono text-zinc-700">{String(index + 1).padStart(2, '0')}</span>
+              </div>
+              <p className="mt-1 truncate text-[10px] font-mono text-zinc-600">{flow.request_path}</p>
+            </button>
+          ))}
+        </div>
+      </aside>
+
+      <section className="flex-1 min-w-0 flex flex-col">
+        <div className="h-11 px-3 border-b border-zinc-800 bg-zinc-900/60 flex items-center gap-2">
+          <Badge variant="outline" className="border-amber-800/60 text-amber-400 text-[9px]">HELD</Badge>
+          <span className="truncate font-mono text-xs text-zinc-300">{selected.request_host}{selected.request_path}</span>
+          <span className="ml-auto text-[10px] text-zinc-600">Edit the raw request before forwarding</span>
+        </div>
+        <textarea
+          value={rawRequest}
+          onChange={event => setDrafts(current => ({ ...current, [selected.id]: event.target.value }))}
+          spellCheck={false}
+          className="flex-1 min-h-0 resize-none bg-[#08090b] p-4 font-mono text-[11px] leading-relaxed text-zinc-300 outline-none focus:bg-zinc-950"
+        />
+        <div className="h-14 px-3 border-t border-zinc-800 bg-zinc-900/80 flex items-center gap-2">
+          <Button onClick={() => void release('forward')} disabled={releasing} size="sm" className="bg-amber-500 text-zinc-950 hover:bg-amber-400">
+            {releasing ? <Loader2 size={13} className="mr-1.5 animate-spin" /> : <Send size={13} className="mr-1.5" />}
+            Forward
+          </Button>
+          <Button onClick={() => void release('drop')} disabled={releasing} size="sm" variant="outline" className="border-red-900/70 text-red-400 hover:bg-red-950/30">
+            <X size={13} className="mr-1.5" /> Drop
+          </Button>
+          <span className="ml-auto text-[10px] text-zinc-600"><kbd className="font-mono text-zinc-500">Ctrl + Enter</kbd> to forward</span>
+        </div>
+      </section>
+    </div>
   )
 }
 
