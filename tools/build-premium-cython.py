@@ -30,6 +30,7 @@ PREMIUM_MODULES = [
     "nexhunt.api.bizlogic",
     "nexhunt.api.wordpress",
     "nexhunt.api.exposure_intel",
+    "nexhunt.api.repository_intelligence",
     "nexhunt.api.pipeline",
     "nexhunt.api.proxy",
     "nexhunt.api.recon",
@@ -42,6 +43,7 @@ PREMIUM_MODULES = [
     "nexhunt.adapters.wpscan",
     "nexhunt.services.copilot_service",
     "nexhunt.services.ngrok_manager",
+    "nexhunt.services.repository_intelligence",
 ]
 
 

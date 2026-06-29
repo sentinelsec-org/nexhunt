@@ -284,6 +284,7 @@ function App() {
             {/* Back-compat redirects for the old flat routes */}
             <Route path="/scanner" element={<Navigate to="/scan?tab=scanner" replace />} />
             <Route path="/api-scanner" element={<Navigate to="/scan?tab=api" replace />} />
+            <Route path="/repository-intelligence" element={<Navigate to="/scan?tab=repository" replace />} />
             <Route path="/wordpress" element={<Navigate to="/scan?tab=wordpress" replace />} />
             <Route path="/pipelines" element={<Navigate to="/scan?tab=pipelines" replace />} />
             <Route path="/security-tools" element={<Navigate to="/offense?tab=attacks" replace />} />

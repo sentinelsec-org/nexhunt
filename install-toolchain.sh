@@ -169,6 +169,15 @@ for package in arjun dirsearch; do
   fi
 done
 
+# Pin git-dumper: its CLI contract is used directly by Repository Intelligence.
+if "$TOOLS_VENV/bin/pip" install -q --upgrade "git-dumper==1.0.9"; then
+  ln -sf "$TOOLS_VENV/bin/git-dumper" /usr/local/bin/git-dumper
+  ok "git-dumper 1.0.9"
+else
+  warn "Could not install Python tool: git-dumper"
+  PY_FAILURES+=("git-dumper")
+fi
+
 # ParamSpider is not published on PyPI; install the maintained upstream package.
 if "$TOOLS_VENV/bin/pip" install -q --upgrade \
    "git+https://github.com/devanshbatham/ParamSpider.git"; then
@@ -282,7 +291,7 @@ fi
 TOOLS=(
   subfinder amass httpx nmap whatweb waybackurls gau katana paramspider arjun
   nuclei nikto ffuf gobuster dirsearch sqlmap dalfox xsstrike commix gowitness
-  interactsh-client trufflehog
+  interactsh-client trufflehog git-dumper
 )
 MISSING=()
 for tool in "${TOOLS[@]}"; do

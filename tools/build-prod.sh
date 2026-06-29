@@ -60,7 +60,7 @@ mkdir -p "$BUNDLE"
 
 # Copy backend (excluding venv, __pycache__, *.db, *.pyc, token.txt)
 rsync -a --exclude='venv/' --exclude='__pycache__/' --exclude='*.pyc' \
-         --exclude='*.db' --exclude='token.txt' --exclude='/nikto_*.txt' \
+         --exclude='tests/' --exclude='*.db' --exclude='token.txt' --exclude='/nikto_*.txt' \
          "$ROOT/backend/" "$BUNDLE/backend/"
 
 # Copy built Electron app

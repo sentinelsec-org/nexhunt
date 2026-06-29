@@ -11,7 +11,7 @@
 
 **Plataforma de Automatización para Bug Bounty en Linux**
 
-[![Version](https://img.shields.io/badge/version-1.4.0--beta-amber?style=flat-square)](https://github.com/sentinelsec-org/nexhunt/releases)
+[![Version](https://img.shields.io/badge/version-1.5.0--beta-amber?style=flat-square)](https://github.com/sentinelsec-org/nexhunt/releases)
 [![Platform](https://img.shields.io/badge/plataforma-Linux-green?style=flat-square)]()
 [![License](https://img.shields.io/badge/licencia-Free%20%2F%20PRO-blue?style=flat-square)](https://nexhunt.myshopify.com/products/nexhunt-pro)
 [![Made by](https://img.shields.io/badge/by-Sentinel%20Security-green?style=flat-square)](https://nexhunt.myshopify.com)
@@ -87,6 +87,7 @@ Encontrá lo que realmente es explotable, no solo lo detectable.
 - **Brute-force de directorios** — ffuf, gobuster y dirsearch con selección inteligente de wordlists según el servidor detectado
 - **Auditoría de servidor web** — nikto detecta malas configuraciones, headers desactualizados y vulnerabilidades conocidas del servidor
 - **API Scanner** *(PRO)* — apuntá a una URL de docs Swagger/OpenAPI y prueba cada endpoint y método, anónimo vs autenticado, marcando control de acceso roto por la diferencia de status code
+- **Repository Intelligence** *(PRO)* — confirma un `/.git` expuesto, reconstruye el repositorio, busca secretos en claro tanto actuales como borrados del historial, identifica acceso a GitHub/GitLab/Bitbucket y convierte los servicios referenciados en assets de Recon
 
 ---
 
@@ -172,6 +173,7 @@ El tier gratuito es genuinamente útil. Sin límites de tiempo, sin degradación
 | Pipeline automatizado de XSS + pipeline de JS Secrets | ✅ | ✅ |
 | **AI Copilot** (análisis, sugerencias, generación de reportes) | ❌ | ✅ |
 | **API Scanner** (prueba de endpoints OpenAPI/Swagger, anónimo vs autenticado) | ❌ | ✅ |
+| **Repository Intelligence** (recuperación Git, secretos históricos, proveedores y arquitectura) | ❌ | ✅ |
 | **Cloud buckets** (S3/GCS/Azure, prueba de write-takeover) | ❌ | ✅ |
 | **JS API Mapper** (bundles JS → mapa de ataque de API) | ❌ | ✅ |
 | **Pipeline automatizado de SQLi** (Katana → minado de JS → prueba en 3 capas) | ❌ | ✅ |
@@ -267,6 +269,6 @@ NexHunt es software propietario. El **tier gratuito** es libre de usar indefinid
 
 Hecho con 🖤 por **[Sentinel Security](https://nexhunt.myshopify.com)**
 
-*NexHunt v1.4.0 beta — Linux*
+*NexHunt v1.5.0 beta — Linux*
 
 </div>

@@ -175,7 +175,7 @@ echo ""
 echo -e "  ${BOLD}Update:${NC} sudo bash $NEXHUNT_DIR/install.sh --update"
 echo ""
 echo -e "  ${BOLD}Tools status:${NC}"
-TOOLS="nmap whatweb nikto sqlmap gobuster ffuf dirsearch amass httpx subfinder nuclei katana dalfox gau waybackurls gowitness arjun paramspider xsstrike commix interactsh-client trufflehog"
+TOOLS="nmap whatweb nikto sqlmap gobuster ffuf dirsearch amass httpx subfinder nuclei katana dalfox gau waybackurls gowitness arjun paramspider xsstrike commix interactsh-client trufflehog git-dumper"
 for tool in $TOOLS; do
     if command -v "$tool" &>/dev/null; then
         echo -e "    ${GREEN}+${NC} $tool"
