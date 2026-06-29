@@ -11,7 +11,7 @@
 
 **Bug Bounty Automation Platform for Linux**
 
-[![Version](https://img.shields.io/badge/version-1.3.0--beta-amber?style=flat-square)](https://github.com/sentinelsec-org/nexhunt/releases)
+[![Version](https://img.shields.io/badge/version-1.4.0--beta-amber?style=flat-square)](https://github.com/sentinelsec-org/nexhunt/releases)
 [![Platform](https://img.shields.io/badge/platform-Linux-green?style=flat-square)]()
 [![License](https://img.shields.io/badge/license-Free%20%2F%20PRO-blue?style=flat-square)](https://nexhunt.myshopify.com/products/nexhunt-pro)
 [![Made by](https://img.shields.io/badge/by-Sentinel%20Security-green?style=flat-square)](https://nexhunt.myshopify.com)
@@ -194,6 +194,7 @@ curl -fsSL https://raw.githubusercontent.com/sentinelsec-org/nexhunt/main/instal
 ```
 
 The installer:
+- Selects the package for your CPU architecture and verifies its published SHA-256 checksum
 - Installs all 20+ security tools (nmap, nuclei, subfinder, ffuf, sqlmap, dalfox, gowitness, katana, gau, waybackurls, gobuster, nikto, dirsearch, commix, arjun, paramspider, xsstrike, amass, httpx, interactsh...)
 - Sets up the Python backend in an isolated venv
 - Builds the Electron frontend
@@ -204,10 +205,11 @@ The installer:
 
 | Requirement | Notes |
 |---|---|
-| Linux | Kali, Debian, Ubuntu — tested on Kali 2024+ |
+| Linux | Kali, Debian, Ubuntu, Arch Linux, CachyOS — tested on Kali and CachyOS-compatible flow |
+| CPU | x86-64 / amd64 |
 | Python 3.10+ | Available on all supported distros |
 | Node.js 18+ | Installed automatically if missing |
-| Go 1.21+ | Installed automatically if missing |
+| Go 1.24+ | Installed automatically if missing or outdated |
 | ~2 GB disk | For all tools + venv + build |
 | Internet | For initial install only |
 
