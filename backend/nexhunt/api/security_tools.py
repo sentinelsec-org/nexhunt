@@ -3,7 +3,7 @@ import os
 import glob
 import logging
 import uuid
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from nexhunt.licensing.guard import require_pro
 from nexhunt.adapters.base import get_adapter
@@ -141,9 +141,41 @@ async def run_exposed_files(req: ToolRequest):
     return _start_tool("exposed_files", req.target, req.options, req.project_id or None)
 
 
-@router.post("/graphql")
+@router.post("/graphql", dependencies=[Depends(require_pro("GraphQL Auditor"))])
 async def run_graphql_audit(req: ToolRequest):
     return _start_tool("graphql_audit", req.target, req.options, req.project_id or None)
+
+
+class GraphqlQueryRequest(BaseModel):
+    target: str
+    query: str = ""
+    options: dict = {}
+    use_auth: bool = True
+    variables: dict = {}
+
+
+@router.post("/graphql/introspect", dependencies=[Depends(require_pro("GraphQL Auditor"))])
+async def graphql_introspect(req: GraphqlQueryRequest):
+    """Fetch + flatten the schema for the interactive explorer (synchronous, no findings)."""
+    adapter = get_adapter("graphql_audit")
+    if not adapter:
+        raise HTTPException(status_code=500, detail="GraphQL adapter not found")
+    try:
+        return await adapter.introspect(req.target, req.options or {})
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@router.post("/graphql/query", dependencies=[Depends(require_pro("GraphQL Auditor"))])
+async def graphql_query(req: GraphqlQueryRequest):
+    """Send one query authed or anonymous and return the raw response (synchronous)."""
+    adapter = get_adapter("graphql_audit")
+    if not adapter:
+        raise HTTPException(status_code=500, detail="GraphQL adapter not found")
+    try:
+        return await adapter.send_query(req.target, req.query, req.options or {}, req.use_auth, req.variables or None)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
 
 
 @router.post("/viewstate")

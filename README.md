@@ -11,7 +11,7 @@
 
 **Bug Bounty Automation Platform for Linux**
 
-[![Version](https://img.shields.io/badge/version-1.5.0--beta-amber?style=flat-square)](https://github.com/sentinelsec-org/nexhunt/releases)
+[![Version](https://img.shields.io/badge/version-1.6.0--beta-amber?style=flat-square)](https://github.com/sentinelsec-org/nexhunt/releases)
 [![Platform](https://img.shields.io/badge/platform-Linux-green?style=flat-square)]()
 [![License](https://img.shields.io/badge/license-Free%20%2F%20PRO-blue?style=flat-square)](https://nexhunt.myshopify.com/products/nexhunt-pro)
 [![Made by](https://img.shields.io/badge/by-Sentinel%20Security-green?style=flat-square)](https://nexhunt.myshopify.com)
@@ -61,7 +61,7 @@ The most complete recon pipeline you can run from a single button.
 
 - **Subdomain enumeration** — subfinder + amass running in parallel, results merged and deduplicated automatically
 - **Live host probing** — httpx identifies status codes, technologies, titles, and response fingerprints across all discovered hosts
-- **Port scanning** — nmap on all live hosts, with service detection
+- **Advanced port scanning** — Nmap profiles for quick, standard, full TCP, UDP and NSE vulnerability scans, with structured service/version fingerprints, CPEs, OS matches, scripts and traceroute evidence
 - **Web crawling** — katana and linkfinder extract every endpoint, JS file, and form from live targets
 - **URL history** — gau + waybackurls pull years of archived URLs from Wayback Machine and Common Crawl
 - **Parameter discovery** — paramspider and arjun find hidden HTTP parameters across all collected URLs
@@ -109,6 +109,7 @@ Specialized checks that most scanners miss.
 - **GitHub secret scanning** — TruffleHog scans the target org's public repositories for leaked credentials, API keys, and tokens
 - **OOB interaction** — interactsh listener for DNS/HTTP callbacks from blind injection points
 - **JS API Mapper** *(PRO)* — turns JS bundles into an API attack map: framework, API bases, routes, and an anon/user/admin access matrix
+- **GraphQL Auditor** *(PRO)* — interactive schema explorer and query console with authenticated-vs-anonymous comparison, operation discovery, IDOR candidates, error leaks and mutation inventory
 
 ---
 
@@ -169,7 +170,8 @@ The free tier is genuinely useful. No time limits, no feature degradation, no na
 | Built-in terminal + session management | ✅ | ✅ |
 | **Exposure Intelligence** (Shodan, dorks, scoped endpoint discovery) | ✅ | ✅ |
 | WordPress pentest suite + credential brute force | ✅ | ✅ |
-| GraphQL Auditor + VIEWSTATE Auditor | ✅ | ✅ |
+| VIEWSTATE Auditor | ✅ | ✅ |
+| **GraphQL Auditor** (schema explorer, auth comparison, IDOR and operation audit) | ❌ | ✅ |
 | Automated XSS pipeline + JS Secrets pipeline | ✅ | ✅ |
 | **AI Copilot** (analysis, tips, report generation) | ❌ | ✅ |
 | **API Scanner** (OpenAPI/Swagger endpoint probing, anon vs authed) | ❌ | ✅ |

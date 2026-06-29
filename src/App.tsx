@@ -171,7 +171,7 @@ function App() {
         else if (status.event === 'completed' || status.event === 'failed') setScreenshotRunning(false)
       }
       // Track scanner + exploit tool running state + job IDs via WS
-      const scannerTools = ['nuclei', 'ffuf', 'nikto', 'gobuster', 'dirsearch', 'sqlmap', 'dalfox', 'xsstrike', 'commix', 'cors', 'bypass_403', 'cloud_buckets', 'github_scanner', 'interactsh', 'exploit_intel', 'js_api_mapper']
+      const scannerTools = ['nuclei', 'ffuf', 'nikto', 'gobuster', 'dirsearch', 'sqlmap', 'dalfox', 'xsstrike', 'commix', 'cors', 'bypass_403', 'cloud_buckets', 'github_scanner', 'interactsh', 'exploit_intel', 'js_api_mapper', 'graphql_audit']
       if (scannerTools.includes(status.tool)) {
         const s = data as { tool: string; event: string; job_id?: string }
         setScanRunning(s.tool, s.event === 'started')
@@ -288,6 +288,7 @@ function App() {
             <Route path="/wordpress" element={<Navigate to="/scan?tab=wordpress" replace />} />
             <Route path="/pipelines" element={<Navigate to="/scan?tab=pipelines" replace />} />
             <Route path="/security-tools" element={<Navigate to="/offense?tab=attacks" replace />} />
+            <Route path="/graphql" element={<Navigate to="/offense?tab=graphql" replace />} />
             <Route path="/exploit" element={<Navigate to="/offense?tab=injection" replace />} />
             <Route path="/brute-force" element={<Navigate to="/offense?tab=brute" replace />} />
             <Route path="/copilot" element={<ProGate feature="AI Copilot"><CopilotPage /></ProGate>} />

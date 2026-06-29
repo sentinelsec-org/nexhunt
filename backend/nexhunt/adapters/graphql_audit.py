@@ -74,21 +74,26 @@ def _arg_required(arg: dict) -> bool:
     return (arg.get("type") or {}).get("kind") == "NON_NULL"
 
 
-def _build_query(field: dict) -> str | None:
-    """Minimal valid query for a root field with no required args."""
+def _build_query(field: dict, by_name: dict | None = None) -> str | None:
+    """Minimal valid query for a root field with no required args.
+
+    With `by_name` (the introspected type map) the object selection is expanded to
+    real subfields so the probe pulls actual data instead of a bare __typename.
+    """
     if any(_arg_required(a) for a in (field.get("args") or [])):
         return None
     name = field["name"]
-    base_kind, _ = _unwrap(field.get("type") or {})
+    base_kind, base_name = _unwrap(field.get("type") or {})
     if base_kind in ("SCALAR", "ENUM"):
         return "query{%s}" % name
-    return "query{%s{__typename}}" % name  # object/interface/union
+    sel = _build_selection(base_name, by_name, 2, frozenset()) if by_name else ""
+    return "query{%s{%s}}" % (name, sel or "__typename")  # object/interface/union
 
 
 _ID_ARG = re.compile(r"(?i)(^id$|id$|uuid|guid)")
 
 
-def _build_idor_query(field: dict, sample_id: str) -> str | None:
+def _build_idor_query(field: dict, sample_id: str, by_name: dict | None = None) -> str | None:
     """Query for a field whose required args are all ID-like scalars, filled with sample_id."""
     req = [a for a in (field.get("args") or []) if _arg_required(a)]
     if not req:
@@ -98,9 +103,90 @@ def _build_idor_query(field: dict, sample_id: str) -> str | None:
         if kind != "SCALAR" or not (_ID_ARG.search(a["name"]) or name in ("ID", "UUID", "String")):
             return None
     args = ", ".join(f'{a["name"]}: "{sample_id}"' for a in req)
-    base_kind, _ = _unwrap(field.get("type") or {})
-    sel = "" if base_kind in ("SCALAR", "ENUM") else "{__typename}"
+    base_kind, base_name = _unwrap(field.get("type") or {})
+    if base_kind in ("SCALAR", "ENUM"):
+        sel = ""
+    else:
+        inner = _build_selection(base_name, by_name, 2, frozenset()) if by_name else ""
+        sel = "{%s}" % (inner or "__typename")
     return "query{%s(%s)%s}" % (field["name"], args, sel)
+
+
+def build_headers(options: dict) -> tuple[dict, dict, dict]:
+    """Split session headers into (context-only, auth-only, full).
+
+    Auth headers (Authorization/Cookie) are kept out of ctx_headers so unauth
+    probes can reuse the same context (a real User-Agent, custom x-* headers)
+    without the token. Returns (ctx_headers, auth_headers, full_headers).
+    """
+    raw_headers = options.get("session_headers", "") or ""
+    ctx_headers = {
+        "Content-Type": "application/json",
+        "User-Agent": ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                       "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"),
+        "Accept": "application/json",
+    }
+    auth_headers: dict = {}
+    for part in raw_headers.replace("\n", ",").split(","):
+        if ":" not in part:
+            continue
+        k, _, v = part.partition(":")
+        k, v = k.strip(), v.strip()
+        if not k or not v:
+            continue
+        if k.lower() in ("authorization", "cookie"):
+            auth_headers[k] = v
+        else:
+            ctx_headers[k] = v
+    if options.get("session_cookies"):
+        auth_headers["Cookie"] = options["session_cookies"]
+    return ctx_headers, auth_headers, {**ctx_headers, **auth_headers}
+
+
+def _build_selection(type_name: str, by_name: dict, depth: int, seen: frozenset) -> str:
+    """Nested selection set for an object type, scalars first, recursing to `depth`.
+
+    Picks scalar/enum leaves and expands nested objects, skipping any field with
+    required args (can't auto-fill) and breaking cycles via `seen`. Returns the
+    inner selection (no braces), or "" when nothing is auto-selectable.
+    """
+    t = by_name.get(type_name) if type_name else None
+    if not t or t.get("kind") not in ("OBJECT", "INTERFACE") or type_name in seen:
+        return ""
+    seen = seen | {type_name}
+    scalars, objects = [], []
+    for f in (t.get("fields") or []):
+        if any(_arg_required(a) for a in (f.get("args") or [])):
+            continue
+        fkind, fname = _unwrap(f.get("type") or {})
+        if fkind in ("SCALAR", "ENUM"):
+            scalars.append(f["name"])
+        elif fkind in ("OBJECT", "INTERFACE") and depth > 1:
+            sub = _build_selection(fname, by_name, depth - 1, seen)
+            if sub:
+                objects.append(f'{f["name"]} {{ {sub} }}')
+    parts = scalars[:12] + objects[:4]
+    return " ".join(parts) or ("__typename" if scalars or objects else "")
+
+
+def _parse_field(field: dict, by_name: dict | None = None) -> dict:
+    """Flatten an introspected root field into a UI-friendly shape."""
+    base_kind, base_name = _unwrap(field.get("type") or {})
+    args = [
+        {"name": a["name"], "required": _arg_required(a), "type": (_unwrap(a.get("type") or {})[1] or "")}
+        for a in (field.get("args") or [])
+    ]
+    selection = ""
+    if by_name is not None and base_kind in ("OBJECT", "INTERFACE"):
+        selection = _build_selection(base_name, by_name, 2, frozenset())
+    return {
+        "name": field["name"],
+        "args": args,
+        "type": base_name or base_kind or "",
+        "selection": selection,
+        "sensitive": bool(_SENSITIVE.search(field["name"])),
+        "no_required_args": not any(a["required"] for a in args),
+    }
 
 
 class GraphqlAuditAdapter(ToolAdapter):
@@ -111,6 +197,82 @@ class GraphqlAuditAdapter(ToolAdapter):
     async def check_installed(self) -> bool:
         return True
 
+    async def introspect(self, target: str, options: dict) -> dict:
+        """Fetch + flatten the schema for the interactive explorer (no findings, no DB)."""
+        if not target.strip():
+            raise ValueError("No GraphQL endpoint provided")
+        url = target if "://" in target else f"https://{target}"
+        _, _, full_headers = build_headers(options)
+        async with httpx.AsyncClient(verify=False, timeout=12, follow_redirects=True) as client:
+            try:
+                r = await client.post(url, headers=full_headers, json={"query": _INTROSPECTION})
+            except Exception as e:
+                raise ValueError(f"Could not reach the endpoint: {type(e).__name__}: {e}")
+            data = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
+        schema = (data.get("data") or {}).get("__schema")
+        if not schema:
+            return {"endpoint": url, "introspection": False, "query_type": None,
+                    "mutation_type": None, "types_count": 0, "queries": [], "mutations": []}
+        qname = (schema.get("queryType") or {}).get("name")
+        mname = (schema.get("mutationType") or {}).get("name")
+        by_name = {t["name"]: t for t in schema.get("types", []) if t.get("name")}
+        queries = (by_name.get(qname, {}) or {}).get("fields") or []
+        mutations = (by_name.get(mname, {}) or {}).get("fields") or []
+        return {
+            "endpoint": url,
+            "introspection": True,
+            "query_type": qname,
+            "mutation_type": mname,
+            "types_count": len(schema.get("types", [])),
+            "queries": [_parse_field(f, by_name) for f in queries],
+            "mutations": [_parse_field(f, by_name) for f in mutations],
+        }
+
+    async def send_query(self, target: str, query: str, options: dict,
+                         use_auth: bool = True, variables: dict | None = None) -> dict:
+        """Send one query authed or anonymous and return the raw response (no findings, no DB)."""
+        if not target.strip():
+            raise ValueError("No GraphQL endpoint provided")
+        if not query.strip():
+            raise ValueError("No query provided")
+        url = target if "://" in target else f"https://{target}"
+        target_host = urlparse(url).hostname or ""
+        ctx_headers, _, full_headers = build_headers(options)
+        headers = full_headers if use_auth else ctx_headers
+        payload: dict = {"query": query}
+        if variables:
+            payload["variables"] = variables
+        async with httpx.AsyncClient(verify=False, timeout=15, follow_redirects=True) as client:
+            import time
+            t0 = time.monotonic()
+            try:
+                r = await client.post(url, headers=headers, json=payload)
+            except Exception as e:
+                raise ValueError(f"Request failed: {type(e).__name__}: {e}")
+            elapsed = int((time.monotonic() - t0) * 1000)
+        body = r.text
+        try:
+            j = r.json() if r.headers.get("content-type", "").startswith("application/json") else None
+        except Exception:
+            j = None
+        errors = (j or {}).get("errors") if isinstance(j, dict) else None
+        leaked = sorted({
+            m.group(0).rstrip(".,")
+            for m in _URL_RE.finditer(body)
+            if (h := urlparse(m.group(0).rstrip(".,")).hostname) and h != target_host
+            and _INFRA_HINT.search(m.group(0))
+        })
+        return {
+            "status": r.status_code,
+            "time_ms": elapsed,
+            "use_auth": use_auth,
+            "headers": dict(r.headers),
+            "body": body[:200000],
+            "json": j,
+            "errors": errors or [],
+            "leaked_urls": leaked,
+        }
+
     async def run(self, target: str, options: dict) -> AsyncIterator[dict]:
         import asyncio
 
@@ -120,28 +282,14 @@ class GraphqlAuditAdapter(ToolAdapter):
 
         # Split session headers into auth (stripped for unauth probes) and context (kept).
         # A real browser User-Agent is included by default — CDNs/WAFs reset bare requests.
-        raw_headers = options.get("session_headers", "") or ""
-        ctx_headers = {
-            "Content-Type": "application/json",
-            "User-Agent": ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-                           "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"),
-            "Accept": "application/json",
-        }
-        auth_headers = {}
-        for part in raw_headers.replace("\n", ",").split(","):
-            if ":" not in part:
-                continue
-            k, _, v = part.partition(":")
-            k, v = k.strip(), v.strip()
-            if not k or not v:
-                continue
-            if k.lower() in ("authorization", "cookie"):
-                auth_headers[k] = v
-            else:
-                ctx_headers[k] = v
-        if options.get("session_cookies"):
-            auth_headers["Cookie"] = options["session_cookies"]
-        full_headers = {**ctx_headers, **auth_headers}
+        ctx_headers, auth_headers, full_headers = build_headers(options)
+
+        # Optional phase gating from the UI. None = run everything (back-compat).
+        # Introspection always runs (it powers the rest); these 5 are toggleable.
+        phases = options.get("phases")
+
+        def _on(p: str) -> bool:
+            return phases is None or p in phases
 
         leaked: set[str] = set()
 
@@ -160,6 +308,7 @@ class GraphqlAuditAdapter(ToolAdapter):
             # 1) Introspection
             queries: list[dict] = []
             mutations: list[dict] = []
+            by_name: dict = {}  # type map, used to expand nested selections in probes
             try:
                 r = await _post(_INTROSPECTION, full_headers)
                 _collect_urls(r.text)
@@ -191,19 +340,21 @@ class GraphqlAuditAdapter(ToolAdapter):
                 yield {"_raw": True, "line": f"  Introspection error: {type(e).__name__}: {e or '(no message — connection blocked/timeout?)'}"}
 
             # 2) Error-leak probe (invalid field -> verbose error may leak internal URLs)
-            try:
-                r = await _post("query{__nexhunt_invalid_field_zz}", ctx_headers)
-                _collect_urls(r.text)
-            except Exception:
-                pass
+            if _on("error_leak"):
+                try:
+                    r = await _post("query{__nexhunt_invalid_field_zz}", ctx_headers)
+                    _collect_urls(r.text)
+                except Exception:
+                    pass
 
             # 3) Unauthenticated access check on no-required-arg root queries
             probes = []
-            for f in queries:
-                q = _build_query(f)
-                if q:
-                    probes.append((f["name"], q))
-            probes = probes[:80]
+            if _on("unauth"):
+                for f in queries:
+                    q = _build_query(f, by_name)
+                    if q:
+                        probes.append((f["name"], q))
+                probes = probes[:80]
             if probes:
                 yield {"_raw": True, "line": f"  Probing {len(probes)} root queries WITHOUT auth..."}
 
@@ -222,7 +373,10 @@ class GraphqlAuditAdapter(ToolAdapter):
                     return None
                 d = j.get("data") or {}
                 if fname in d and d[fname] is not None:
-                    return (fname, r.status_code)
+                    sample = json.dumps(d[fname], ensure_ascii=False)
+                    if len(sample) > 600:
+                        sample = sample[:600] + "...(truncated)"
+                    return (fname, r.status_code, query, sample)
                 return None
 
             for i in range(0, len(probes), 10):
@@ -231,7 +385,7 @@ class GraphqlAuditAdapter(ToolAdapter):
                 for res in results:
                     if not res:
                         continue
-                    fname, code = res
+                    fname, code, query, sample = res
                     sensitive = bool(_SENSITIVE.search(fname))
                     yield {"_raw": True, "line": f"  [unauth-ok] {fname}{' (SENSITIVE)' if sensitive else ''}"}
                     if sensitive:
@@ -241,15 +395,16 @@ class GraphqlAuditAdapter(ToolAdapter):
                             "severity": "high", "vuln_type": "broken-access-control",
                             "url": url, "parameter": fname,
                             "evidence": (f"Query '{fname}' returned data with no Authorization header (HTTP {code}).\n"
+                                         f"Leaked data (anon):\n  {sample}\n"
                                          f"Reproduce:\n  curl -ks -X POST '{url}' -H 'content-type: application/json' "
-                                         f"-d '{{\"query\":\"query{{{fname}{{__typename}}}}\"}}'"),
+                                         f"-d '{json.dumps({'query': query})}'"),
                             "description": f"The query '{fname}' looks auth-sensitive but is accessible to "
                                            f"unauthenticated clients (broken access control / excessive data exposure).",
                             "tool": "graphql_audit", "template_id": f"graphql-unauth-{fname.lower()}", "status": "new",
                         }
 
             # 3a) Introspection disabled -> discover query names by wordlist + field suggestions
-            if not queries:
+            if not queries and _on("name_discovery"):
                 raw_extra = options.get("extra_queries") or ""
                 if isinstance(raw_extra, (list, tuple)):
                     extra_names = [str(x).strip() for x in raw_extra if str(x).strip()]
@@ -363,7 +518,7 @@ class GraphqlAuditAdapter(ToolAdapter):
 
             id_fields = [f for f in queries
                          if any(_arg_required(a) for a in (f.get("args") or []))
-                         and _SENSITIVE.search(f["name"])]
+                         and _SENSITIVE.search(f["name"])] if _on("idor") else []
 
             if id_fields and not sample_ids:
                 names = ", ".join(f["name"] for f in id_fields[:20])
@@ -381,7 +536,7 @@ class GraphqlAuditAdapter(ToolAdapter):
                 }
 
             for sid in sample_ids:
-                idor_probes = [(f["name"], _build_idor_query(f, sid)) for f in id_fields]
+                idor_probes = [(f["name"], _build_idor_query(f, sid, by_name)) for f in id_fields]
                 idor_probes = [(n, q) for n, q in idor_probes if q][:40]
                 if idor_probes:
                     yield {"_raw": True, "line": f"  Testing {len(idor_probes)} ID queries with '{sid}' WITHOUT auth..."}
@@ -391,7 +546,7 @@ class GraphqlAuditAdapter(ToolAdapter):
                     for res in results:
                         if not res:
                             continue
-                        fname, code = res
+                        fname, code, query, sample = res
                         yield {"_raw": True, "line": f"  [IDOR] {fname}(id={sid}) -> data without auth"}
                         yield {
                             "_raw": False, "id": None,
@@ -399,9 +554,10 @@ class GraphqlAuditAdapter(ToolAdapter):
                             "severity": "high", "vuln_type": "broken-access-control",
                             "url": url, "parameter": fname,
                             "evidence": (f"'{fname}' returned data for ID '{sid}' with no Authorization header (HTTP {code}).\n"
+                                         f"Leaked data (anon):\n  {sample}\n"
                                          f"Swap the ID to read other users' objects.\n"
                                          f"Reproduce:\n  curl -ks -X POST '{url}' -H 'content-type: application/json' "
-                                         f"-d '{{\"query\":\"{_build_idor_query(next(f for f in id_fields if f['name']==fname), sid)}\"}}'"),
+                                         f"-d '{json.dumps({'query': query})}'"),
                             "description": f"Query '{fname}' fetches an object by ID and is readable unauthenticated "
                                            f"(IDOR/BOLA). With a valid ID anyone can read arbitrary objects.",
                             "tool": "graphql_audit", "template_id": f"graphql-idor-{fname.lower()}", "status": "new",
@@ -421,7 +577,7 @@ class GraphqlAuditAdapter(ToolAdapter):
                 }
 
             # 5) Mutations inventory (info, highlights sensitive ones)
-            if mutations:
+            if mutations and _on("mutations"):
                 sens = [m["name"] for m in mutations if _SENSITIVE.search(m["name"])]
                 yield {
                     "_raw": False, "id": None,

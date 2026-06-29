@@ -71,7 +71,17 @@ export const useReconStore = create<ReconState>((set) => ({
   addUrls: (results) => set((state) => ({
     urls: [...state.urls, ...results.filter(r => !state.urls.some(u => u.url === r.url))]
   })),
-  addPorts: (results) => set((state) => ({ ports: [...state.ports, ...results] })),
+  addPorts: (results) => set((state) => {
+    const ports = [...state.ports]
+    for (const result of results) {
+      const index = ports.findIndex(port =>
+        port.ip === result.ip && port.port === result.port && (port.proto || 'tcp') === (result.proto || 'tcp')
+      )
+      if (index >= 0) ports[index] = { ...ports[index], ...result }
+      else ports.push(result)
+    }
+    return { ports }
+  }),
   addLiveHosts: (results) => set((state) => ({
     liveHosts: [
       ...state.liveHosts,

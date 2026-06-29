@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from 'react'
+import { Fragment, useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { WorkspaceShell } from '@/components/layout/WorkspaceShell'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -11,6 +11,7 @@ import { api } from '@/api/http-client'
 import { toast } from '@/stores/toast-store'
 import { API_BASE } from '@/lib/constants'
 import { cn } from '@/lib/utils'
+import type { PortResult } from '@/types'
 import {
   Radar,
   Play,
@@ -33,6 +34,9 @@ import {
   X,
   Plus,
   Route,
+  Fingerprint,
+  ScanLine,
+  Gauge,
 } from 'lucide-react'
 
 // ─── Export helper ─────────────────────────────────────────────────────────────
@@ -47,6 +51,23 @@ function downloadText(content: string, filename: string) {
 }
 
 type ReconTab = 'subdomains' | 'live_hosts' | 'urls' | 'ports' | 'screenshots' | 'cve' | 'endpoints'
+
+const NMAP_PROFILES = [
+  { id: 'quick', label: 'Quick', detail: 'Top 100 · light versions', tone: 'text-sky-400 border-sky-900/60' },
+  { id: 'standard', label: 'Standard', detail: 'Top 1,000 · default scripts', tone: 'text-orange-300 border-orange-800/70' },
+  { id: 'full', label: 'Full TCP', detail: 'All 65,535 ports', tone: 'text-amber-300 border-amber-900/70' },
+  { id: 'udp', label: 'UDP', detail: 'Top 100 · privileged', tone: 'text-cyan-300 border-cyan-900/70' },
+  { id: 'vuln', label: 'Vulnerability', detail: 'Vuln + safe NSE scripts', tone: 'text-red-300 border-red-900/70' },
+] as const
+
+const REVIEW_PORTS = new Set([21, 22, 23, 25, 53, 110, 111, 135, 139, 143, 389, 445, 1433, 1521, 2049, 2375, 2379, 2380, 3306, 3389, 5432, 5601, 5900, 5985, 5986, 6379, 8080, 8443, 9200, 11211, 27017])
+const CRITICAL_EXPOSURE_PORTS = new Set([23, 445, 1433, 1521, 2375, 3306, 3389, 5432, 5900, 6379, 9200, 11211, 27017])
+
+function nmapExposure(port: number) {
+  if (CRITICAL_EXPOSURE_PORTS.has(port)) return 'high'
+  if (REVIEW_PORTS.has(port)) return 'review'
+  return 'normal'
+}
 
 const ENDPOINT_CATEGORIES = [
   { id: 'api',       label: 'API / Swagger',   desc: 'Swagger, OpenAPI, GraphQL, REST discovery' },
@@ -113,7 +134,7 @@ const BB_STAGES = [
     borderColor: 'border-orange-500/30',
     bgColor: 'bg-orange-950/20',
     tools: [
-      { id: 'nmap', label: 'Nmap', desc: 'Port scan + service/version detection', installed: true },
+      { id: 'nmap', label: 'Nmap Advanced', desc: 'Profiles, TCP/UDP, NSE, OS, CPE and structured fingerprints', installed: true },
     ],
   },
   {
@@ -402,6 +423,8 @@ export function ReconPage() {
   }
 
   const [expandedPort, setExpandedPort] = useState<string | null>(null)
+  const [portSearch, setPortSearch] = useState('')
+  const [portRiskOnly, setPortRiskOnly] = useState(false)
   const [screenshotLoading, setScreenshotLoading] = useState(false)
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null)
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null)
@@ -409,6 +432,12 @@ export function ReconPage() {
   const [hostsAiRunning, setHostsAiRunning] = useState(false)
   const { screenshots, screenshotRunning, screenshotProgress } = useReconStore()
   const probingAll = isToolRunning('httpx-probe')
+  const filteredPorts = useMemo(() => ports.filter(port => {
+    if (portRiskOnly && nmapExposure(port.port) === 'normal') return false
+    if (!portSearch.trim()) return true
+    const query = portSearch.toLowerCase()
+    return `${port.ip} ${port.hostname || ''} ${port.port} ${port.proto || ''} ${port.service || ''} ${port.product || ''} ${port.version || ''} ${(port.cpes || []).join(' ')}`.toLowerCase().includes(query)
+  }), [ports, portRiskOnly, portSearch])
 
   const handleScreenshotAll = async () => {
     if (liveHosts.length === 0) return
@@ -620,10 +649,7 @@ export function ReconPage() {
                       {hasOpts && tool.installed && (
                         <div className="pl-1 space-y-1 border-l border-zinc-800 ml-1">
                           {tool.id === 'nmap' && (
-                            <>
-                              <OptionInput label="Ports" placeholder="-p 80,443,8080 or -p-" value={opts.ports || ''} onChange={v => setOption(tool.id, 'ports', v)} />
-                              <OptionInput label="Flags" placeholder="-sV -sC -A" value={opts.flags || ''} onChange={v => setOption(tool.id, 'flags', v)} />
-                            </>
+                            <NmapOptionsPanel opts={opts} setOption={(key, value) => setOption(tool.id, key, value)} />
                           )}
                           {tool.id === 'subfinder' && (
                             <OptionInput label="Sources" placeholder="shodan,virustotal" value={opts.sources || ''} onChange={v => setOption(tool.id, 'sources', v)} />
@@ -878,8 +904,8 @@ export function ReconPage() {
                   } else if (activeTab === 'urls') {
                     downloadText(urls.map(u => u.url).join('\n'), 'urls.txt')
                   } else if (activeTab === 'ports') {
-                    const lines = ports.map(p => `${p.ip}\t${p.port}\t${p.proto ?? 'tcp'}\t${p.service ?? ''}\t${p.version ?? ''}`)
-                    downloadText(['IP\tPort\tProto\tService\tVersion', ...lines].join('\n'), 'ports.txt')
+                    const lines = ports.map(p => `${p.ip}\t${p.hostname ?? ''}\t${p.port}\t${p.proto ?? 'tcp'}\t${p.state ?? 'open'}\t${p.service ?? ''}\t${p.product ?? ''}\t${p.version ?? ''}\t${(p.cpes ?? []).join(',')}\t${p.scripts ? p.scripts.replace(/\s+/g, ' ') : ''}`)
+                    downloadText(['IP\tHostname\tPort\tProto\tState\tService\tProduct\tVersion\tCPE\tScripts', ...lines].join('\n'), 'nmap-services.tsv')
                   }
                 }}
                 className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-zinc-700 text-zinc-400 hover:text-zinc-200 hover:border-zinc-600 text-[10px] font-medium transition-colors"
@@ -1386,60 +1412,16 @@ export function ReconPage() {
 
             {/* Ports tab */}
             {activeTab === 'ports' && (
-              <table className="w-full text-xs">
-                <thead className="bg-zinc-900 sticky top-0 z-10">
-                  <tr className="text-zinc-500 text-left">
-                    <th className="px-3 py-2 w-8">#</th>
-                    <th className="px-3 py-2 w-32">IP/Host</th>
-                    <th className="px-3 py-2 w-20">Port</th>
-                    <th className="px-3 py-2 w-24">Service</th>
-                    <th className="px-3 py-2">Version / Scripts</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {ports.map((p, i) => {
-                    const portKey = `${p.ip}:${p.port}`
-                    const isExpanded = expandedPort === portKey
-                    return (
-                      <>
-                        <tr
-                          key={i}
-                          onClick={() => setExpandedPort(isExpanded ? null : portKey)}
-                          className="border-b border-zinc-800/50 hover:bg-zinc-800/30 cursor-pointer"
-                        >
-                          <td className="px-3 py-1.5 text-zinc-600">{i + 1}</td>
-                          <td className="px-3 py-1.5 text-zinc-300 font-mono">{p.ip}</td>
-                          <td className="px-3 py-1.5">
-                            <span className="text-green-500 font-mono font-bold">{p.port}</span>
-                            {p.proto && <span className="text-zinc-600 font-mono text-[9px] ml-1">/{p.proto}</span>}
-                          </td>
-                          <td className="px-3 py-1.5 text-zinc-400">{p.service ?? '—'}</td>
-                          <td className="px-3 py-1.5 text-zinc-500 truncate max-w-[260px]">
-                            {p.version ?? '—'}
-                            {p.scripts && <span className="ml-2 text-[9px] text-blue-400">▶ scripts</span>}
-                          </td>
-                        </tr>
-                        {isExpanded && p.scripts && (
-                          <tr key={`${i}-detail`} className="border-b border-zinc-800/50 bg-zinc-900/60">
-                            <td colSpan={5} className="px-4 py-2">
-                              <pre className="text-[10px] font-mono text-blue-300 whitespace-pre-wrap break-words leading-relaxed">
-                                {p.scripts}
-                              </pre>
-                            </td>
-                          </tr>
-                        )}
-                      </>
-                    )
-                  })}
-                  {ports.length === 0 && (
-                    <tr>
-                      <td colSpan={5} className="px-3 py-12 text-center text-zinc-600">
-                        No port scan results yet. Run Nmap in Stage 4.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
+              <NmapResults
+                ports={filteredPorts}
+                total={ports.length}
+                search={portSearch}
+                setSearch={setPortSearch}
+                riskOnly={portRiskOnly}
+                setRiskOnly={setPortRiskOnly}
+                expanded={expandedPort}
+                setExpanded={setExpandedPort}
+              />
             )}
             {/* CVE Correlation tab */}
             {activeTab === 'cve' && (
@@ -1713,6 +1695,205 @@ export function ReconPage() {
         </div>
       )}
     </WorkspaceShell>
+  )
+}
+
+function NmapOptionsPanel({ opts, setOption }: {
+  opts: Record<string, string>
+  setOption: (key: string, value: string) => void
+}) {
+  const profile = opts.profile || 'standard'
+  const toggle = (key: string) => setOption(key, opts[key] === 'true' ? '' : 'true')
+  return (
+    <div className="space-y-2.5 py-1">
+      <div>
+        <div className="mb-1 text-[9px] font-semibold uppercase tracking-[0.14em] text-zinc-600">Scan profile</div>
+        <div className="grid grid-cols-2 gap-1">
+          {NMAP_PROFILES.map(item => (
+            <button
+              key={item.id}
+              onClick={() => setOption('profile', item.id)}
+              className={cn(
+                'rounded border px-2 py-1.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-orange-600',
+                profile === item.id ? `${item.tone} bg-zinc-950` : 'border-zinc-800 bg-zinc-900/40 text-zinc-500 hover:border-zinc-700'
+              )}
+            >
+              <span className="block text-[10px] font-semibold">{item.label}</span>
+              <span className="mt-0.5 block text-[8px] leading-tight text-zinc-600">{item.detail}</span>
+            </button>
+          ))}
+        </div>
+        {(profile === 'udp' || profile === 'vuln') && (
+          <div className={cn('mt-1.5 rounded border px-2 py-1.5 text-[9px] leading-relaxed', profile === 'udp' ? 'border-cyan-900/60 bg-cyan-950/15 text-cyan-500' : 'border-red-900/60 bg-red-950/15 text-red-400')}>
+            {profile === 'udp' ? 'UDP/SYN/OS scans may require elevated privileges.' : 'Vulnerability profile runs active NSE checks. Confirm authorization and scope.'}
+          </div>
+        )}
+      </div>
+
+      <OptionInput label="Ports" placeholder="profile default · 80,443 · - · top:500" value={opts.ports || ''} onChange={value => setOption('ports', value)} />
+
+      <div className="grid grid-cols-2 gap-1.5">
+        <NmapSelect label="Protocol" value={opts.protocol || ''} onChange={value => setOption('protocol', value)} options={[
+          ['', 'From profile'], ['tcp', 'TCP'], ['udp', 'UDP'], ['both', 'TCP + UDP'],
+        ]} />
+        <NmapSelect label="TCP scan" value={opts.scan_type || 'connect'} onChange={value => setOption('scan_type', value)} options={[
+          ['connect', 'Connect (-sT)'], ['syn', 'SYN (-sS)'],
+        ]} />
+        <NmapSelect label="Timing" value={opts.timing || ''} onChange={value => setOption('timing', value)} options={[
+          ['', 'From profile'], ['2', 'T2 polite'], ['3', 'T3 normal'], ['4', 'T4 fast'], ['5', 'T5 aggressive'],
+        ]} />
+        <NmapSelect label="NSE scripts" value={opts.scripts || ''} onChange={value => setOption('scripts', value)} options={[
+          ['', 'From profile'], ['none', 'None'], ['default', 'Default'], ['safe', 'Safe'], ['discovery', 'Discovery'], ['vuln', 'Vuln + safe'],
+        ]} />
+        <NmapSelect label="Version" value={opts.version_intensity || ''} onChange={value => setOption('version_intensity', value)} options={[
+          ['', 'From profile'], ['0', 'Lightest'], ['2', 'Light'], ['7', 'Standard'], ['9', 'Exhaustive'],
+        ]} />
+      </div>
+
+      <div className="grid grid-cols-2 gap-1">
+        <NmapToggle label="Assume host up (-Pn)" active={opts.skip_discovery === 'true'} onClick={() => toggle('skip_discovery')} />
+        <NmapToggle label="OS detection" active={opts.os_detection === 'true'} onClick={() => toggle('os_detection')} />
+        <NmapToggle label="Traceroute" active={opts.traceroute === 'true'} onClick={() => toggle('traceroute')} />
+        <NmapToggle label="No DNS (-n)" active={opts.no_dns === 'true'} onClick={() => toggle('no_dns')} />
+      </div>
+
+      <details className="rounded border border-zinc-800 bg-zinc-950/35 px-2 py-1.5">
+        <summary className="cursor-pointer text-[9px] font-medium text-zinc-500 hover:text-zinc-300">Advanced controls</summary>
+        <div className="mt-2 space-y-1.5">
+          <OptionInput label="Min rate" placeholder="packets/sec" value={opts.min_rate || ''} onChange={value => setOption('min_rate', value)} />
+          <OptionInput label="Retries" placeholder="0-20" value={opts.max_retries || ''} onChange={value => setOption('max_retries', value)} />
+          <OptionInput label="Timeout" placeholder="15m · 900s" value={opts.host_timeout || ''} onChange={value => setOption('host_timeout', value)} />
+          <OptionInput label="NSE args" placeholder="userdb=users.txt" value={opts.script_args || ''} onChange={value => setOption('script_args', value)} />
+        </div>
+      </details>
+    </div>
+  )
+}
+
+function NmapSelect({ label, value, onChange, options }: {
+  label: string
+  value: string
+  onChange: (value: string) => void
+  options: Array<[string, string]>
+}) {
+  return (
+    <label className="space-y-1">
+      <span className="block text-[8px] uppercase tracking-wider text-zinc-600">{label}</span>
+      <select value={value} onChange={event => onChange(event.target.value)} className="h-7 w-full rounded border border-zinc-800 bg-zinc-950 px-1.5 text-[9px] text-zinc-400 focus:outline-none focus:border-orange-800">
+        {options.map(([optionValue, optionLabel]) => <option key={`${label}-${optionValue}`} value={optionValue}>{optionLabel}</option>)}
+      </select>
+    </label>
+  )
+}
+
+function NmapToggle({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
+  return (
+    <button onClick={onClick} className={cn('flex items-center gap-1.5 rounded border px-2 py-1 text-left text-[9px] transition-colors', active ? 'border-orange-800/70 bg-orange-950/20 text-orange-300' : 'border-zinc-800 text-zinc-600 hover:text-zinc-400')}>
+      <span className={cn('h-1.5 w-1.5 rounded-full', active ? 'bg-orange-400' : 'bg-zinc-700')} /> {label}
+    </button>
+  )
+}
+
+function NmapResults({ ports, total, search, setSearch, riskOnly, setRiskOnly, expanded, setExpanded }: {
+  ports: PortResult[]
+  total: number
+  search: string
+  setSearch: (value: string) => void
+  riskOnly: boolean
+  setRiskOnly: (value: boolean) => void
+  expanded: string | null
+  setExpanded: (value: string | null) => void
+}) {
+  const groups = new Map<string, PortResult[]>()
+  for (const port of ports) {
+    const key = port.ip || port.hostname || 'unknown'
+    groups.set(key, [...(groups.get(key) || []), port])
+  }
+  const grouped = [...groups.entries()].sort(([a], [b]) => a.localeCompare(b))
+  const reviewCount = ports.filter(port => nmapExposure(port.port) !== 'normal').length
+
+  return (
+    <div className="p-3 space-y-3">
+      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-950/55 px-3 py-2">
+        <div className="flex items-center gap-2 text-[10px] text-zinc-500"><ScanLine size={12} className="text-orange-400" /><span className="font-mono text-zinc-300">{ports.length}</span> shown / {total} open ports</div>
+        <div className="h-3 w-px bg-zinc-800" />
+        <div className="flex items-center gap-1.5 text-[10px] text-zinc-600"><Server size={11} /> {grouped.length} hosts</div>
+        {reviewCount > 0 && <div className="flex items-center gap-1.5 text-[10px] text-amber-400"><ShieldAlert size={11} /> {reviewCount} review</div>}
+        <div className="ml-auto flex items-center gap-2">
+          <input value={search} onChange={event => setSearch(event.target.value)} placeholder="host, port, product, CPE…" className="w-52 rounded border border-zinc-800 bg-zinc-950 px-2 py-1 text-[10px] font-mono text-zinc-300 placeholder:text-zinc-700 focus:outline-none focus:border-orange-800" />
+          <button onClick={() => setRiskOnly(!riskOnly)} className={cn('rounded border px-2 py-1 text-[9px] transition-colors', riskOnly ? 'border-amber-800 bg-amber-950/25 text-amber-300' : 'border-zinc-800 text-zinc-600 hover:text-zinc-300')}>Review ports</button>
+        </div>
+      </div>
+
+      {grouped.map(([host, hostPorts]) => {
+        const first = hostPorts[0]
+        const os = first.os_matches?.[0]
+        return (
+          <section key={host} className="overflow-hidden rounded-lg border border-zinc-800 bg-zinc-950/45">
+            <header className="flex flex-wrap items-center gap-2 border-b border-zinc-800 bg-zinc-900/40 px-3 py-2">
+              <Server size={12} className="text-orange-400" />
+              <span className="font-mono text-[11px] font-semibold text-zinc-200">{host}</span>
+              {first.hostname && first.hostname !== host && <span className="font-mono text-[9px] text-sky-400">{first.hostname}</span>}
+              {os && <span className="flex items-center gap-1 text-[9px] text-zinc-500"><Fingerprint size={10} /> {os.name} <span className="text-zinc-700">{os.accuracy}%</span></span>}
+              <span className="ml-auto rounded border border-zinc-800 px-1.5 py-0.5 font-mono text-[8px] text-zinc-600">{hostPorts.length} services</span>
+            </header>
+            <table className="w-full table-fixed text-xs">
+              <thead><tr className="border-b border-zinc-900 text-left text-[9px] uppercase tracking-wider text-zinc-600"><th className="w-24 px-3 py-1.5">Port</th><th className="w-28 px-3 py-1.5">Service</th><th className="px-3 py-1.5">Fingerprint</th><th className="w-24 px-3 py-1.5">Evidence</th></tr></thead>
+              <tbody>
+                {hostPorts.sort((a, b) => a.port - b.port).map(port => {
+                  const key = `${port.ip}:${port.port}/${port.proto || 'tcp'}`
+                  const isExpanded = expanded === key
+                  const exposure = nmapExposure(port.port)
+                  const hasEvidence = Boolean(port.scripts || port.host_scripts || port.cpes?.length || port.trace?.length || port.os_matches?.length)
+                  return (
+                    <Fragment key={key}>
+                      <tr onClick={() => setExpanded(isExpanded ? null : key)} className="cursor-pointer border-b border-zinc-900/80 hover:bg-zinc-900/40">
+                        <td className="px-3 py-2"><span className={cn('font-mono font-bold', exposure === 'high' ? 'text-red-400' : exposure === 'review' ? 'text-amber-400' : 'text-green-400')}>{port.port}</span><span className="ml-1 font-mono text-[8px] text-zinc-700">/{port.proto || 'tcp'}</span></td>
+                        <td className="px-3 py-2"><span className="text-zinc-300">{port.service || 'unknown'}</span>{port.service_tunnel && <span className="ml-1 text-[8px] text-sky-500">+{port.service_tunnel}</span>}</td>
+                        <td className="truncate px-3 py-2 font-mono text-[10px] text-zinc-500" title={port.version || ''}>{port.version || port.product || 'No version fingerprint'}</td>
+                        <td className="px-3 py-2">{hasEvidence ? <span className="inline-flex items-center gap-1 text-[9px] text-sky-400"><Fingerprint size={10} /> inspect</span> : <span className="text-[9px] text-zinc-700">—</span>}</td>
+                      </tr>
+                      {isExpanded && (
+                        <tr className="border-b border-zinc-800 bg-black/20"><td colSpan={4} className="p-3"><NmapPortEvidence port={port} /></td></tr>
+                      )}
+                    </Fragment>
+                  )
+                })}
+              </tbody>
+            </table>
+          </section>
+        )
+      })}
+
+      {ports.length === 0 && (
+        <div className="flex min-h-64 flex-col items-center justify-center rounded-lg border border-dashed border-zinc-800 text-center">
+          <Gauge size={24} className="mb-3 text-zinc-700" />
+          <div className="text-[11px] text-zinc-500">{total ? 'No ports match the current filter.' : 'No structured Nmap results yet.'}</div>
+          <div className="mt-1 text-[9px] text-zinc-700">Choose a profile in Stage 4 and run Nmap Advanced.</div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function NmapPortEvidence({ port }: { port: PortResult }) {
+  return (
+    <div className="grid gap-3 lg:grid-cols-[0.75fr_1.25fr]">
+      <dl className="grid grid-cols-[84px_1fr] content-start gap-x-2 gap-y-1 text-[9px]">
+        <dt className="text-zinc-700">State / reason</dt><dd className="font-mono text-zinc-400">{port.state || 'open'}{port.reason ? ` · ${port.reason}` : ''}</dd>
+        <dt className="text-zinc-700">Product</dt><dd className="font-mono text-zinc-300">{port.product || 'unknown'}</dd>
+        <dt className="text-zinc-700">OS / device</dt><dd className="font-mono text-zinc-400">{[port.service_os, port.device_type].filter(Boolean).join(' · ') || 'unknown'}</dd>
+        <dt className="text-zinc-700">Confidence</dt><dd className="font-mono text-zinc-400">{port.confidence != null ? `${port.confidence}/10` : '—'}</dd>
+        <dt className="text-zinc-700">Profile</dt><dd className="font-mono text-orange-400">{port.scan_profile || 'legacy'}</dd>
+        {port.cpes?.length ? <><dt className="text-zinc-700">CPE</dt><dd className="space-y-1">{port.cpes.map(cpe => <code key={cpe} className="block break-all text-sky-400">{cpe}</code>)}</dd></> : null}
+        {port.trace?.length ? <><dt className="text-zinc-700">Route</dt><dd className="font-mono text-zinc-500">{port.trace.map(hop => hop.host || hop.ip).filter(Boolean).join(' → ')}</dd></> : null}
+      </dl>
+      <div className="space-y-2">
+        {port.scripts && <div><div className="mb-1 text-[8px] font-semibold uppercase tracking-wider text-sky-600">Port NSE evidence</div><pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words rounded border border-sky-950 bg-sky-950/10 p-2 font-mono text-[9px] leading-relaxed text-sky-300">{port.scripts}</pre></div>}
+        {port.host_scripts && <div><div className="mb-1 text-[8px] font-semibold uppercase tracking-wider text-violet-600">Host NSE evidence</div><pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words rounded border border-violet-950 bg-violet-950/10 p-2 font-mono text-[9px] leading-relaxed text-violet-300">{port.host_scripts}</pre></div>}
+        {!port.scripts && !port.host_scripts && <div className="rounded border border-zinc-800 p-3 text-[9px] text-zinc-700">No NSE output for this service. Use Standard, Safe or Vulnerability scripts for deeper evidence.</div>}
+      </div>
+    </div>
   )
 }
 

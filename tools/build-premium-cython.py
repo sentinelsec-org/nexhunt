@@ -39,6 +39,7 @@ PREMIUM_MODULES = [
     # Premium implementations called by the guarded API layer.
     "nexhunt.adapters.api_scanner",
     "nexhunt.adapters.cloud_buckets",
+    "nexhunt.adapters.graphql_audit",
     "nexhunt.adapters.js_api_mapper",
     "nexhunt.adapters.wpscan",
     "nexhunt.services.copilot_service",

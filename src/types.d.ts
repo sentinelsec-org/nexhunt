@@ -138,11 +138,28 @@ export interface UrlResult {
 
 export interface PortResult {
   ip: string
+  hostname?: string
+  addresses?: Record<string, string>
   port: number
   proto?: string
+  state?: string
+  reason?: string
   service: string | null
+  product?: string
   version: string | null
+  extra_info?: string
+  service_tunnel?: string
+  device_type?: string
+  service_os?: string
+  confidence?: number
+  cpes?: string[]
   scripts?: string
+  script_results?: Array<{ id: string; output: string }>
+  host_scripts?: string
+  host_script_results?: Array<{ id: string; output: string }>
+  os_matches?: Array<{ name: string; accuracy: number; line: string }>
+  trace?: Array<{ ttl: string; ip: string; host: string; rtt: string }>
+  scan_profile?: string
 }
 
 export interface EndpointResult {
