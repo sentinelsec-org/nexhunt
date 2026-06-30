@@ -74,7 +74,7 @@ El pipeline de recon más completo que podés correr con un solo clic.
 - **Análisis de endpoints** — analiza los endpoints descubiertos buscando patrones interesantes, requisitos de autenticación y superficie de ataque potencial
 - **Screenshots** — gowitness saca capturas automáticas de todos los hosts activos para triaje visual
 
-> 💡 El modo **Full Recon** encadena todo lo anterior en un pipeline que corre mientras vas a buscar un café.
+> 💡 El modo **Full Recon** *(PRO)* encadena todo lo anterior en un pipeline que corre mientras vas a buscar un café. Cada etapa individual de recon sigue disponible en Gratis.
 
 ---
 
@@ -123,7 +123,7 @@ Tu navaja suiza HTTP, integrada al flujo.
 - **Captura de tráfico en vivo** — interceptá e inspeccioná cada request desde tu browser a través del proxy de NexHunt
 - **Editor de requests** — modificá y reproducí cualquier request capturado con control total de headers y body
 - **HTTP Repeater** — guardá requests interesantes y reproducílos con modificaciones
-- **Proxy Intruder** *(PRO)* — fuzzing automatizado con modos cluster bomb y pitchfork, wordlists de payloads y filtrado de respuestas
+- **Proxy Intruder** — fuzzing automatizado con modos cluster bomb y pitchfork, wordlists de payloads y filtrado de respuestas
 
 ---
 
@@ -159,7 +159,7 @@ El tier gratuito es genuinamente útil. Sin límites de tiempo, sin degradación
 
 | Función | Gratis | PRO |
 |---|:---:|:---:|
-| Suite completa de recon (subfinder, amass, httpx, nmap, katana, gau...) | ✅ | ✅ |
+| Etapas individuales de recon (subfinder, amass, httpx, Nmap Advanced, katana, gau...) | ✅ | ✅ |
 | Screenshots de todos los hosts (gowitness) | ✅ | ✅ |
 | Scanner objetivo único (nuclei, ffuf, nikto, gobuster, dirsearch) | ✅ | ✅ |
 | Correlación de CVEs por tecnología | ✅ | ✅ |
@@ -168,11 +168,12 @@ El tier gratuito es genuinamente útil. Sin límites de tiempo, sin degradación
 | Proxy captura + editor + repeater | ✅ | ✅ |
 | BD de hallazgos + proyectos + metodología | ✅ | ✅ |
 | Terminal integrada + gestión de sesión | ✅ | ✅ |
-| **Exposure Intelligence** (Shodan, dorks y endpoints del proyecto) | ✅ | ✅ |
+| **Exposure Intelligence** (Shodan, dorks y endpoints del proyecto) | ❌ | ✅ |
 | Suite WordPress + fuerza bruta de credenciales | ✅ | ✅ |
 | VIEWSTATE Auditor | ✅ | ✅ |
 | **GraphQL Auditor** (explorador de schema, comparación auth, IDOR y auditoría de operaciones) | ❌ | ✅ |
-| Pipeline automatizado de XSS + pipeline de JS Secrets | ✅ | ✅ |
+| Pipeline automatizado de XSS (Katana → minado JS → Dalfox) | ✅ | ✅ |
+| **Pipeline de JS Secrets** | ❌ | ✅ |
 | **AI Copilot** (análisis, sugerencias, generación de reportes) | ❌ | ✅ |
 | **API Scanner** (prueba de endpoints OpenAPI/Swagger, anónimo vs autenticado) | ❌ | ✅ |
 | **Repository Intelligence** (recuperación Git, secretos históricos, proveedores y arquitectura) | ❌ | ✅ |
@@ -181,7 +182,7 @@ El tier gratuito es genuinamente útil. Sin límites de tiempo, sin degradación
 | **Pipeline automatizado de SQLi** (Katana → minado de JS → prueba en 3 capas) | ❌ | ✅ |
 | **Escaneo masivo** (nuclei-bulk, recon completo en todos los hosts) | ❌ | ✅ |
 | **Endpoint check** masivo en URLs descubiertas | ❌ | ✅ |
-| **Proxy Intruder** (cluster bomb / pitchfork) | ❌ | ✅ |
+| Proxy Intruder (cluster bomb / pitchfork) | ✅ | ✅ |
 | **Suite JWT** (confusión de algoritmos, inyección de keys, falsificación de claims) | ❌ | ✅ |
 | Soporte prioritario | ❌ | ✅ |
 

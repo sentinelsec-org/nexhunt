@@ -68,7 +68,7 @@ The most complete recon pipeline you can run from a single button.
 - **Endpoint analysis** — analyzes discovered endpoints for interesting patterns, auth requirements, and potential attack surface
 - **Screenshots** — gowitness automatically screenshots every live host so you can triage visually
 
-> 💡 The **Full Recon** mode chains all of the above into one pipeline that runs while you grab a coffee.
+> 💡 The **Full Recon** mode *(PRO)* chains all of the above into one pipeline that runs while you grab a coffee. Every individual recon stage remains available in Free.
 
 ---
 
@@ -93,7 +93,7 @@ Validate findings. Prove impact. Write better reports.
 - **XSS** — dalfox (fast, accurate) and xsstrike (deep DOM analysis) on all collected endpoints
 - **Command injection** — commix on forms and parameters with command injection indicators
 - **SSRF / Open redirect** — interactsh-backed testing for out-of-band vulnerabilities
-- **JWT attack suite** — 10 attacks (alg:none, empty signature, RS256→HS256 confusion, weak secret brute force, kid header injection, jku/x5u SSRF, privilege escalation, and more) with step-by-step guidance per attack
+- **JWT attack suite** *(PRO)* — 10 attacks (alg:none, empty signature, RS256→HS256 confusion, weak secret brute force, kid header injection, jku/x5u SSRF, privilege escalation, and more) with step-by-step guidance per attack
 
 ![NexHunt JWT Attacks — 10 JWT attack techniques with severity ratings (CRITICAL/HIGH/MED). Empty Signature attack selected, showing step-by-step instructions and a Run Attack button.](docs/screenshots/jwt-attacks.png)
 
@@ -121,7 +121,7 @@ Your HTTP Swiss knife, built into the workflow.
 - **Request editor** — modify and replay any captured request with full header and body control
 - **HTTP Repeater** — save interesting requests and replay with modifications
 - **Site Map** — Burp-style host/path tree built automatically from captured traffic
-- **Proxy Intruder** *(PRO)* — automated fuzzing with cluster bomb and pitchfork attack modes, payload wordlists, and response filtering
+- **Proxy Intruder** — automated fuzzing with cluster bomb and pitchfork attack modes, payload wordlists, and response filtering
 
 ![NexHunt Proxy Site Map — host/path tree built automatically from 44 captured requests across digitalproducts-test.mcdonalds.com.ar and www.mcdonalds.com.ar](docs/screenshots/proxy-sitemap.png)
 
@@ -159,7 +159,7 @@ The free tier is genuinely useful. No time limits, no feature degradation, no na
 
 | Feature | Free | PRO |
 |---|:---:|:---:|
-| Full recon suite (subfinder, amass, httpx, nmap, katana, gau...) | ✅ | ✅ |
+| Individual recon stages (subfinder, amass, httpx, Nmap Advanced, katana, gau...) | ✅ | ✅ |
 | Screenshot all hosts (gowitness) | ✅ | ✅ |
 | Single-target scanner (nuclei, ffuf, nikto, gobuster, dirsearch) | ✅ | ✅ |
 | CVE correlation per technology | ✅ | ✅ |
@@ -168,11 +168,12 @@ The free tier is genuinely useful. No time limits, no feature degradation, no na
 | Proxy capture + request editor + repeater | ✅ | ✅ |
 | Findings database + projects + methodology | ✅ | ✅ |
 | Built-in terminal + session management | ✅ | ✅ |
-| **Exposure Intelligence** (Shodan, dorks, scoped endpoint discovery) | ✅ | ✅ |
+| **Exposure Intelligence** (Shodan, dorks, scoped endpoint discovery) | ❌ | ✅ |
 | WordPress pentest suite + credential brute force | ✅ | ✅ |
 | VIEWSTATE Auditor | ✅ | ✅ |
 | **GraphQL Auditor** (schema explorer, auth comparison, IDOR and operation audit) | ❌ | ✅ |
-| Automated XSS pipeline + JS Secrets pipeline | ✅ | ✅ |
+| Automated XSS pipeline (Katana → mine JS → Dalfox) | ✅ | ✅ |
+| **JS Secrets pipeline** | ❌ | ✅ |
 | **AI Copilot** (analysis, tips, report generation) | ❌ | ✅ |
 | **API Scanner** (OpenAPI/Swagger endpoint probing, anon vs authed) | ❌ | ✅ |
 | **Repository Intelligence** (Git recovery, history secrets, providers, architecture) | ❌ | ✅ |
@@ -181,7 +182,7 @@ The free tier is genuinely useful. No time limits, no feature degradation, no na
 | **Automated SQLi pipeline** (Katana → mine JS → 3-layer probe) | ❌ | ✅ |
 | **Bulk scanning** (nuclei-bulk, full recon on all hosts) | ❌ | ✅ |
 | **Endpoint check** across all discovered URLs | ❌ | ✅ |
-| **Proxy Intruder** (cluster bomb / pitchfork) | ❌ | ✅ |
+| Proxy Intruder (cluster bomb / pitchfork) | ✅ | ✅ |
 | **JWT attack suite** (algorithm confusion, key injection, claim forgery) | ❌ | ✅ |
 | Priority support | ❌ | ✅ |
 
