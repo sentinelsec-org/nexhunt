@@ -117,7 +117,7 @@ ok "Python venv ready at backend/venv"
 step "Node.js dependencies"
 # ─────────────────────────────────────────────────────────────────────────────
 cd "$NEXHUNT_DIR"
-npm install --silent 2>/dev/null
+npm install --silent --include=dev 2>/dev/null
 ok "npm packages installed"
 
 # ─────────────────────────────────────────────────────────────────────────────

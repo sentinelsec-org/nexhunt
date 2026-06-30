@@ -61,9 +61,9 @@ set -e
 cd /opt/nexhunt
 
 if [ -f package-lock.json ]; then
-  npm ci --silent
+  npm ci --silent --include=dev
 else
-  npm install --silent
+  npm install --silent --include=dev
 fi
 
 cd /opt/nexhunt/backend
