@@ -41,7 +41,7 @@ elif command -v pacman >/dev/null 2>&1; then
     python python-pip nodejs npm ruby \
     xterm psmisc xorg-xhost \
     gtk3 libnotify nss alsa-lib libxtst xdg-utils \
-    libxml2 libxslt zlib \
+    libxml2 libxslt \
     || { err "Could not install required Arch/CachyOS dependencies"; exit 1; }
   SECURITY_PACKAGES=(
     nmap whatweb nikto sqlmap dirsearch amass hydra cewl crunch seclists
