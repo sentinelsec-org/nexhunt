@@ -21,33 +21,37 @@ else
   exit 1
 fi
 
-if ! command -v curl >/dev/null 2>&1 || ! command -v python3 >/dev/null 2>&1 || ! command -v sha256sum >/dev/null 2>&1; then
+if ! command -v curl >/dev/null 2>&1 || ! command -v sha256sum >/dev/null 2>&1; then
   if [ "$DISTRO_FAMILY" = "debian" ]; then
     apt-get update
-    apt-get install -y ca-certificates curl coreutils python3
+    apt-get install -y ca-certificates curl coreutils
   else
-    pacman -Sy --needed --noconfirm ca-certificates curl coreutils python
+    pacman -Sy --needed --noconfirm ca-certificates curl coreutils
   fi
 fi
 
-API_URL="https://api.github.com/repos/${REPO}/releases/latest"
-LATEST_JSON="$(curl -fsSL --retry 3 --retry-all-errors "$API_URL")"
+# Resolve the latest release tag via HTTP redirect instead of the GitHub REST
+# API, which has a 60 req/hour unauthenticated rate limit per IP and returns
+# 403 when exhausted.
+LATEST_TAG="$(curl -fsSL --max-redirs 5 --retry 3 -o /dev/null -w '%{url_effective}' \
+  "https://github.com/${REPO}/releases/latest" | sed -E 's|.*/tag/||')"
+[ -n "$LATEST_TAG" ] || { echo "Could not determine the latest NexHunt release." >&2; exit 1; }
+VERSION="${LATEST_TAG#v}"
 
+SUMS_URL="https://github.com/${REPO}/releases/download/${LATEST_TAG}/SHA256SUMS"
+TAR_URL="https://github.com/${REPO}/releases/download/${LATEST_TAG}/nexhunt-${VERSION}.tar.gz"
 DEB_URL=""
 if [ "$DISTRO_FAMILY" = "debian" ]; then
-  DEB_URL="$(printf '%s' "$LATEST_JSON" | python3 -c "import sys,json; d=json.load(sys.stdin); arch='$ARCH'; print(next((a['browser_download_url'] for a in d.get('assets',[]) if a['name'].endswith('_'+arch+'.deb')), ''))")"
+  DEB_URL="https://github.com/${REPO}/releases/download/${LATEST_TAG}/nexhunt_${VERSION}_${ARCH}.deb"
 fi
-TAR_URL="$(printf '%s' "$LATEST_JSON" | python3 -c "import sys,json; d=json.load(sys.stdin); print(next((a['browser_download_url'] for a in d.get('assets',[]) if a['name'].endswith('.tar.gz')), ''))")"
-SUMS_URL="$(printf '%s' "$LATEST_JSON" | python3 -c "import sys,json; d=json.load(sys.stdin); print(next((a['browser_download_url'] for a in d.get('assets',[]) if a['name']=='SHA256SUMS'), ''))")"
 
-[ -n "$SUMS_URL" ] || { echo "The latest release does not contain SHA256SUMS." >&2; exit 1; }
-curl -fsSL --retry 3 --retry-all-errors -o "$TMP_DIR/SHA256SUMS" "$SUMS_URL"
+curl -fsSL --retry 3 -o "$TMP_DIR/SHA256SUMS" "$SUMS_URL"
 
 download_and_verify() {
   local url="$1" name expected actual
   name="${url##*/}"
   echo "Downloading $name..." >&2
-  curl -fsSL --retry 3 --retry-all-errors -o "$TMP_DIR/$name" "$url"
+  curl -fsSL --retry 3 -o "$TMP_DIR/$name" "$url"
   expected="$(awk -v name="$name" '$2 == name { print $1; exit }' "$TMP_DIR/SHA256SUMS")"
   [ -n "$expected" ] || { echo "No checksum found for $name." >&2; return 1; }
   actual="$(sha256sum "$TMP_DIR/$name" | awk '{print $1}')"
