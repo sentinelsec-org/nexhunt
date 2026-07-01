@@ -549,7 +549,7 @@ export function ApiScannerPage({ embedded }: { embedded?: boolean }) {
     try {
       const result = await api.post<ContractInfo>('/api/api-scanner/spec', {
         target: docsUrl.trim(),
-        options: { base_url: baseUrl.trim() },
+        options: { base_url: baseUrl.trim(), ai_assist: aiAssist },
         project_id: activeProject ?? '',
       })
       const templates = result.endpoints.map(endpoint => ({
@@ -740,7 +740,7 @@ export function ApiScannerPage({ embedded }: { embedded?: boolean }) {
               <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
                 <label className="flex cursor-pointer items-center gap-2 text-[10px] text-zinc-400">
                   <input type="checkbox" checked={aiAssist} onChange={event => setAiAssist(event.target.checked)} className="h-3 w-3 accent-teal-500" />
-                  <Sparkles size={11} className="text-teal-400" /> AI triage
+                  <Sparkles size={11} className="text-teal-400" /> AI docs + triage
                 </label>
                 <label className={cn('flex cursor-pointer items-center gap-2 text-[10px]', probeWrites ? 'text-amber-300' : 'text-zinc-500')}>
                   <input type="checkbox" checked={probeWrites} onChange={event => setProbeWrites(event.target.checked)} className="h-3 w-3 accent-amber-500" />
@@ -748,7 +748,7 @@ export function ApiScannerPage({ embedded }: { embedded?: boolean }) {
                 </label>
                 {contract && <a href={contract.spec_url} target="_blank" rel="noreferrer" className="ml-auto flex items-center gap-1 text-[9px] text-zinc-600 transition-colors hover:text-teal-400">Open source contract <ExternalLink size={9} /></a>}
               </div>
-              <p className="mt-2 text-[9px] leading-relaxed text-zinc-700">Anonymous and authenticated responses are kept as separate evidence lanes. Write methods remain opt-in.</p>
+              <p className="mt-2 text-[9px] leading-relaxed text-zinc-700">AI docs structures routes from non-standard HTML when needed, then triages probe results. Write methods remain opt-in.</p>
             </div>
           </div>
 

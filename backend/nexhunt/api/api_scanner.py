@@ -1,4 +1,5 @@
 import asyncio
+import json
 import uuid
 import logging
 from fastapi import APIRouter, Depends, HTTPException
@@ -7,6 +8,7 @@ from nexhunt.adapters.base import get_adapter
 from nexhunt.ws.manager import ws_manager
 from nexhunt.database import DefaultSession
 from nexhunt.models.finding import Finding
+from nexhunt.models.recon_result import ReconResult
 from nexhunt.licensing.guard import require_pro
 
 router = APIRouter(prefix="/api/api-scanner", tags=["api-scanner"])
@@ -38,6 +40,17 @@ async def _run_bg(job_id: str, target: str, options: dict, project_id: str | Non
                 continue
             if result.get("kind") == "endpoint":
                 endpoints += 1
+                try:
+                    async with DefaultSession() as session:
+                        session.add(ReconResult(
+                            type="api_endpoint",
+                            target=result.get("url", target),
+                            project_id=project_id or None,
+                            data=json.dumps(result, default=str),
+                        ))
+                        await session.commit()
+                except Exception as db_err:
+                    logger.warning(f"API endpoint save failed [api_scanner]: {db_err}")
                 await ws_manager.broadcast("api_scan", {**result, "project_id": project_id or ""})
                 continue
             # genuine finding (broken access control / AI triage) — persist + broadcast
@@ -87,7 +100,12 @@ async def load_spec(req: ApiScanRequest):
     if not adapter:
         raise HTTPException(status_code=500, detail="API Scanner adapter not found")
     try:
-        return await adapter.inspect(req.target, (req.options or {}).get("base_url", ""))
+        options = req.options or {}
+        return await adapter.inspect(
+            req.target,
+            options.get("base_url", ""),
+            bool(options.get("ai_assist")),
+        )
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
 

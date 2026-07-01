@@ -117,8 +117,38 @@ ok "Python venv ready at backend/venv"
 step "Node.js dependencies"
 # ─────────────────────────────────────────────────────────────────────────────
 cd "$NEXHUNT_DIR"
-npm install --silent --include=dev 2>/dev/null
-ok "npm packages installed"
+# Electron is part of the runtime, not just the build toolchain. Clear distro
+# or user npm settings that silently omit it (common with production-oriented
+# npm configs), then use the lockfile for a reproducible install.
+unset NODE_ENV NPM_CONFIG_PRODUCTION npm_config_production NPM_CONFIG_OMIT npm_config_omit
+NPM_FLAGS=(--no-audit --no-fund)
+if command -v pacman >/dev/null 2>&1; then
+    # Arch/CachyOS ships Electron through Pacman. Avoid the npm postinstall
+    # download from GitHub, which is frequently blocked or left incomplete.
+    export ELECTRON_SKIP_BINARY_DOWNLOAD=1
+fi
+if [ -f "$NEXHUNT_DIR/out/main/index.js" ] && [ ! -d "$NEXHUNT_DIR/src" ]; then
+    npm ci --omit=dev "${NPM_FLAGS[@]}"
+else
+    npm ci --include=dev "${NPM_FLAGS[@]}"
+fi
+unset ELECTRON_SKIP_BINARY_DOWNLOAD
+
+ELECTRON_BIN="$NEXHUNT_DIR/node_modules/.bin/electron"
+LOCAL_ELECTRON="$(node -e "try { const fs=require('fs'); const p=require('electron'); if (p && fs.existsSync(p)) process.stdout.write(p) } catch (_) {}" 2>/dev/null)"
+SYSTEM_ELECTRON="$({
+    command -v electron 2>/dev/null || true
+    for candidate in /usr/bin/electron[0-9]*; do
+        [ -x "$candidate" ] && printf '%s\n' "$candidate"
+    done
+  } | sort -V | tail -n 1)"
+if [ -n "$LOCAL_ELECTRON" ] && [ -x "$LOCAL_ELECTRON" ]; then
+    ok "npm runtime ready (bundled Electron verified)"
+elif [ -n "$SYSTEM_ELECTRON" ] && [ -x "$SYSTEM_ELECTRON" ]; then
+    ok "npm runtime ready (system Electron: $SYSTEM_ELECTRON)"
+else
+    die "Electron runtime is missing. On Arch/CachyOS run: sudo pacman -S electron"
+fi
 
 # ─────────────────────────────────────────────────────────────────────────────
 step "Build NexHunt"

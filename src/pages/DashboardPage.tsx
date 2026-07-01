@@ -4,6 +4,7 @@ import { WorkspaceShell } from '@/components/layout/WorkspaceShell'
 import { useProxyStore } from '@/stores/proxy-store'
 import { useScannerStore } from '@/stores/scanner-store'
 import { useReconStore } from '@/stores/recon-store'
+import { useApiScannerStore } from '@/stores/api-scanner-store'
 import { useAppStore } from '@/stores/app-store'
 import { Badge } from '@/components/ui/badge'
 import { api } from '@/api/http-client'
@@ -57,7 +58,8 @@ function StatCard({ icon: Icon, label, value, color, dimmed }: {
 export function DashboardPage() {
   const { flows, proxyRunning } = useProxyStore()
   const { findings } = useScannerStore()
-  const { subdomains } = useReconStore()
+  const { subdomains, liveHosts, endpoints: reconEndpoints } = useReconStore()
+  const { rows: apiRows } = useApiScannerStore()
   const { activeProject, activeProjectData } = useAppStore()
   const navigate = useNavigate()
   const [downloading, setDownloading] = useState(false)
@@ -70,7 +72,43 @@ export function DashboardPage() {
     if (!activeProject) return
     setDownloading(true)
     try {
-      const res = await api.get<{ content?: string; error?: string }>(`/api/projects/${activeProject}/briefing`)
+      const observedEndpoints = [
+        ...apiRows.map(row => ({
+          source: 'API Scanner current workspace',
+          method: row.method,
+          url: row.url,
+          status_anon: row.status_anon,
+          status_auth: row.status_auth,
+          content_type: row.content_type,
+          summary: row.summary,
+        })),
+        ...liveHosts.map(host => ({
+          source: 'HTTP probe current workspace',
+          method: 'GET',
+          url: host.url,
+          status_code: host.status_code,
+          content_type: host.content_type,
+          title: host.title,
+        })),
+        ...reconEndpoints.map(endpoint => ({
+          source: 'Endpoint check current workspace',
+          method: 'GET',
+          url: endpoint.url,
+          status_code: endpoint.status_code,
+          content_type: endpoint.content_type,
+          title: endpoint.title,
+        })),
+        ...flows.map(flow => ({
+          source: 'Proxy current workspace',
+          method: flow.request_method,
+          url: flow.request_url,
+          status_code: flow.response_status,
+          content_type: flow.content_type,
+        })),
+      ]
+      const res = await api.post<{ content?: string; error?: string }>(`/api/projects/${activeProject}/briefing`, {
+        observed_endpoints: observedEndpoints,
+      })
       if (res.error || !res.content) {
         toast.error('No se pudo generar el resumen', res.error)
         return
@@ -150,8 +188,8 @@ export function DashboardPage() {
               <div className="min-w-0">
                 <div className="text-sm font-medium text-zinc-200">Summary to continue with AI</div>
                 <div className="text-xs text-zinc-600">
-                  Download a general .md — scope, how many findings there are and the most important ones, what was run — to
-                  paste into Claude (or any AI) and continue the pentest from there. It's not an evidence dump, just what matters.
+                  Download an AI-ready .md with scope, completed work, prioritized findings and every in-scope endpoint that returned HTTP 200.
+                  Sensitive parameters and tokens are included in clear text. Treat the downloaded file as confidential.
                 </div>
               </div>
             </div>
@@ -161,7 +199,7 @@ export function DashboardPage() {
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-teal-700 hover:bg-teal-950/40 text-teal-300 text-xs font-medium transition-colors disabled:opacity-50 shrink-0"
             >
               {downloading ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
-              Download briefing
+              Download AI handoff
             </button>
           </div>
         )}

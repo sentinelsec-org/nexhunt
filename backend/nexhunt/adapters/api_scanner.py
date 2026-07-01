@@ -3,6 +3,7 @@ API Scanner - loads OpenAPI/Swagger contracts, builds schema-aware request
 templates, and optionally probes operations anonymously and with account auth.
 """
 import asyncio
+import html
 import json
 import logging
 import re
@@ -24,6 +25,7 @@ HTTP_METHODS = ["get", "post", "put", "patch", "delete", "head", "options"]
 WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 MAX_ENDPOINTS = 500
 CONCURRENCY = 10
+MAX_DOC_PAGES = 120
 
 
 def _is_http_url(value: str) -> bool:
@@ -32,6 +34,105 @@ def _is_http_url(value: str) -> bool:
         return parsed.scheme in ("http", "https") and bool(parsed.hostname) and not any(char.isspace() for char in parsed.netloc)
     except ValueError:
         return False
+
+
+def _html_text(value: str) -> str:
+    """Collapse a small HTML fragment to readable text without extra deps."""
+    value = re.sub(r"(?is)<(?:br|/p|/div|/tr|/h\d)\b[^>]*>", "\n", value or "")
+    value = re.sub(r"(?is)<[^>]+>", " ", value)
+    return re.sub(r"[ \t\r\f\v]+", " ", html.unescape(value)).strip()
+
+
+def _html_type(raw_type: str) -> dict:
+    value = (raw_type or "").strip().casefold()
+    schema: dict = {"type": "string"}
+    if value.startswith("integer") or value.startswith("int"):
+        schema = {"type": "integer"}
+    elif value.startswith("number") or value.startswith("float") or value.startswith("decimal"):
+        schema = {"type": "number"}
+    elif value.startswith("bool"):
+        schema = {"type": "boolean"}
+    elif value.startswith("array") or value.endswith("[]"):
+        schema = {"type": "array", "items": {"type": "string"}}
+    elif "email" in value:
+        schema["format"] = "email"
+    elif "url" in value or "uri" in value:
+        schema["format"] = "uri"
+    enum_match = re.search(r"\(([^)]+)\)", value)
+    if enum_match and "," in enum_match.group(1):
+        choices = [item.strip() for item in enum_match.group(1).split(",") if item.strip()]
+        if schema["type"] == "integer":
+            try:
+                choices = [int(item) for item in choices]
+            except ValueError:
+                pass
+        schema["enum"] = choices
+    return schema
+
+
+def _html_example(value: str, schema: dict):
+    value = (value or "").strip()
+    if not value:
+        return None
+    schema_type = schema.get("type")
+    try:
+        if schema_type == "integer":
+            return int(value)
+        if schema_type == "number":
+            return float(value)
+        if schema_type == "boolean":
+            return value.casefold() in ("1", "true", "yes")
+    except ValueError:
+        pass
+    return value
+
+
+def _html_doc_operation(page: str):
+    """Extract one REST operation from a conventional human-written docs page."""
+    request_heading = re.search(r"(?is)<h[1-6][^>]*>\s*Request\s*</h[1-6]>", page or "")
+    if not request_heading:
+        return None
+    request_area = page[request_heading.end():]
+    alert = re.search(r"(?is)<div[^>]*class=[\"'][^\"']*alert[^\"']*[\"'][^>]*>(.*?)</div>", request_area)
+    if not alert:
+        return None
+    request_text = _html_text(alert.group(1))
+    match = re.search(r"\b(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\s+(https?://\S+)", request_text, re.I)
+    if not match:
+        return None
+    method, request_url = match.group(1).upper(), match.group(2).rstrip(".,;)")
+    content_type_match = re.search(r"Content-Type\s*:\s*([^\]\s]+)", request_text, re.I)
+    content_type = content_type_match.group(1) if content_type_match else "application/json"
+
+    title_match = re.search(r"(?is)<h1[^>]*>(.*?)</h1>", page)
+    summary = _html_text(title_match.group(1)) if title_match else urlparse(request_url).path
+    parameters = []
+    table_area = page[:request_heading.start()]
+    for row in re.findall(r"(?is)<tr[^>]*>(.*?)</tr>", table_area):
+        cells = re.findall(r"(?is)<t[hd][^>]*>(.*?)</t[hd]>", row)
+        if len(cells) < 3:
+            continue
+        name, raw_type, required = (_html_text(cell) for cell in cells[:3])
+        if name.casefold() == "name" or not re.match(r"^[A-Za-z_][A-Za-z0-9_.\[\]-]*$", name):
+            continue
+        schema = _html_type(raw_type)
+        example = _html_example(_html_text(cells[3]), schema) if len(cells) > 3 else None
+        description = _html_text(cells[4]) if len(cells) > 4 else ""
+        if example is not None:
+            schema["example"] = example
+        parameters.append({
+            "name": name,
+            "required": required.casefold() in ("yes", "true", "required", "1"),
+            "description": description,
+            "schema": schema,
+        })
+    return {
+        "method": method,
+        "url": request_url,
+        "summary": summary,
+        "content_type": content_type,
+        "parameters": parameters,
+    }
 
 
 def _parse_auth(account_auth: str) -> dict[str, str]:
@@ -427,7 +528,7 @@ class ApiScannerAdapter(ToolAdapter):
     async def check_installed(self) -> bool:
         return True
 
-    async def inspect(self, target: str, base_override: str = "") -> dict:
+    async def inspect(self, target: str, base_override: str = "", ai_assist: bool = False) -> dict:
         docs_url = (target or "").strip()
         if "://" not in docs_url:
             docs_url = f"https://{docs_url}"
@@ -437,9 +538,9 @@ class ApiScannerAdapter(ToolAdapter):
         async with httpx.AsyncClient(
             verify=False, timeout=20, follow_redirects=True, headers=headers
         ) as client:
-            spec, spec_url = await self._resolve_spec(client, docs_url)
+            spec, spec_url = await self._resolve_spec(client, docs_url, ai_assist)
         if not spec:
-            raise ValueError("Could not locate an OpenAPI/Swagger spec at that URL")
+            raise ValueError("Could not locate an OpenAPI/Swagger contract or recognizable HTML API documentation at that URL")
         base_url = (base_override or "").strip() or self._base_url(spec, spec_url)
         all_endpoints = self._enumerate(spec, base_url)
         endpoints = all_endpoints[:MAX_ENDPOINTS]
@@ -477,7 +578,7 @@ class ApiScannerAdapter(ToolAdapter):
         else:
             yield {"_raw": True, "line": f"$ api-scan {docs_url}"}
             try:
-                contract = await self.inspect(docs_url, base_override)
+                contract = await self.inspect(docs_url, base_override, bool(options.get("ai_assist")))
             except ValueError as error:
                 yield {"_raw": True, "line": f"  {error}"}
                 return
@@ -571,7 +672,7 @@ class ApiScannerAdapter(ToolAdapter):
             endpoints.append(endpoint)
         return endpoints
 
-    async def _resolve_spec(self, client, docs_url):
+    async def _resolve_spec(self, client, docs_url, ai_assist=False):
         try:
             response = await client.get(docs_url)
         except Exception as error:
@@ -624,12 +725,181 @@ class ApiScannerAdapter(ToolAdapter):
             if spec:
                 return spec, candidate
 
+        # Some older APIs publish human-written HTML instead of a machine-readable
+        # contract. Crawl only the documentation section on the same origin and
+        # translate its Request/Parameters blocks into a small OpenAPI 3 contract.
+        spec = await self._html_docs_spec(client, response.text, effective_url, ai_assist)
+        if spec:
+            return spec, effective_url
+
         origin = f"{urlparse(effective_url).scheme}://{urlparse(effective_url).netloc}"
         for path in SPEC_CANDIDATES:
             spec = await self._try_spec(client, origin + path)
             if spec:
                 return spec, origin + path
         return None, None
+
+    async def _html_docs_spec(self, client, index_html, index_url, ai_assist=False):
+        parsed_index = urlparse(index_url)
+        if not parsed_index.scheme or not parsed_index.netloc or "<html" not in (index_html or "").casefold():
+            return None
+        doc_root = parsed_index.path.rstrip("/") or "/"
+        links = []
+        for href in re.findall(r'(?is)<a[^>]+href=["\']([^"\']+)["\']', index_html or ""):
+            candidate = urljoin(index_url, html.unescape(href.strip()))
+            parsed = urlparse(candidate)
+            if parsed.scheme not in ("http", "https") or parsed.netloc != parsed_index.netloc:
+                continue
+            if parsed.path == doc_root or not parsed.path.startswith(doc_root + "/"):
+                continue
+            clean = parsed._replace(query="", fragment="").geturl()
+            if clean not in links:
+                links.append(clean)
+            if len(links) >= MAX_DOC_PAGES:
+                break
+
+        pages = [(index_url, index_html)]
+        if links:
+            sem = asyncio.Semaphore(CONCURRENCY)
+
+            async def fetch(url):
+                async with sem:
+                    try:
+                        result = await client.get(url)
+                        return url, result.text
+                    except Exception:
+                        return url, ""
+
+            pages.extend(await asyncio.gather(*(fetch(url) for url in links)))
+
+        operations = []
+        unresolved_pages = []
+        known = set()
+        for page_url, page in pages:
+            operation = _html_doc_operation(page)
+            operation_key = (operation["method"], operation["url"]) if operation else None
+            if operation and operation_key not in known:
+                operations.append(operation)
+                known.add(operation_key)
+            elif page and re.search(r"(?i)\b(GET|POST|PUT|PATCH|DELETE)\b", _html_text(page)):
+                unresolved_pages.append((page_url, page))
+        if ai_assist and unresolved_pages:
+            ai_operations = await self._ai_html_operations(unresolved_pages)
+            for operation in ai_operations:
+                key = (operation["method"], operation["url"])
+                if key not in known:
+                    operations.append(operation)
+                    known.add(key)
+        if not operations:
+            return None
+
+        origins = {f"{urlparse(item['url']).scheme}://{urlparse(item['url']).netloc}" for item in operations}
+        server_url = origins.pop() if len(origins) == 1 else f"{parsed_index.scheme}://{parsed_index.netloc}"
+        paths = {}
+        secured = False
+        for item in operations:
+            parsed_url = urlparse(item["url"])
+            path = parsed_url.path or "/"
+            properties = {param["name"]: param["schema"] for param in item["parameters"]}
+            required = [param["name"] for param in item["parameters"] if param["required"]]
+            operation = {
+                "summary": item["summary"],
+                "responses": {"default": {"description": "Documented response"}},
+            }
+            if item["method"] in WRITE_METHODS:
+                schema = {"type": "object", "properties": properties}
+                if required:
+                    schema["required"] = required
+                operation["requestBody"] = {
+                    "required": bool(required),
+                    "content": {item["content_type"]: {"schema": schema}},
+                }
+            else:
+                operation["parameters"] = [
+                    {**param, "in": "query"} for param in item["parameters"]
+                ]
+            if any(param["name"].casefold() in ("hash", "clientid", "token", "apikey") for param in item["parameters"]):
+                operation["security"] = [{"documentedAuth": []}]
+                secured = True
+            paths.setdefault(path, {})[item["method"].casefold()] = operation
+
+        title_match = re.search(r"(?is)<title[^>]*>(.*?)</title>", index_html or "")
+        title = _html_text(title_match.group(1)) if title_match else f"{parsed_index.hostname} API"
+        spec = {
+            "openapi": "3.0.0-html",
+            "info": {"title": title, "version": "HTML documentation"},
+            "servers": [{"url": server_url}],
+            "paths": paths,
+        }
+        if secured:
+            spec["components"] = {"securitySchemes": {"documentedAuth": {
+                "type": "apiKey", "in": "header", "name": "Authorization",
+            }}}
+        return spec
+
+    @staticmethod
+    async def _ai_html_operations(pages):
+        """Ask NexHunt's configured Copilot to structure non-standard doc pages."""
+        try:
+            from nexhunt.services.copilot_service import copilot_service
+        except Exception:
+            return []
+        system = (
+            "You convert API documentation into strict structured data. Return JSON only, with no markdown: "
+            '{"operations":[{"method":"GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS",'
+            '"url":"absolute URL","summary":"short text","content_type":"application/json",'
+            '"parameters":[{"name":"field","required":true,"description":"",'
+            '"schema":{"type":"string|integer|number|boolean|array","example":"value"}}]}]}. '
+            "Extract only operations whose HTTP method and request URL are explicitly present in the supplied text. "
+            "Never infer or invent a route. An empty operations array is valid."
+        )
+        extracted = []
+        # Keep each request below hosted/free-provider limits while retaining several
+        # related pages as context. The model is a fallback, not the primary crawler.
+        for offset in range(0, len(pages), 4):
+            blocks = []
+            for page_url, page in pages[offset:offset + 4]:
+                clean = _html_text(page)
+                blocks.append(f"SOURCE: {page_url}\n{clean[:3200]}")
+            try:
+                answer = await copilot_service._dispatch(
+                    "\n\n--- DOCUMENT PAGE ---\n".join(blocks),
+                    system=system,
+                    max_tokens=1800,
+                )
+                start, end = answer.find("{"), answer.rfind("}")
+                payload = json.loads(answer[start:end + 1]) if start >= 0 and end > start else {}
+            except Exception as error:
+                logger.warning("AI HTML docs extraction failed: %s", error)
+                continue
+            for item in payload.get("operations", []):
+                if not isinstance(item, dict):
+                    continue
+                method = str(item.get("method", "")).upper()
+                url = str(item.get("url", "")).strip()
+                if method.casefold() not in HTTP_METHODS or not _is_http_url(url):
+                    continue
+                parameters = []
+                for parameter in item.get("parameters", []):
+                    if not isinstance(parameter, dict) or not str(parameter.get("name", "")).strip():
+                        continue
+                    schema = parameter.get("schema") if isinstance(parameter.get("schema"), dict) else {"type": "string"}
+                    if schema.get("type") not in ("string", "integer", "number", "boolean", "array", "object"):
+                        schema["type"] = "string"
+                    parameters.append({
+                        "name": str(parameter["name"]).strip(),
+                        "required": bool(parameter.get("required")),
+                        "description": str(parameter.get("description", ""))[:1000],
+                        "schema": schema,
+                    })
+                extracted.append({
+                    "method": method,
+                    "url": url,
+                    "summary": str(item.get("summary", ""))[:500],
+                    "content_type": str(item.get("content_type") or "application/json"),
+                    "parameters": parameters,
+                })
+        return extracted
 
     async def _try_spec(self, client, url):
         try:

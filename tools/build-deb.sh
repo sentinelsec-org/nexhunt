@@ -61,10 +61,15 @@ set -e
 cd /opt/nexhunt
 
 if [ -f package-lock.json ]; then
-  npm ci --silent --include=dev
+  npm ci --omit=dev --no-audit --no-fund
 else
-  npm install --silent --include=dev
+  npm install --omit=dev --no-audit --no-fund
 fi
+
+[ -x /opt/nexhunt/node_modules/.bin/electron ] || {
+  echo "Electron runtime was not installed" >&2
+  exit 1
+}
 
 cd /opt/nexhunt/backend
 if [ ! -d venv ]; then

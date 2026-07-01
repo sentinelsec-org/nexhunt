@@ -14,13 +14,20 @@ logger = logging.getLogger(__name__)
 
 # ── Persistence helper ──────────────────────────────────────────────────────────
 
-async def _save_recon_result(result_type: str, target: str, data: dict, project_id: str | None = None):
+async def _save_recon_result(
+    result_type: str,
+    target: str,
+    data: dict,
+    project_id: str | None = None,
+    tool: str | None = None,
+):
     """Persist a single recon result to the database."""
     from nexhunt.database import DefaultSession
     from nexhunt.models.recon_result import ReconResult
     try:
         async with DefaultSession() as session:
-            r = ReconResult(type=result_type, target=target, project_id=project_id, data=json.dumps(data))
+            stored_data = {**data, **({"_tool": tool} if tool else {})}
+            r = ReconResult(type=result_type, target=target, project_id=project_id, data=json.dumps(stored_data))
             session.add(r)
             await session.commit()
     except Exception as e:
@@ -144,7 +151,7 @@ async def _run_screenshot(job_id: str, url: str, screenshots_dir: str, project_i
             await ws_manager.broadcast("tool_output", {"tool": "gowitness", "line": result["line"]})
         else:
             await ws_manager.broadcast("recon_results", {"tool": "gowitness", "type": "screenshot", "results": [result], "project_id": project_id or ""})
-            await _save_recon_result("screenshot", url, result, project_id)
+            await _save_recon_result("screenshot", url, result, project_id, "gowitness")
     await ws_manager.broadcast("tool_status", {"tool": "gowitness", "event": "completed", "job_id": job_id})
     _RECON_JOBS.pop(job_id, None)
 
@@ -163,7 +170,7 @@ async def _run_screenshots_bulk(job_id: str, urls: list[str], screenshots_dir: s
                 await ws_manager.broadcast("tool_output", {"tool": "gowitness", "line": result["line"]})
             else:
                 await ws_manager.broadcast("recon_results", {"tool": "gowitness", "type": "screenshot", "results": [result], "project_id": project_id or ""})
-                await _save_recon_result("screenshot", url, result, project_id)
+                await _save_recon_result("screenshot", url, result, project_id, "gowitness")
         done += 1
         await ws_manager.broadcast("tool_status", {"tool": "gowitness", "event": "progress", "done": done, "total": len(urls)})
     await ws_manager.broadcast("tool_status", {"tool": "gowitness", "event": "completed", "job_id": job_id, "total": done})
@@ -211,7 +218,7 @@ async def _run_recon_background(job_id: str, tool_name: str, target: str, option
                 "results": [result],
                 "project_id": project_id or "",
             })
-            await _save_recon_result(adapter.result_type, target, result, project_id)
+            await _save_recon_result(adapter.result_type, target, result, project_id, tool_name)
     except asyncio.CancelledError:
         logger.info(f"Recon job {job_id} ({tool_name}) was cancelled")
         await ws_manager.broadcast("tool_status", {
@@ -288,7 +295,7 @@ async def add_live_host(req: LiveHostAddRequest):
         "url": url, "host": host, "status_code": None, "title": "",
         "technologies": [], "content_type": "", "ip": "",
     }
-    await _save_recon_result("live_host", host, result, req.project_id or None)
+    await _save_recon_result("live_host", host, result, req.project_id or None, "manual")
     await ws_manager.broadcast("recon_results", {"tool": "manual", "type": "live_host", "results": [result], "project_id": req.project_id or ""})
     return {"status": "added", "url": url}
 
@@ -344,7 +351,7 @@ async def run_httpx_probe(req: HttpxProbeRequest):
                     "tool": "httpx", "type": "live_host", "results": [result],
                     "project_id": req.project_id or "",
                 })
-                await _save_recon_result("live_host", "", result, req.project_id or None)
+                await _save_recon_result("live_host", "", result, req.project_id or None, "httpx")
         except Exception as e:
             logger.error(f"httpx-probe error: {e}")
             await ws_manager.broadcast("tool_status", {"tool": "httpx-probe", "event": "failed", "error": str(e)})
@@ -426,7 +433,7 @@ async def run_full_recon(req: ReconRequest):
                         continue
                     out.append(r)
                     await ws_manager.broadcast("recon_results", {"tool": tool_name, "type": "subdomain", "results": [r], "project_id": project_id or ""})
-                    await _save_recon_result("subdomain", req.target, r, project_id)
+                    await _save_recon_result("subdomain", req.target, r, project_id, tool_name)
                 await ws_manager.broadcast("tool_status", {"tool": tool_name, "event": "completed", "result_count": len(out)})
 
         async def _collect_typed(tool_name: str):
@@ -447,7 +454,7 @@ async def run_full_recon(req: ReconRequest):
                     "results": [r],
                     "project_id": project_id or "",
                 })
-                await _save_recon_result(adapter.result_type, req.target, r, project_id)
+                await _save_recon_result(adapter.result_type, req.target, r, project_id, tool_name)
             await ws_manager.broadcast("tool_status", {"tool": tool_name, "event": "completed", "result_count": count})
 
         await asyncio.gather(
@@ -478,7 +485,7 @@ async def run_full_recon(req: ReconRequest):
                             continue
                         live_count += 1
                         await ws_manager.broadcast("recon_results", {"tool": "httpx", "type": "live_host", "results": [result], "project_id": project_id or ""})
-                        await _save_recon_result("live_host", req.target, result, project_id)
+                        await _save_recon_result("live_host", req.target, result, project_id, "httpx")
                 except Exception as e:
                     logger.error(f"httpx probe error in full recon: {e}")
                 await ws_manager.broadcast("tool_status", {"tool": "httpx-probe", "event": "completed", "result_count": live_count})
@@ -798,7 +805,7 @@ async def _run_endpoint_check(job_id: str, targets: list[str], paths: list[str],
                     "results": [result],
                     "project_id": project_id or "",
                 })
-                await _save_recon_result("endpoint", "", result, project_id)
+                await _save_recon_result("endpoint", "", result, project_id, "endpoint_check")
                 count += 1
             except (json.JSONDecodeError, KeyError):
                 if line.strip():
@@ -887,7 +894,7 @@ async def crtsh_scan(req: CrtshRequest):
                 seen.add(sub)
                 result = {"subdomain": sub, "source": "crt.sh", "ip": None, "status_code": None}
                 results.append(result)
-                await _save_recon_result("subdomain", target, result, req.project_id or None)
+                await _save_recon_result("subdomain", target, result, req.project_id or None, "crtsh")
     except Exception as e:
         logger.error(f"crt.sh scan error: {e}")
         await ws_manager.broadcast("tool_status", {"tool": "crtsh", "event": "failed", "error": str(e)})
@@ -982,7 +989,7 @@ async def wayback_cdx_scan(req: WaybackCdxRequest):
                 "content_type": mime or None,
             }
             results.append(result)
-            await _save_recon_result("url", target, result, req.project_id or None)
+            await _save_recon_result("url", target, result, req.project_id or None, "waybackurls")
 
         # Broadcast all at once
         await ws_manager.broadcast("recon_results", {

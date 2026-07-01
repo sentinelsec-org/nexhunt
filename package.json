@@ -1,6 +1,6 @@
 {
   "name": "nexhunt",
-  "version": "1.6.3",
+  "version": "1.6.4",
   "description": "Bug bounty automation platform",
   "main": "./out/main/index.js",
   "scripts": {
@@ -24,7 +24,6 @@
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^4.7.0",
     "autoprefixer": "^10.4.27",
-    "electron": "^32.3.3",
     "electron-vite": "^4.0.1",
     "postcss": "^8.5.8",
     "tailwindcss": "^4.2.2",
@@ -37,6 +36,7 @@
     "@tanstack/react-virtual": "^3.13.23",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "electron": "^32.3.3",
     "lucide-react": "^1.7.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
