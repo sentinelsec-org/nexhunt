@@ -70,9 +70,10 @@ rsync -a "$ROOT/out/" "$BUNDLE/out/"
 cp "$ROOT/package.json" "$BUNDLE/"
 cp "$ROOT/package-lock.json" "$BUNDLE/" 2>/dev/null || true
 cp "$ROOT/start.sh" "$BUNDLE/" 2>/dev/null || true
+cp "$ROOT/install-electron-runtime.sh" "$BUNDLE/"
 cp "$ROOT/install.sh" "$BUNDLE/"
 cp "$ROOT/install-toolchain.sh" "$BUNDLE/"
-chmod +x "$BUNDLE/install.sh" "$BUNDLE/install-toolchain.sh" "$BUNDLE/start.sh" 2>/dev/null || true
+chmod +x "$BUNDLE/install.sh" "$BUNDLE/install-toolchain.sh" "$BUNDLE/install-electron-runtime.sh" "$BUNDLE/start.sh" 2>/dev/null || true
 
 ok "Bundle assembled at $BUNDLE"
 

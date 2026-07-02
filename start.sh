@@ -34,6 +34,10 @@ if [ -z "$ELECTRON_BIN" ]; then
     unset NODE_ENV NPM_CONFIG_PRODUCTION npm_config_production NPM_CONFIG_OMIT npm_config_omit
     npm install --omit=dev --no-audit --no-fund || true
   fi
+  if [ -z "$(find_electron || true)" ] && [ -x "$NEXHUNT_DIR/install-electron-runtime.sh" ] && \
+     { [ "$(id -u)" -eq 0 ] || [ -w "$NEXHUNT_DIR/node_modules/electron" ]; }; then
+    bash "$NEXHUNT_DIR/install-electron-runtime.sh" || true
+  fi
   ELECTRON_BIN="$(find_electron || true)"
 fi
 
@@ -53,8 +57,18 @@ fi
 # Electron, Wayland/X11 and ~/.nexhunt use the correct session and ownership.
 if [ "$(id -u)" -eq 0 ] && [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != "root" ]; then
   USER_ID="$(id -u "$SUDO_USER")"
+  USER_HOME="$(getent passwd "$SUDO_USER" | cut -d: -f6)"
+  # Older NexHunt launches often ran Electron as root, so settings, API keys,
+  # license state, projects and scan history may be under /root/.nexhunt.
+  # Seed only missing files into the desktop user's persistent data directory;
+  # never overwrite newer user-owned data during an update.
+  if [ -d /root/.nexhunt ]; then
+    mkdir -p "$USER_HOME/.nexhunt"
+    cp -a -n /root/.nexhunt/. "$USER_HOME/.nexhunt/" 2>/dev/null || true
+    chown -R "$SUDO_USER:$(id -gn "$SUDO_USER")" "$USER_HOME/.nexhunt"
+  fi
   exec sudo -u "$SUDO_USER" env \
-    HOME="$(getent passwd "$SUDO_USER" | cut -d: -f6)" \
+    HOME="$USER_HOME" \
     DISPLAY="${DISPLAY:-}" \
     WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-}" \
     XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$USER_ID}" \

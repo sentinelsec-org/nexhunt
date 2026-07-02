@@ -1,6 +1,6 @@
 {
   "name": "nexhunt",
-  "version": "1.6.4",
+  "version": "1.6.5",
   "description": "Bug bounty automation platform",
   "main": "./out/main/index.js",
   "scripts": {

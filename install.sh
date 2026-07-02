@@ -80,6 +80,8 @@ print(assets[0] if assets else '')
   tar -xzf "$TMP_DIR/nexhunt.tar.gz" -C "$TMP_DIR/extract"
   # Keep the installation at its stable path. Running from the temporary
   # extraction directory would leave the launcher pointing to deleted files.
+  # Application files are replaced in-place. User data is intentionally kept
+  # outside this directory at ~/.nexhunt, including API keys and PRO license.
   cp -a "$TMP_DIR/extract/." "$NEXHUNT_DIR/"
   bash "$NEXHUNT_DIR/install.sh"
   rm -rf "$TMP_DIR"
@@ -146,6 +148,10 @@ if [ -n "$LOCAL_ELECTRON" ] && [ -x "$LOCAL_ELECTRON" ]; then
     ok "npm runtime ready (bundled Electron verified)"
 elif [ -n "$SYSTEM_ELECTRON" ] && [ -x "$SYSTEM_ELECTRON" ]; then
     ok "npm runtime ready (system Electron: $SYSTEM_ELECTRON)"
+elif [ -x "$NEXHUNT_DIR/install-electron-runtime.sh" ]; then
+    bash "$NEXHUNT_DIR/install-electron-runtime.sh" \
+      || die "Could not download the Electron runtime. Check access to GitHub release assets."
+    ok "npm runtime ready (bundled Electron repaired)"
 else
     die "Electron runtime is missing. On Arch/CachyOS run: sudo pacman -S electron"
 fi

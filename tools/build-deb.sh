@@ -49,7 +49,7 @@ Section: utils
 Priority: optional
 Architecture: ${ARCH}
 Maintainer: Sentinel Security <license@sentinelsec.online>
-Depends: bash, ca-certificates, curl, wget, git, build-essential, python3, python3-venv, python3-pip, nodejs, npm, ruby, psmisc, x11-xserver-utils, libgtk-3-0, libnotify4, libnss3, libasound2, libxtst6, xdg-utils
+Depends: bash, ca-certificates, curl, wget, unzip, git, build-essential, python3, python3-venv, python3-pip, nodejs, npm, ruby, psmisc, x11-xserver-utils, libgtk-3-0, libnotify4, libnss3, libasound2, libxtst6, xdg-utils
 Description: NexHunt bug bounty automation platform
  Local desktop app for recon, scanning, proxy workflows, exploitation, and PRO automation.
 CONTROL
@@ -70,6 +70,8 @@ fi
   echo "Electron runtime was not installed" >&2
   exit 1
 }
+node -e "const fs=require('fs'); const p=require('/opt/nexhunt/node_modules/electron'); if (!p || !fs.existsSync(p)) process.exit(1)" || \
+  bash /opt/nexhunt/install-electron-runtime.sh
 
 cd /opt/nexhunt/backend
 if [ ! -d venv ]; then
@@ -82,6 +84,7 @@ deactivate
 
 chmod +x /opt/nexhunt/start.sh 2>/dev/null || true
 chmod +x /opt/nexhunt/install-toolchain.sh 2>/dev/null || true
+chmod +x /opt/nexhunt/install-electron-runtime.sh 2>/dev/null || true
 chmod +x /usr/local/bin/nexhunt 2>/dev/null || true
 xdg-desktop-menu install /usr/share/applications/nexhunt.desktop 2>/dev/null || true
 exit 0
