@@ -142,6 +142,41 @@ def _parse_session_headers(raw: str) -> dict[str, str]:
     return out
 
 
+async def _discovered_endpoint_urls(project_id: str | None, base: str) -> list[str]:
+    """Live URLs found by the check-endpoints scan for this project, restricted to
+    the target's root domain (so subdomains like api.example.com are included but
+    unrelated project targets are not). Lets pipelines also process endpoints the
+    crawler never linked to."""
+    if not project_id:
+        return []
+    from nexhunt.database import DefaultSession
+    from nexhunt.models.recon_result import ReconResult
+    from sqlalchemy import select
+    apex = base[4:] if base.startswith("www.") else base
+
+    def _in_scope(netloc: str) -> bool:
+        return not apex or netloc == base or netloc == apex or netloc.endswith("." + apex)
+
+    async with DefaultSession() as session:
+        rows = (await session.execute(
+            select(ReconResult.data).where(
+                ReconResult.project_id == project_id,
+                ReconResult.type == "endpoint",
+            )
+        )).scalars().all()
+    urls: list[str] = []
+    seen: set[str] = set()
+    for raw in rows:
+        try:
+            u = json.loads(raw).get("url", "")
+        except Exception:
+            continue
+        if u and u not in seen and _in_scope(urlparse(u).netloc):
+            seen.add(u)
+            urls.append(u)
+    return urls
+
+
 async def _katana_crawl(
     target: str,
     opts: dict,
@@ -709,15 +744,26 @@ async def run_sqli_probe_pipeline(req: PipelineRequest):
     cookie = opts.get("cookie", "") or None
     sess_headers = _parse_session_headers(opts.get("session_headers", ""))
 
+    # Fold in endpoints discovered by check-endpoints: parameterized ones are
+    # direct SQLi candidates; the rest are mined for hidden endpoints below.
+    discovered = await _discovered_endpoint_urls(project_id, _base_domain(target))
+    for u in discovered:
+        if "?" in u and parse_qs(urlparse(u).query):
+            param_urls.add(u)
+
     # Phase 1b: mine endpoints from external .js files AND inline <script> tags
     if opts.get("parse_js", True):
-        js_urls = [r["url"] for r in all_results if r["url"].split("?")[0].endswith(".js")]
         # HTML pages to scrape for inline <script> (skip static assets)
         _SKIP_EXT = (".js", ".css", ".png", ".jpg", ".jpeg", ".gif", ".svg",
                      ".webp", ".ico", ".woff", ".woff2", ".ttf", ".pdf", ".zip", ".mp4")
+        js_urls = [r["url"] for r in all_results if r["url"].split("?")[0].endswith(".js")]
+        js_urls += [u for u in discovered if u.split("?")[0].endswith(".js")]
         html_urls = list({
             r["url"] for r in all_results
             if not r["url"].split("?")[0].lower().endswith(_SKIP_EXT)
+        } | {
+            u for u in discovered
+            if not u.split("?")[0].lower().endswith(_SKIP_EXT)
         })[:120]
 
         if js_urls or html_urls:
@@ -928,13 +974,21 @@ async def run_js_scan_pipeline(req: PipelineRequest):
     cookie_js = opts.get("cookie", "") or None
     sess_hdrs_js = _parse_session_headers(opts.get("session_headers", ""))
 
+    # Fold in endpoints discovered by check-endpoints so their JS bundles and
+    # inline scripts are scanned even when the crawler never linked to them.
+    discovered = await _discovered_endpoint_urls(project_id, base_domain)
+    for u in discovered:
+        if u.split("?")[0].endswith(".js"):
+            js_urls.add(u)
+
+    _SKIP_PAGE = (".js", ".css", ".png", ".jpg", ".jpeg", ".gif", ".svg",
+                  ".ico", ".woff", ".woff2", ".ttf", ".pdf", ".zip", ".mp4")
     html_pages = list({
         r["url"] for r in all_results
-        if not r["url"].split("?")[0].lower().endswith(
-            (".js", ".css", ".png", ".jpg", ".jpeg", ".gif", ".svg",
-             ".ico", ".woff", ".woff2", ".ttf", ".pdf", ".zip", ".mp4")
-        )
-    })[:60]
+        if not r["url"].split("?")[0].lower().endswith(_SKIP_PAGE)
+    } | {
+        u for u in discovered if not u.split("?")[0].lower().endswith(_SKIP_PAGE)
+    })[:80]
     # Always include the target root page even if Katana didn't list it
     if target_url not in html_pages:
         html_pages.insert(0, target_url)
