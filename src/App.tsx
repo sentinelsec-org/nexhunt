@@ -158,7 +158,7 @@ function App() {
     })
 
     const unsubStatus = wsClient.subscribe('tool_status', (data) => {
-      const status = data as { tool: string; event: string; done?: number; total?: number; error?: string }
+      const status = data as { tool: string; event: string; done?: number; total?: number; result_count?: number; error?: string }
       if (status.event === 'failed') {
         toast.error(`${status.tool} failed`, status.error)
       }
@@ -204,6 +204,19 @@ function App() {
         setReconToolRunning(s.tool, s.event === 'started')
         if (s.event === 'started' && s.job_id) setReconJobId(s.tool, s.job_id)
         if (s.event === 'completed' || s.event === 'failed' || s.event === 'cancelled') setReconJobId(s.tool, null)
+        if (s.tool === 'httpx-probe' && s.event === 'completed') {
+          const projectId = useAppStore.getState().activeProject
+          if (projectId) {
+            api.get<Record<string, any[]>>(`/api/recon/results?project_id=${projectId}`)
+              .then(recon => {
+                if (recon.live_host) addLiveHosts(recon.live_host)
+              })
+              .catch(() => {})
+          }
+          const count = status.result_count ?? 0
+          if (count > 0) toast.success('HTTPX probe completed', `${count} live host${count === 1 ? '' : 's'} found`)
+          else toast.info('HTTPX probe completed', 'No live HTTP/HTTPS hosts responded')
+        }
       }
     })
 

@@ -3,6 +3,7 @@ import os
 import tempfile
 from typing import AsyncIterator
 from nexhunt.adapters.base import ToolAdapter
+from nexhunt.services.privacy_route import _mask_proxy, privacy_route
 
 
 class HttpxAdapter(ToolAdapter):
@@ -30,6 +31,8 @@ class HttpxAdapter(ToolAdapter):
                     "-tech-detect",
                     "-status-code",
                     "-ip",
+                    "-timeout", "10",
+                    "-retries", "2",
                 ]
             else:
                 cmd = [
@@ -41,7 +44,17 @@ class HttpxAdapter(ToolAdapter):
                     "-tech-detect",
                     "-status-code",
                     "-ip",
+                    "-timeout", "10",
+                    "-retries", "2",
                 ]
+
+            # ProjectDiscovery httpx is written in Go and does not consistently
+            # honor SOCKS URLs from HTTP_PROXY. Pass the active NexHunt route
+            # explicitly so Tor/custom routing cannot turn Probe All into a
+            # silent zero-result run.
+            route_proxy = privacy_route.proxy_url if privacy_route.mode in {"tor", "custom"} else ""
+            if route_proxy:
+                cmd.extend(["-proxy", route_proxy])
 
             if options.get("threads"):
                 cmd.extend(["-threads", str(options["threads"])])
@@ -57,8 +70,9 @@ class HttpxAdapter(ToolAdapter):
                         cmd.extend(["-H", h])
 
             cmd = self._with_extra_args(cmd, options)
-            yield {"_raw": True, "line": "$ " + " ".join(cmd)}
-            async for line in self._run_subprocess(cmd, timeout=300):
+            display_cmd = [_mask_proxy(part) if part == route_proxy else part for part in cmd]
+            yield {"_raw": True, "line": "$ " + " ".join(display_cmd)}
+            async for line in self._run_subprocess(cmd, timeout=300, check_exit=True):
                 try:
                     data = json.loads(line)
                     # httpx JSON uses "status-code" (older) or "status_code" (newer)

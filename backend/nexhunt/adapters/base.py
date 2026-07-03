@@ -72,7 +72,8 @@ class ToolAdapter(ABC):
                     pass
 
     async def _run_subprocess(
-        self, cmd: list[str], timeout: int = 300, merge_stderr: bool = False
+        self, cmd: list[str], timeout: int = 300, merge_stderr: bool = False,
+        check_exit: bool = False,
     ) -> AsyncIterator[str]:
         """
         Run a command and yield stdout lines as they arrive.
@@ -84,6 +85,8 @@ class ToolAdapter(ABC):
         """
         logger.debug(f"Running: {' '.join(cmd)}")
         queue: asyncio.Queue[str | None] = asyncio.Queue()
+        stderr_tail: list[str] = []
+        timed_out = False
 
         async def _drain(stream: StreamReader, prefix: str = ""):
             try:
@@ -98,7 +101,9 @@ class ToolAdapter(ABC):
                         elif not prefix:
                             await queue.put(decoded)
                         else:
-                            # stderr — just log it, don't yield
+                            stderr_tail.append(decoded)
+                            del stderr_tail[:-20]
+                            # stderr — log it and retain a tail for failures
                             logger.debug(f"[{self.binary_name} stderr] {decoded}")
             finally:
                 await queue.put(None)  # sentinel
@@ -125,6 +130,7 @@ class ToolAdapter(ABC):
             while sentinels_received < 2:
                 remaining = deadline - loop.time()
                 if remaining <= 0:
+                    timed_out = True
                     if proc.returncode is None:
                         try:
                             proc.terminate()
@@ -154,6 +160,13 @@ class ToolAdapter(ABC):
                     except ProcessLookupError:
                         pass
 
+            if check_exit and timed_out:
+                raise TimeoutError(f"{self.binary_name} timed out after {timeout}s")
+            if check_exit and proc.returncode not in (None, 0):
+                detail = " | ".join(stderr_tail[-5:])
+                suffix = f": {detail}" if detail else ""
+                raise RuntimeError(f"{self.binary_name} exited with code {proc.returncode}{suffix}")
+
         except FileNotFoundError:
             logger.error(f"{self.binary_name} not found in PATH")
         except asyncio.CancelledError:
@@ -165,6 +178,8 @@ class ToolAdapter(ABC):
             raise
         except Exception as e:
             logger.error(f"Subprocess error for {self.binary_name}: {e}")
+            if check_exit:
+                raise
         finally:
             if proc is not None and proc in self._procs:
                 self._procs.remove(proc)

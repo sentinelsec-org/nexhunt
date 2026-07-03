@@ -338,7 +338,8 @@ async def run_httpx_probe(req: HttpxProbeRequest):
             return
 
         await ws_manager.broadcast("tool_status", {
-            "tool": "httpx-probe", "event": "started", "total": len(req.targets),
+            "tool": "httpx-probe", "event": "started", "job_id": job_id,
+            "total": len(req.targets),
         })
         results = []
         try:
@@ -360,7 +361,12 @@ async def run_httpx_probe(req: HttpxProbeRequest):
             _RECON_JOBS.pop(job_id, None)
 
         await ws_manager.broadcast("tool_status", {
-            "tool": "httpx-probe", "event": "completed", "result_count": len(results),
+            "tool": "httpx-probe", "event": "completed", "job_id": job_id,
+            "result_count": len(results),
+        })
+        await ws_manager.broadcast("tool_output", {
+            "tool": "httpx-probe",
+            "line": f"HTTPX completed: {len(results)} live host(s) from {len(req.targets)} target(s).",
         })
 
     task = asyncio.create_task(_probe_background())
