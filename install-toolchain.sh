@@ -128,7 +128,10 @@ go_install() {
   fi
   printf "  Installing %-24s ... " "$name"
   if go install "$package"; then
-    ln -sf "$GO_BIN/$name" "/usr/local/bin/$name"
+    # Copy the real binary, not a symlink: GOPATH is /root/go/bin and /root is
+    # mode 700, so a symlink target there is unreachable by the non-root desktop
+    # user that runs the app (breaks httpx probe, katana, dalfox, etc.).
+    install -m 0755 "$GO_BIN/$name" "/usr/local/bin/$name"
     echo -e "${GREEN}ok${NC}"
   else
     echo -e "${RED}failed${NC}"
