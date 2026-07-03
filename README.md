@@ -11,7 +11,7 @@
 
 **Bug Bounty Automation Platform for Linux**
 
-[![Version](https://img.shields.io/badge/version-1.6.0--beta-amber?style=flat-square)](https://github.com/sentinelsec-org/nexhunt/releases)
+[![Version](https://img.shields.io/badge/version-1.7.0--beta-amber?style=flat-square)](https://github.com/sentinelsec-org/nexhunt/releases)
 [![Platform](https://img.shields.io/badge/platform-Linux-green?style=flat-square)]()
 [![License](https://img.shields.io/badge/license-Free%20%2F%20PRO-blue?style=flat-square)](https://nexhunt.myshopify.com/products/nexhunt-pro)
 [![Made by](https://img.shields.io/badge/by-Sentinel%20Security-green?style=flat-square)](https://nexhunt.myshopify.com)
@@ -127,6 +127,20 @@ Your HTTP Swiss knife, built into the workflow.
 
 ---
 
+### 🕶️ Privacy Route
+
+Choose how NexHunt reaches authorized targets without disrupting its local intercepting proxy.
+
+- **System VPN** — use Proton VPN, WARP, WireGuard, or OpenVPN for the best speed and broadest protocol coverage
+- **Managed Tor** — NexHunt starts an isolated local Tor client and routes internal HTTP plus compatible CLI TCP traffic through it
+- **Custom route** — use an authenticated SOCKS5, SOCKS4, or HTTP proxy
+- **Exit verification** — compare the direct and routed addresses and verify Tor exits against the Tor Project service
+- **Local bypass** — `localhost`, `127.0.0.1`, and `::1` always stay direct so Electron, the backend, and NexHunt Proxy continue working
+
+SOCKS/Tor cannot anonymize raw SYN/UDP scans, ICMP, or every out-of-band callback. Use a system VPN when those protocols must also leave through another address.
+
+---
+
 ### 🤖 AI Copilot *(PRO)*
 
 A security-focused AI assistant that actually understands your findings.
@@ -166,6 +180,7 @@ The free tier is genuinely useful. No time limits, no feature degradation, no na
 | Single-target exploitation (sqlmap, dalfox, xsstrike, commix) | ✅ | ✅ |
 | Security tools (CORS, 403 bypass, GitHub secrets, exposed files) | ✅ | ✅ |
 | Proxy capture + request editor + repeater | ✅ | ✅ |
+| Privacy Route (system VPN, Tor, custom SOCKS/HTTP) | ✅ | ✅ |
 | Findings database + projects + methodology | ✅ | ✅ |
 | Built-in terminal + session management | ✅ | ✅ |
 | **Exposure Intelligence** (Shodan, dorks, scoped endpoint discovery) | ❌ | ✅ |

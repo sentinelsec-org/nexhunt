@@ -23,7 +23,7 @@ if command -v apt-get >/dev/null 2>&1 && command -v dpkg-query >/dev/null 2>&1; 
   export DEBIAN_FRONTEND=noninteractive
   apt-get update -qq || { err "Could not refresh apt package metadata"; exit 1; }
   apt-get install -y -qq \
-    bash ca-certificates curl wget git build-essential coreutils perl unzip \
+    bash ca-certificates curl wget git build-essential coreutils perl unzip tor proxychains4 \
     python3 python3-pip python3-venv python3-full \
     nodejs npm ruby ruby-dev \
     xterm psmisc x11-xserver-utils \
@@ -37,7 +37,7 @@ if command -v apt-get >/dev/null 2>&1 && command -v dpkg-query >/dev/null 2>&1; 
 elif command -v pacman >/dev/null 2>&1; then
   DISTRO_FAMILY="arch"
   pacman -Sy --needed --noconfirm \
-    bash ca-certificates curl wget git base-devel coreutils perl unzip \
+    bash ca-certificates curl wget git base-devel coreutils perl unzip tor proxychains-ng \
     python python-pip nodejs npm ruby \
     xterm psmisc xorg-xhost \
     electron \

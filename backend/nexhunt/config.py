@@ -11,6 +11,11 @@ class Settings(BaseSettings):
     proxy_host: str = "127.0.0.1"
     proxy_port: int = 8080
 
+    # Optional outbound privacy routing. localhost always bypasses the route so
+    # the Electron UI, backend and intercepting proxy keep talking directly.
+    privacy_mode: str = "direct"  # direct | system | tor | custom
+    privacy_proxy_url: str = ""
+
     # Database
     db_dir: str = os.path.expanduser("~/.nexhunt")
 

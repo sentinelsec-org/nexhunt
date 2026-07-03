@@ -1,6 +1,6 @@
 import json
 import os
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from nexhunt.config import settings
 
@@ -17,6 +17,10 @@ def _load_persisted():
                 data = json.load(f)
             if data.get("proxy_port"):
                 settings.proxy_port = int(data["proxy_port"])
+            if data.get("privacy_mode") in {"direct", "system", "tor", "custom"}:
+                settings.privacy_mode = data["privacy_mode"]
+            if data.get("privacy_proxy_url"):
+                settings.privacy_proxy_url = data["privacy_proxy_url"]
             if data.get("ai_provider"):
                 settings.ai_provider = data["ai_provider"]
             if data.get("ai_model"):
@@ -47,6 +51,8 @@ def _persist():
     with open(_SETTINGS_FILE, "w") as f:
         json.dump({
             "proxy_port": settings.proxy_port,
+            "privacy_mode": settings.privacy_mode,
+            "privacy_proxy_url": settings.privacy_proxy_url,
             "ai_provider": settings.ai_provider,
             "ai_model": settings.ai_model,
             "ai_groq_key": settings.ai_groq_key,
@@ -67,6 +73,8 @@ _load_persisted()
 
 class SettingsUpdate(BaseModel):
     proxy_port: int | None = None
+    privacy_mode: str | None = None
+    privacy_proxy_url: str | None = None
     ai_provider: str | None = None
     ai_model: str | None = None
     ai_base_url: str | None = None
@@ -85,11 +93,23 @@ def _mask(secret: str) -> str:
     return f"{'*' * max(0, len(secret) - 4)}{secret[-4:]}" if len(secret) > 4 else "*" * len(secret)
 
 
+def _mask_proxy_url(value: str) -> str:
+    if not value or "@" not in value:
+        return value
+    prefix, host = value.rsplit("@", 1)
+    scheme = prefix.split("://", 1)[0]
+    username = prefix.split("://", 1)[-1].split(":", 1)[0]
+    return f"{scheme}://{username}:***@{host}"
+
+
 @router.get("")
 async def get_settings():
     # Never return secrets in plaintext — only a masked hint + a boolean.
     return {
         "proxy_port": settings.proxy_port,
+        "privacy_mode": settings.privacy_mode,
+        "privacy_proxy_url_masked": _mask_proxy_url(settings.privacy_proxy_url),
+        "privacy_proxy_url_set": bool(settings.privacy_proxy_url),
         "ai_provider": settings.ai_provider,
         "ai_model": settings.ai_model,
         "ai_base_url": settings.ai_base_url,
@@ -110,6 +130,24 @@ async def get_settings():
 
 @router.post("")
 async def update_settings(data: SettingsUpdate):
+    privacy_changed = data.privacy_mode is not None or data.privacy_proxy_url is not None
+    if privacy_changed:
+        from nexhunt.services.privacy_route import PrivacyRouteError, privacy_route
+        next_mode = data.privacy_mode if data.privacy_mode is not None else settings.privacy_mode
+        next_url = data.privacy_proxy_url if data.privacy_proxy_url is not None else settings.privacy_proxy_url
+        try:
+            await privacy_route.apply(next_mode, next_url)
+        except PrivacyRouteError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        settings.privacy_mode = next_mode
+        settings.privacy_proxy_url = next_url
+        _persist()
+        # mitmdump and CLI children inherit routing at process start.
+        from nexhunt.proxy.engine import proxy_engine
+        if proxy_engine.running:
+            port = proxy_engine.port
+            await proxy_engine.stop()
+            await proxy_engine.start(port)
     if data.proxy_port is not None:
         settings.proxy_port = data.proxy_port
     if data.ai_provider is not None:
@@ -134,3 +172,15 @@ async def update_settings(data: SettingsUpdate):
         settings.brave_search_api_key = data.brave_search_api_key
     _persist()
     return {"status": "updated"}
+
+
+@router.get("/privacy/status")
+async def privacy_status():
+    from nexhunt.services.privacy_route import privacy_route
+    return privacy_route.status()
+
+
+@router.post("/privacy/test")
+async def privacy_test():
+    from nexhunt.services.privacy_route import privacy_route
+    return await privacy_route.test_egress()

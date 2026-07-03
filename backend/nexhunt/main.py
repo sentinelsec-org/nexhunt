@@ -28,6 +28,9 @@ async def lifespan(app: FastAPI):
     logger.info("NexHunt backend starting...")
     await init_db()
     logger.info("Database initialized")
+    from nexhunt.services.privacy_route import privacy_route
+    await privacy_route.start_from_settings()
+    logger.info("Privacy Route started (mode=%s)", privacy_route.mode)
     from nexhunt.licensing.manager import license_manager
     await license_manager.start()
     logger.info("License manager started (tier=%s)", license_manager.tier())
@@ -35,6 +38,8 @@ async def lifespan(app: FastAPI):
     # Cleanup
     from nexhunt.licensing.manager import license_manager as _lm
     await _lm.stop()
+    from nexhunt.services.privacy_route import privacy_route as _privacy_route
+    await _privacy_route.stop()
     from nexhunt.proxy.engine import proxy_engine
     if proxy_engine.running:
         await proxy_engine.stop()

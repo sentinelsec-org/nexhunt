@@ -22,7 +22,36 @@ import {
   ExternalLink,
   Cpu,
   ArrowUpCircle,
+  ShieldCheck,
+  ShieldOff,
+  Route,
+  Gauge,
 } from 'lucide-react'
+
+type PrivacyMode = 'direct' | 'system' | 'tor' | 'custom'
+
+interface PrivacyStatus {
+  mode: PrivacyMode
+  state: 'direct' | 'connecting' | 'connected' | 'error'
+  proxy_url: string
+  tor_installed: boolean
+  proxychains_installed: boolean
+  system_vpn_detected: boolean
+  system_vpn_provider: string
+  raw_socket_warning: boolean
+  error?: string
+}
+
+interface EgressTest {
+  ok: boolean
+  direct_ip: string
+  exit_ip: string
+  changed?: boolean
+  tor_verified?: boolean
+  routed: boolean
+  system_managed?: boolean
+  error?: string
+}
 
 const GROQ_MODELS = [
   { id: 'openai/gpt-oss-120b', label: 'GPT-OSS 120B (recommended — best for pentesting, free)' },
@@ -61,6 +90,13 @@ export function SettingsPage() {
   const [braveSearchKey, setBraveSearchKey] = useState('')
   const [braveSearchKeySet, setBraveSearchKeySet] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [privacyMode, setPrivacyMode] = useState<PrivacyMode>('direct')
+  const [privacyProxyUrl, setPrivacyProxyUrl] = useState('')
+  const [privacyProxySet, setPrivacyProxySet] = useState(false)
+  const [privacyStatus, setPrivacyStatus] = useState<PrivacyStatus | null>(null)
+  const [privacyBusy, setPrivacyBusy] = useState<'apply' | 'test' | null>(null)
+  const [privacyError, setPrivacyError] = useState('')
+  const [egressTest, setEgressTest] = useState<EgressTest | null>(null)
 
   const fetchTools = async () => {
     try {
@@ -75,6 +111,8 @@ export function SettingsPage() {
     fetchTools()
     api.get<any>('/api/settings').then(s => {
       if (s.proxy_port) setProxyPort(String(s.proxy_port))
+      if (s.privacy_mode) setPrivacyMode(s.privacy_mode)
+      if (s.privacy_proxy_url_set) setPrivacyProxySet(true)
       if (s.ai_provider) setAiProvider(s.ai_provider)
       if (s.ai_model) setAiModel(s.ai_model)
       if (s.ai_base_url) setAiBaseUrl(s.ai_base_url)
@@ -85,8 +123,39 @@ export function SettingsPage() {
       if (s.shodan_api_key_set) setShodanKeySet(true)
       if (s.brave_search_api_key_set) setBraveSearchKeySet(true)
     }).catch(() => {})
+    api.get<PrivacyStatus>('/api/settings/privacy/status').then(setPrivacyStatus).catch(() => {})
     useLicenseStore.getState().fetchStatus()
   }, [])
+
+  const applyPrivacyRoute = async () => {
+    setPrivacyBusy('apply'); setPrivacyError(''); setEgressTest(null)
+    try {
+      await api.post('/api/settings', {
+        privacy_mode: privacyMode,
+        privacy_proxy_url: privacyMode === 'custom' && privacyProxyUrl ? privacyProxyUrl : undefined,
+      }, 50000)
+      const status = await api.get<PrivacyStatus>('/api/settings/privacy/status')
+      setPrivacyStatus(status)
+      if (privacyProxyUrl) setPrivacyProxySet(true)
+    } catch (err: any) {
+      setPrivacyError(err?.message || 'Could not activate the privacy route')
+    } finally {
+      setPrivacyBusy(null)
+    }
+  }
+
+  const testPrivacyRoute = async () => {
+    setPrivacyBusy('test'); setPrivacyError(''); setEgressTest(null)
+    try {
+      const result = await api.post<EgressTest>('/api/settings/privacy/test', {}, 45000)
+      setEgressTest(result)
+      if (!result.ok) setPrivacyError(result.error || 'The route did not reach the IP check service')
+    } catch (err: any) {
+      setPrivacyError(err?.message || 'Could not test the privacy route')
+    } finally {
+      setPrivacyBusy(null)
+    }
+  }
 
   const handleSaveSettings = async () => {
     try {
@@ -174,6 +243,110 @@ export function SettingsPage() {
               <div className="text-[11px] text-zinc-600 border-t border-zinc-800 pt-2">
                 Chrome/Chromium: import the cert via chrome://settings/certificates → Authorities → Import
               </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Privacy Route */}
+        <div className="overflow-hidden rounded-xl border border-cyan-950/80 bg-[linear-gradient(145deg,rgba(8,47,73,0.24),rgba(9,9,11,0.88)_48%)]">
+          <div className="flex items-start justify-between gap-4 border-b border-cyan-950/70 px-5 py-4">
+            <div>
+              <h3 className="flex items-center gap-2 font-semibold text-zinc-100">
+                <Route size={16} className="text-cyan-400" /> Privacy Route
+              </h3>
+              <p className="mt-1 text-[11px] text-zinc-500">Choose the path used by outbound HTTP and compatible TCP tools.</p>
+            </div>
+            <div className={`flex items-center gap-2 rounded-full border px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.12em] ${
+              privacyStatus?.state === 'connected'
+                ? 'border-emerald-800/70 bg-emerald-950/40 text-emerald-400'
+                : privacyStatus?.state === 'error'
+                  ? 'border-red-900/70 bg-red-950/40 text-red-400'
+                  : 'border-zinc-700 bg-zinc-900/70 text-zinc-500'
+            }`}>
+              <span className={`h-1.5 w-1.5 rounded-full ${privacyStatus?.state === 'connected' ? 'bg-emerald-400' : privacyStatus?.state === 'error' ? 'bg-red-400' : 'bg-zinc-500'}`} />
+              {privacyStatus?.state || 'direct'}
+            </div>
+          </div>
+
+          <div className="space-y-4 p-5">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4" role="radiogroup" aria-label="Outbound privacy route">
+              {([
+                { mode: 'direct', label: 'Direct', hint: 'Fastest', icon: ShieldOff },
+                { mode: 'system', label: 'System VPN', hint: 'Proton · WARP', icon: Globe },
+                { mode: 'tor', label: 'Tor', hint: 'Free · slower', icon: ShieldCheck },
+                { mode: 'custom', label: 'Custom', hint: 'Fast SOCKS/HTTP', icon: Gauge },
+              ] as const).map(option => {
+                const Icon = option.icon
+                const active = privacyMode === option.mode
+                return (
+                  <button
+                    key={option.mode}
+                    type="button"
+                    role="radio"
+                    aria-checked={active}
+                    onClick={() => { setPrivacyMode(option.mode); setEgressTest(null); setPrivacyError('') }}
+                    className={`group rounded-lg border p-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cyan-400 ${
+                      active
+                        ? 'border-cyan-700/80 bg-cyan-950/40 text-zinc-100'
+                        : 'border-zinc-800 bg-zinc-950/45 text-zinc-500 hover:border-zinc-700 hover:text-zinc-300'
+                    }`}
+                  >
+                    <Icon size={15} className={active ? 'text-cyan-400' : 'text-zinc-600 group-hover:text-zinc-400'} />
+                    <span className="mt-2 block text-xs font-semibold">{option.label}</span>
+                    <span className="mt-0.5 block text-[10px]">{option.hint}</span>
+                  </button>
+                )
+              })}
+            </div>
+
+            {privacyMode === 'custom' && (
+              <div>
+                <label className="mb-1 block text-xs text-zinc-500">SOCKS5 or HTTP proxy URL</label>
+                <Input
+                  className="bg-zinc-950 font-mono text-xs"
+                  type="password"
+                  value={privacyProxyUrl}
+                  onChange={event => setPrivacyProxyUrl(event.target.value)}
+                  placeholder={privacyProxySet ? 'configured — leave blank to keep' : 'socks5://user:password@host:port'}
+                />
+              </div>
+            )}
+
+            <div className="flex flex-wrap items-center gap-2">
+              <Button size="sm" onClick={applyPrivacyRoute} disabled={privacyBusy !== null}>
+                {privacyBusy === 'apply' && <Loader2 size={12} className="mr-1.5 animate-spin" />}
+                Apply route
+              </Button>
+              <Button variant="outline" size="sm" onClick={testPrivacyRoute} disabled={privacyBusy !== null}>
+                {privacyBusy === 'test' && <Loader2 size={12} className="mr-1.5 animate-spin" />}
+                Test exit IP
+              </Button>
+              <span className="text-[10px] text-zinc-600">
+                Tor {privacyStatus?.tor_installed ? 'ready' : 'not installed'} · CLI routing {privacyStatus?.proxychains_installed ? 'ready' : 'limited'}
+                {privacyStatus?.system_vpn_detected && ` · ${privacyStatus.system_vpn_provider} detected`}
+              </span>
+            </div>
+
+            {egressTest?.ok && (
+              <div className={`grid gap-3 rounded-lg border p-3 sm:grid-cols-[1fr_auto_1fr] ${egressTest.routed ? 'border-emerald-900/70 bg-emerald-950/20' : 'border-zinc-800 bg-zinc-950/50'}`}>
+                <div>
+                  <div className="text-[9px] uppercase tracking-[0.15em] text-zinc-600">{privacyMode === 'system' ? 'Original IP' : 'Direct IP'}</div>
+                  <code className="mt-1 block text-xs text-zinc-400">{egressTest.direct_ip || (privacyMode === 'system' ? 'hidden by OS tunnel' : 'unavailable')}</code>
+                </div>
+                <div className="hidden self-center text-zinc-700 sm:block">→</div>
+                <div>
+                  <div className="text-[9px] uppercase tracking-[0.15em] text-zinc-600">Exit IP</div>
+                  <code className={`mt-1 block text-xs ${egressTest.routed ? 'text-emerald-400' : 'text-zinc-400'}`}>{egressTest.exit_ip}</code>
+                  {privacyMode === 'tor' && <span className={`text-[10px] ${egressTest.tor_verified ? 'text-emerald-500' : 'text-amber-500'}`}>{egressTest.tor_verified ? 'Tor network verified' : 'Not verified as Tor'}</span>}
+                  {privacyMode === 'system' && <span className={`text-[10px] ${egressTest.routed ? 'text-emerald-500' : 'text-amber-500'}`}>{egressTest.routed ? 'System VPN interface detected' : 'No VPN interface detected — connect Proton first'}</span>}
+                </div>
+              </div>
+            )}
+
+            {privacyError && <p className="rounded-md border border-red-900/60 bg-red-950/30 px-3 py-2 text-[11px] text-red-400">{privacyError}</p>}
+
+            <div className="border-t border-zinc-800/80 pt-3 text-[10px] leading-relaxed text-zinc-600">
+              <strong className="text-amber-500/90">Boundary:</strong> localhost bypasses the route, so NexHunt Proxy keeps working. Tor/custom route HTTP and normal TCP; SYN/UDP, ICMP and raw sockets can reveal your IP. A connected system VPN covers more protocols and is the faster choice.
             </div>
           </div>
         </div>

@@ -49,7 +49,7 @@ Section: utils
 Priority: optional
 Architecture: ${ARCH}
 Maintainer: Sentinel Security <license@sentinelsec.online>
-Depends: bash, ca-certificates, curl, wget, unzip, git, build-essential, python3, python3-venv, python3-pip, nodejs, npm, ruby, psmisc, x11-xserver-utils, libgtk-3-0, libnotify4, libnss3, libasound2, libxtst6, xdg-utils
+Depends: bash, ca-certificates, curl, wget, unzip, tor, proxychains4, git, build-essential, python3, python3-venv, python3-pip, nodejs, npm, ruby, psmisc, x11-xserver-utils, libgtk-3-0, libnotify4, libnss3, libasound2, libxtst6, xdg-utils
 Description: NexHunt bug bounty automation platform
  Local desktop app for recon, scanning, proxy workflows, exploitation, and PRO automation.
 CONTROL
