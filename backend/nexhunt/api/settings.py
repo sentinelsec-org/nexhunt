@@ -128,11 +128,25 @@ async def get_settings():
     }
 
 
+def _schedule_backend_restart(delay: float = 1.0) -> None:
+    """Exit so the Electron supervisor (PythonBridge) respawns a fresh backend.
+
+    A long-lived process keeps stale DNS/routing after the system network
+    changes (VPN connect/disconnect), so in-process httpx stops reaching the
+    internet. A non-zero exit triggers the respawn; the delay lets the HTTP
+    response flush first. The frontend WS auto-reconnects.
+    """
+    import asyncio
+    asyncio.get_running_loop().call_later(delay, os._exit, 3)
+
+
 @router.post("")
 async def update_settings(data: SettingsUpdate):
+    restart_for_route = False
     privacy_changed = data.privacy_mode is not None or data.privacy_proxy_url is not None
     if privacy_changed:
         from nexhunt.services.privacy_route import PrivacyRouteError, privacy_route
+        prev_mode, prev_url = settings.privacy_mode, settings.privacy_proxy_url
         next_mode = data.privacy_mode if data.privacy_mode is not None else settings.privacy_mode
         next_url = data.privacy_proxy_url if data.privacy_proxy_url is not None else settings.privacy_proxy_url
         try:
@@ -148,6 +162,11 @@ async def update_settings(data: SettingsUpdate):
             port = proxy_engine.port
             await proxy_engine.stop()
             await proxy_engine.start(port)
+        # tor/custom route through a proxy, so they are unaffected by stale
+        # system DNS; system/direct use the OS network directly and need a
+        # fresh process after the route actually changed.
+        route_changed = next_mode != prev_mode or next_url != prev_url
+        restart_for_route = route_changed and next_mode in {"system", "direct"}
     if data.proxy_port is not None:
         settings.proxy_port = data.proxy_port
     if data.ai_provider is not None:
@@ -171,6 +190,8 @@ async def update_settings(data: SettingsUpdate):
     if data.brave_search_api_key is not None:
         settings.brave_search_api_key = data.brave_search_api_key
     _persist()
+    if restart_for_route:
+        _schedule_backend_restart()
     return {"status": "updated"}
 
 
