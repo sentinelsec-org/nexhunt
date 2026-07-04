@@ -68,9 +68,17 @@ export const useReconStore = create<ReconState>((set) => ({
       ...results.filter(r => !state.subdomains.some(s => s.subdomain === r.subdomain))
     ]
   })),
-  addUrls: (results) => set((state) => ({
-    urls: [...state.urls, ...results.filter(r => !state.urls.some(u => u.url === r.url))]
-  })),
+  addUrls: (results) => set((state) => {
+    const byUrl = new Map(state.urls.map(u => [u.url, u]))
+    for (const r of results) {
+      const existing = byUrl.get(r.url)
+      if (!existing) byUrl.set(r.url, r)
+      else if (r.status_code != null && r.status_code !== existing.status_code) {
+        byUrl.set(r.url, { ...existing, status_code: r.status_code })
+      }
+    }
+    return { urls: Array.from(byUrl.values()) }
+  }),
   addPorts: (results) => set((state) => {
     const ports = [...state.ports]
     for (const result of results) {

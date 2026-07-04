@@ -374,6 +374,74 @@ async def run_httpx_probe(req: HttpxProbeRequest):
     return {"status": "started", "job_id": job_id, "tool": "httpx-probe", "targets": len(req.targets)}
 
 
+class UrlProbeRequest(_BaseModel):
+    urls: list[str]
+    project_id: str = ""
+
+
+@router.post("/probe-urls", dependencies=[Depends(require_pro("URL status probe"))])
+async def probe_urls(req: UrlProbeRequest):
+    """Fetch each discovered URL and report its HTTP status, keyed by the exact
+    URL so the Recon URLs table can fill in the Status column."""
+    if not req.urls:
+        return {"error": "No URLs provided"}
+    urls = list(dict.fromkeys(u for u in req.urls if u.startswith("http")))[:3000]
+    job_id = str(uuid.uuid4())
+
+    async def _bg():
+        import httpx
+        sem = asyncio.Semaphore(25)
+        await ws_manager.broadcast("tool_status", {
+            "tool": "url-probe", "event": "started", "job_id": job_id, "total": len(urls),
+        })
+        done = 0
+        batch: list[dict] = []
+
+        async def flush():
+            if batch:
+                await ws_manager.broadcast("recon_results", {
+                    "tool": "httpx", "type": "url", "results": batch[:],
+                    "project_id": req.project_id or "",
+                })
+                batch.clear()
+
+        headers = {"User-Agent": "Mozilla/5.0 (NexHunt URL Probe)"}
+        try:
+            async with httpx.AsyncClient(verify=False, follow_redirects=True, timeout=10, headers=headers) as client:
+                async def probe(u: str):
+                    nonlocal done
+                    async with sem:
+                        try:
+                            r = await client.get(u)
+                            status = r.status_code
+                        except Exception:
+                            status = None
+                        batch.append({"url": u, "status_code": status})
+                        done += 1
+                        if len(batch) >= 25:
+                            await flush()
+                        if done % 50 == 0:
+                            await ws_manager.broadcast("tool_status", {
+                                "tool": "url-probe", "event": "progress",
+                                "job_id": job_id, "done": done, "total": len(urls),
+                            })
+                await asyncio.gather(*[probe(u) for u in urls])
+                await flush()
+        except Exception as e:
+            logger.error(f"url-probe error: {e}")
+            await ws_manager.broadcast("tool_status", {"tool": "url-probe", "event": "failed", "job_id": job_id, "error": str(e)})
+            return
+        finally:
+            _RECON_JOBS.pop(job_id, None)
+        await ws_manager.broadcast("tool_status", {
+            "tool": "url-probe", "event": "completed", "job_id": job_id, "result_count": done,
+        })
+
+    task = asyncio.create_task(_bg())
+    _RECON_JOBS[job_id] = task
+    return {"status": "started", "job_id": job_id, "tool": "url-probe", "count": len(urls)}
+
+
 @router.post("/nmap")
 async def run_nmap(req: ReconRequest):
     return _start_recon("nmap", req.target, req.options, req.project_id or None)

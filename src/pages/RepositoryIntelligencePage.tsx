@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
-  AlertTriangle, Boxes, Check, ChevronRight, Circle, CloudCog, Copy, Database,
+  AlertTriangle, Boxes, Check, ChevronDown, ChevronRight, Circle, CloudCog, Copy, Database,
   FileCode2, GitBranch, GitCommitHorizontal, GitFork, KeyRound, Loader2, Network,
   Play, RefreshCw, SearchCode, Send, Server, ShieldAlert, Square, TerminalSquare,
 } from 'lucide-react'
@@ -10,6 +10,7 @@ import { api } from '@/api/http-client'
 import { wsClient } from '@/api/ws-client'
 import { cn } from '@/lib/utils'
 import { useAppStore } from '@/stores/app-store'
+import { useReconStore } from '@/stores/recon-store'
 import { toast } from '@/stores/toast-store'
 
 type EvidenceView = 'overview' | 'secrets' | 'history' | 'providers' | 'architecture'
@@ -385,6 +386,66 @@ function ArchitectureView({ report, onImport, importing }: { report: RepositoryR
   )
 }
 
+function HostSelect({ hosts, selected, onChange, disabled }: {
+  hosts: { url: string; status_code: number | null; title?: string }[]
+  selected: string[]
+  onChange: (urls: string[]) => void
+  disabled?: boolean
+}) {
+  const [open, setOpen] = useState(false)
+  const [filter, setFilter] = useState('')
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const onClick = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false) }
+    document.addEventListener('mousedown', onClick)
+    return () => document.removeEventListener('mousedown', onClick)
+  }, [open])
+
+  const visible = filter
+    ? hosts.filter(h => (h.url + (h.title || '')).toLowerCase().includes(filter.toLowerCase()))
+    : hosts
+  const toggle = (url: string) => onChange(selected.includes(url) ? selected.filter(u => u !== url) : [...selected, url])
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        type="button"
+        onClick={() => setOpen(v => !v)}
+        disabled={disabled || hosts.length === 0}
+        className="h-8 flex items-center gap-2 rounded border border-green-900/70 bg-green-950/20 px-3 text-[10px] text-green-300 hover:border-green-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+      >
+        <Server size={12} />
+        <span>{selected.length ? `${selected.length} selected` : hosts.length ? 'Pick hosts' : 'No live hosts'}</span>
+        <ChevronDown size={11} className={cn('transition-transform', open && 'rotate-180')} />
+      </button>
+      {open && (
+        <div className="absolute z-50 top-full left-0 mt-1 w-[420px] max-w-[80vw] rounded-lg border border-zinc-700 bg-zinc-900 shadow-xl shadow-black/50 overflow-hidden">
+          <div className="flex items-center gap-2 p-2 border-b border-zinc-800">
+            <input autoFocus value={filter} onChange={e => setFilter(e.target.value)} placeholder="Filter hostname or title" className="flex-1 h-7 rounded border border-zinc-800 bg-zinc-950 px-2 text-[10px] text-zinc-300 focus:outline-none focus:border-green-800" />
+            <button type="button" onClick={() => onChange(hosts.map(h => h.url))} className="text-[10px] text-green-400 hover:text-green-300">Select all</button>
+            <button type="button" onClick={() => onChange([])} className="text-[10px] text-zinc-500 hover:text-zinc-300">Clear</button>
+          </div>
+          <div className="max-h-56 overflow-y-auto p-1">
+            {visible.map(host => {
+              const checked = selected.includes(host.url)
+              return (
+                <button type="button" key={host.url} onClick={() => toggle(host.url)} className={cn('w-full grid grid-cols-[20px_44px_minmax(0,1fr)] items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-zinc-800/70', checked && 'bg-green-950/20')}>
+                  <span className={cn('w-3.5 h-3.5 rounded border grid place-items-center', checked ? 'border-green-600 bg-green-600 text-zinc-950' : 'border-zinc-700')}>{checked && <Check size={10} />}</span>
+                  <span className={cn('text-[9px] font-mono font-semibold', host.status_code && host.status_code < 300 ? 'text-green-400' : 'text-amber-400')}>{host.status_code || '---'}</span>
+                  <span className="font-mono text-[10px] text-zinc-300 truncate">{host.url}</span>
+                </button>
+              )
+            })}
+            {visible.length === 0 && <div className="px-3 py-5 text-center text-[10px] text-zinc-600">No hosts match this filter.</div>}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function RepositoryIntelligencePage({ embedded = false }: { embedded?: boolean }) {
   const activeProject = useAppStore(state => state.activeProject)
   const activeProjectData = useAppStore(state => state.activeProjectData)
@@ -397,6 +458,9 @@ export function RepositoryIntelligencePage({ embedded = false }: { embedded?: bo
   const [status, setStatus] = useState('Ready to inspect target')
   const [scanHistory, setScanHistory] = useState(true)
   const [importing, setImporting] = useState(false)
+  const liveHosts = useReconStore(state => state.liveHosts)
+  const [selectedHosts, setSelectedHosts] = useState<string[]>([])
+  const [bulkProgress, setBulkProgress] = useState<{ done: number; total: number } | null>(null)
 
   useEffect(() => {
     if (!target && activeProjectData?.scope?.length) setTarget(projectTarget(activeProjectData.scope))
@@ -411,7 +475,7 @@ export function RepositoryIntelligencePage({ embedded = false }: { embedded?: bo
 
   useEffect(() => {
     return wsClient.subscribe('repository_intelligence', data => {
-      const event = data as { event: string; job_id: string; project_id: string; stage?: string; message?: string; report?: RepositoryReport; error?: string }
+      const event = data as { event: string; job_id: string; project_id: string; stage?: string; message?: string; report?: RepositoryReport; error?: string; host_index?: number; host_total?: number }
       if (event.project_id !== activeProject) return
       if (event.event === 'progress') {
         setRunning(true)
@@ -419,11 +483,24 @@ export function RepositoryIntelligencePage({ embedded = false }: { embedded?: bo
         setStatus(event.message || 'Working…')
       } else if (event.event === 'completed' && event.report) {
         setReport(event.report)
+        if (event.host_index && event.host_total) {
+          // One host of a bulk sweep finished; keep the job running for the rest.
+          setBulkProgress({ done: event.host_index, total: event.host_total })
+          setStatus(`Host ${event.host_index} of ${event.host_total} complete`)
+        } else {
+          setRunning(false)
+          setJobId(null)
+          setStage('complete')
+          setStatus('Repository intelligence report ready')
+          toast.success('Repository case completed', `${event.report.summary.secrets} secrets and ${event.report.summary.hosts} hosts extracted`)
+        }
+      } else if (event.event === 'bulk_completed') {
         setRunning(false)
         setJobId(null)
         setStage('complete')
-        setStatus('Repository intelligence report ready')
-        toast.success('Repository case completed', `${event.report.summary.secrets} secrets and ${event.report.summary.hosts} hosts extracted`)
+        setBulkProgress(null)
+        setStatus(`Sweep complete — ${event.host_total ?? 0} host(s) analyzed`)
+        toast.success('Repository sweep completed', `${event.host_total ?? 0} host(s) analyzed`)
       } else if (event.event === 'failed') {
         setRunning(false)
         setJobId(null)
@@ -438,20 +515,32 @@ export function RepositoryIntelligencePage({ embedded = false }: { embedded?: bo
   }, [activeProject])
 
   const start = async () => {
-    if (!activeProject || !target.trim()) return toast.error('An active project and target are required')
+    if (!activeProject) return toast.error('An active project is required')
+    if (!selectedHosts.length && !target.trim()) return toast.error('Pick hosts or enter a target')
     setReport(null)
     setView('overview')
     setRunning(true)
     setStage('exposure')
-    setStatus('Opening repository case…')
     try {
-      const response = await api.post<{ job_id: string }>('/api/repository-intelligence/analyze', {
-        target, project_id: activeProject, recover: true, scan_history: scanHistory,
-      })
-      setJobId(response.job_id)
+      if (selectedHosts.length) {
+        setBulkProgress({ done: 0, total: selectedHosts.length })
+        setStatus(`Opening ${selectedHosts.length} repository cases…`)
+        const response = await api.post<{ job_id: string }>('/api/repository-intelligence/analyze-bulk', {
+          targets: selectedHosts, project_id: activeProject, recover: true, scan_history: scanHistory,
+        })
+        setJobId(response.job_id)
+      } else {
+        setBulkProgress(null)
+        setStatus('Opening repository case…')
+        const response = await api.post<{ job_id: string }>('/api/repository-intelligence/analyze', {
+          target, project_id: activeProject, recover: true, scan_history: scanHistory,
+        })
+        setJobId(response.job_id)
+      }
     } catch (error) {
       setRunning(false)
       setStage('')
+      setBulkProgress(null)
       setStatus(cleanError(error))
       toast.error('Could not start analysis', cleanError(error))
     }
@@ -493,12 +582,13 @@ export function RepositoryIntelligencePage({ embedded = false }: { embedded?: bo
       <div className="space-y-3">
         <section className="border border-zinc-800/80 rounded-lg bg-zinc-950/55 overflow-hidden">
           <div className="flex flex-col gap-3 p-3 lg:flex-row lg:items-end">
-            <div className="flex-1"><label className="mb-1.5 block text-[9px] font-semibold uppercase tracking-[0.16em] text-zinc-600">Authorized target</label><div className="relative"><TerminalSquare size={13} className="absolute left-3 top-2.5 text-green-500" /><Input value={target} onChange={event => setTarget(event.target.value)} disabled={running} placeholder="https://target.example" className="h-8 pl-8 font-mono text-[11px]" /></div></div>
+            <div className="flex-1"><label className="mb-1.5 block text-[9px] font-semibold uppercase tracking-[0.16em] text-zinc-600">Authorized target</label><div className="relative"><TerminalSquare size={13} className="absolute left-3 top-2.5 text-green-500" /><Input value={target} onChange={event => setTarget(event.target.value)} disabled={running || selectedHosts.length > 0} placeholder={selectedHosts.length ? `${selectedHosts.length} live host(s) selected` : 'https://target.example'} className="h-8 pl-8 font-mono text-[11px] disabled:opacity-50" /></div></div>
+            <div><label className="mb-1.5 block text-[9px] font-semibold uppercase tracking-[0.16em] text-zinc-600">Live hosts</label><HostSelect hosts={liveHosts} selected={selectedHosts} onChange={setSelectedHosts} disabled={running} /></div>
             <label className="flex h-8 cursor-pointer items-center gap-2 rounded border border-zinc-800 px-2.5 text-[9px] text-zinc-500 hover:text-zinc-300"><input type="checkbox" checked={scanHistory} onChange={event => setScanHistory(event.target.checked)} disabled={running} className="accent-green-600" /> Scan deleted history</label>
-            <button onClick={loadLatest} disabled={running || !target.trim()} className="inline-flex h-8 items-center justify-center gap-1.5 rounded border border-zinc-800 px-3 text-[10px] text-zinc-400 hover:bg-zinc-900 hover:text-zinc-200 disabled:opacity-40"><RefreshCw size={11} /> Load last</button>
-            {running ? <button onClick={cancel} disabled={!jobId} className="inline-flex h-8 items-center justify-center gap-1.5 rounded border border-red-900 bg-red-950/20 px-3 text-[10px] text-red-400 hover:bg-red-950/40 disabled:opacity-40"><Square size={10} /> Stop</button> : <button onClick={start} disabled={!target.trim()} className="inline-flex h-8 items-center justify-center gap-1.5 rounded border border-green-800 bg-green-950/40 px-4 text-[10px] font-medium text-green-300 hover:bg-green-950/70 disabled:opacity-40"><Play size={11} fill="currentColor" /> Recover & analyze</button>}
+            <button onClick={loadLatest} disabled={running || selectedHosts.length > 0 || !target.trim()} className="inline-flex h-8 items-center justify-center gap-1.5 rounded border border-zinc-800 px-3 text-[10px] text-zinc-400 hover:bg-zinc-900 hover:text-zinc-200 disabled:opacity-40"><RefreshCw size={11} /> Load last</button>
+            {running ? <button onClick={cancel} disabled={!jobId} className="inline-flex h-8 items-center justify-center gap-1.5 rounded border border-red-900 bg-red-950/20 px-3 text-[10px] text-red-400 hover:bg-red-950/40 disabled:opacity-40"><Square size={10} /> Stop</button> : <button onClick={start} disabled={!selectedHosts.length && !target.trim()} className="inline-flex h-8 items-center justify-center gap-1.5 rounded border border-green-800 bg-green-950/40 px-4 text-[10px] font-medium text-green-300 hover:bg-green-950/70 disabled:opacity-40"><Play size={11} fill="currentColor" /> {selectedHosts.length ? `Analyze ${selectedHosts.length} host${selectedHosts.length > 1 ? 's' : ''}` : 'Recover & analyze'}</button>}
           </div>
-          <div className="flex items-center gap-2 border-t border-zinc-800/70 bg-black/20 px-3 py-1.5 font-mono text-[9px]"><Circle size={6} fill="currentColor" className={running ? 'text-amber-400 animate-pulse motion-reduce:animate-none' : report ? 'text-green-500' : 'text-zinc-700'} /><span className={running ? 'text-amber-400' : 'text-zinc-600'}>{status}</span>{jobId && <span className="ml-auto text-zinc-800">job {jobId.slice(0, 8)}</span>}</div>
+          <div className="flex items-center gap-2 border-t border-zinc-800/70 bg-black/20 px-3 py-1.5 font-mono text-[9px]"><Circle size={6} fill="currentColor" className={running ? 'text-amber-400 animate-pulse motion-reduce:animate-none' : report ? 'text-green-500' : 'text-zinc-700'} /><span className={running ? 'text-amber-400' : 'text-zinc-600'}>{status}</span>{bulkProgress && <span className="text-green-500">· {bulkProgress.done}/{bulkProgress.total} hosts</span>}{jobId && <span className="ml-auto text-zinc-800">job {jobId.slice(0, 8)}</span>}</div>
         </section>
 
         <div className="grid gap-3 lg:grid-cols-[190px_minmax(0,1fr)]">

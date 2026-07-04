@@ -121,7 +121,13 @@ class PrivacyRouteManager:
             "remote_dns_subnet 224\n"
             "tcp_read_time_out 30000\n"
             "tcp_connect_time_out 12000\n"
+            # Send loopback and private/VPN ranges direct, never through the proxy,
+            # so lab targets (TryHackMe/HTB 10.x, LANs) stay reachable over the tunnel.
             "localnet 127.0.0.0/255.0.0.0\n"
+            "localnet 10.0.0.0/255.0.0.0\n"
+            "localnet 172.16.0.0/255.240.0.0\n"
+            "localnet 192.168.0.0/255.255.0.0\n"
+            "localnet 169.254.0.0/255.255.0.0\n"
             "localnet ::1/128\n"
             "[ProxyList]\n"
             f"{scheme} {host} {port}{auth}\n"
@@ -132,7 +138,10 @@ class PrivacyRouteManager:
 
     def _apply_environment(self, proxy_url: str) -> None:
         self._restore_environment()
-        no_proxy = "localhost,127.0.0.1,::1"
+        # RFC1918 + link-local bypass the proxy so VPN/lab targets (THM/HTB 10.x)
+        # stay reachable; Go tools (nuclei, katana) honor CIDRs in NO_PROXY.
+        no_proxy = ("localhost,127.0.0.1,::1,10.0.0.0/8,"
+                    "172.16.0.0/12,192.168.0.0/16,169.254.0.0/16")
         for key in ("ALL_PROXY", "all_proxy", "HTTP_PROXY", "http_proxy", "HTTPS_PROXY", "https_proxy"):
             os.environ[key] = proxy_url
         os.environ["NO_PROXY"] = no_proxy

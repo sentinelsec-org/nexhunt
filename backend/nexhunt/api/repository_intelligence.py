@@ -32,6 +32,13 @@ class AnalyzeRequest(BaseModel):
     scan_history: bool = True
 
 
+class AnalyzeBulkRequest(BaseModel):
+    targets: list[str] = Field(min_length=1, max_length=200)
+    project_id: str = Field(min_length=1, max_length=80)
+    recover: bool = True
+    scan_history: bool = True
+
+
 class ProviderRequest(BaseModel):
     provider: str
     token: str = Field(min_length=1, max_length=4096)
@@ -113,6 +120,74 @@ async def start_analysis(request: AnalyzeRequest):
     await _check_scope(request.project_id, request.target)
     job_id = str(uuid.uuid4())
     _JOBS[job_id] = asyncio.create_task(_run(job_id, request))
+    return {"status": "started", "job_id": job_id, "tool": "repository_intelligence"}
+
+
+async def _run_bulk(job_id: str, request: AnalyzeBulkRequest) -> None:
+    project = await _project(request.project_id)
+    in_scope = json.loads(project.scope) if project.scope else []
+    out_of_scope = json.loads(project.out_of_scope) if project.out_of_scope else []
+    targets = []
+    for raw in dict.fromkeys(request.targets):
+        try:
+            base, _ = normalize_target(raw)
+        except ValueError:
+            continue
+        if is_in_scope(base, in_scope, out_of_scope):
+            targets.append(raw)
+    total = len(targets)
+
+    await ws_manager.broadcast("tool_status", {
+        "tool": "repository_intelligence", "event": "started", "job_id": job_id,
+    })
+    try:
+        for index, target in enumerate(targets, 1):
+            async def progress(stage: str, message: str, data: dict | None, _i=index, _t=target) -> None:
+                await ws_manager.broadcast("repository_intelligence", {
+                    "event": "progress", "job_id": job_id, "project_id": request.project_id,
+                    "stage": stage, "message": f"[{_i}/{total}] {_t} — {message}", "data": data or {},
+                })
+            try:
+                report = await analyze_repository(
+                    target, request.project_id, settings.db_dir,
+                    request.recover, request.scan_history, progress,
+                )
+                await ws_manager.broadcast("repository_intelligence", {
+                    "event": "completed", "job_id": job_id, "project_id": request.project_id,
+                    "report": report, "host_index": index, "host_total": total,
+                })
+            except asyncio.CancelledError:
+                raise
+            except Exception as error:
+                logger.warning("Repository intelligence host failed: %s", error)
+                await ws_manager.broadcast("repository_intelligence", {
+                    "event": "progress", "job_id": job_id, "project_id": request.project_id,
+                    "stage": "exposure",
+                    "message": f"[{index}/{total}] {target} — failed: {error}", "data": {},
+                })
+        await ws_manager.broadcast("repository_intelligence", {
+            "event": "bulk_completed", "job_id": job_id, "project_id": request.project_id,
+            "host_total": total,
+        })
+        await ws_manager.broadcast("tool_status", {
+            "tool": "repository_intelligence", "event": "completed", "job_id": job_id,
+        })
+    except asyncio.CancelledError:
+        await ws_manager.broadcast("repository_intelligence", {
+            "event": "cancelled", "job_id": job_id, "project_id": request.project_id,
+        })
+        await ws_manager.broadcast("tool_status", {
+            "tool": "repository_intelligence", "event": "cancelled", "job_id": job_id,
+        })
+    finally:
+        _JOBS.pop(job_id, None)
+
+
+@router.post("/analyze-bulk")
+async def start_bulk_analysis(request: AnalyzeBulkRequest):
+    await _project(request.project_id)
+    job_id = str(uuid.uuid4())
+    _JOBS[job_id] = asyncio.create_task(_run_bulk(job_id, request))
     return {"status": "started", "job_id": job_id, "tool": "repository_intelligence"}
 
 

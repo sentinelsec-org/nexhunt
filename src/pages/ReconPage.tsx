@@ -25,6 +25,7 @@ import {
   Trash2,
   Zap,
   Camera,
+  Activity,
   ExternalLink,
   Download,
   ChevronDown,
@@ -426,6 +427,7 @@ export function ReconPage() {
   const [portSearch, setPortSearch] = useState('')
   const [portRiskOnly, setPortRiskOnly] = useState(false)
   const [screenshotLoading, setScreenshotLoading] = useState(false)
+  const [urlProbeLoading, setUrlProbeLoading] = useState(false)
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null)
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null)
   const [hostsAiAnalysis, setHostsAiAnalysis] = useState<string | null>(null)
@@ -449,6 +451,18 @@ export function ReconPage() {
       console.error('Failed to start bulk screenshots:', err)
     } finally {
       setScreenshotLoading(false)
+    }
+  }
+
+  const handleProbeUrls = async () => {
+    if (urls.length === 0) return
+    setUrlProbeLoading(true)
+    try {
+      await api.post('/api/recon/probe-urls', { urls: urls.map(u => u.url), project_id: activeProject ?? '' })
+    } catch (err) {
+      console.error('Failed to start URL probe:', err)
+    } finally {
+      setUrlProbeLoading(false)
     }
   }
 
@@ -1314,7 +1328,16 @@ export function ReconPage() {
                       >{chip.label}</button>
                     ))}
                   </div>
-                  <span className="ml-auto text-[10px] text-zinc-600">
+                  <button
+                    onClick={handleProbeUrls}
+                    disabled={urlProbeLoading || urls.length === 0}
+                    className="ml-auto flex items-center gap-1 px-2 py-0.5 rounded text-[10px] border border-zinc-700 bg-zinc-900 text-zinc-300 hover:border-cyan-600 hover:text-cyan-300 disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    {urlProbeLoading
+                      ? <><Loader2 size={11} className="animate-spin" />Probing...</>
+                      : <><Activity size={11} />Probe status ({urls.length})</>}
+                  </button>
+                  <span className="text-[10px] text-zinc-600">
                     {filteredUrls.length} / {urls.length}
                   </span>
                 </div>
