@@ -254,7 +254,10 @@ export function SecurityToolsPage({ embedded }: { embedded?: boolean }) {
   const { liveHosts, urls, ports } = useReconStore()
   const jsHostUrls = [...new Set(liveHosts.map(host => host.url).filter(Boolean))]
   const jsHostKey = jsHostUrls.join('\n')
-  const exploitHosts = [...new Set(liveHosts.filter(host => host.technologies?.length).map(host => host.host).filter(Boolean))]
+  const exploitHosts = [...new Set([
+    ...liveHosts.filter(host => host.technologies?.length).map(host => host.host),
+    ...ports.filter(port => port.version && port.ip).map(port => port.ip),
+  ].filter(Boolean))]
   const exploitHostKey = exploitHosts.join('\n')
   const { addFinding: addToWorkspace } = useWorkspaceStore()
 
@@ -1442,11 +1445,23 @@ function ExploitIntelHostPicker({ selected, onChange }: {
   selected: string[]
   onChange: (hosts: string[]) => void
 }) {
-  const { liveHosts } = useReconStore()
+  const { liveHosts, ports } = useReconStore()
   const [open, setOpen] = useState(false)
   const [filter, setFilter] = useState('')
   const ref = useRef<HTMLDivElement>(null)
-  const hosts = [...new Map(liveHosts.filter(host => host.technologies?.length).map(host => [host.host, host])).values()]
+  // Two exploitable sources: httpx-fingerprinted web tech, and nmap service
+  // versions on open ports (keyed by IP) — the latter is where THM/HTB boxes live.
+  const portHosts = new Map<string, { host: string; technologies: string[] }>()
+  for (const port of ports) {
+    if (!port.version || !port.ip) continue
+    const entry = portHosts.get(port.ip) || { host: port.ip, technologies: [] }
+    entry.technologies.push(`${port.service || 'service'} ${port.version}`.trim())
+    portHosts.set(port.ip, entry)
+  }
+  const techHosts = liveHosts
+    .filter(host => host.technologies?.length)
+    .map(host => ({ host: host.host, technologies: host.technologies || [] }))
+  const hosts = [...new Map([...portHosts.values(), ...techHosts].map(host => [host.host, host])).values()]
   const visible = hosts.filter(host => !filter || `${host.host} ${(host.technologies || []).join(' ')}`.toLowerCase().includes(filter.toLowerCase()))
 
   useEffect(() => {

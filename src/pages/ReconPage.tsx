@@ -54,10 +54,11 @@ function downloadText(content: string, filename: string) {
 type ReconTab = 'subdomains' | 'live_hosts' | 'urls' | 'ports' | 'screenshots' | 'cve' | 'endpoints'
 
 const NMAP_PROFILES = [
+  { id: 'auto', label: 'Auto (recommended)', detail: 'All 65k ports fast, then deep scripts + vuln on open ones', tone: 'text-emerald-300 border-emerald-800/70' },
   { id: 'quick', label: 'Quick', detail: 'Top 100 · light versions', tone: 'text-sky-400 border-sky-900/60' },
   { id: 'standard', label: 'Standard', detail: 'Top 1,000 · default scripts', tone: 'text-orange-300 border-orange-800/70' },
   { id: 'full', label: 'Full TCP', detail: 'All 65,535 ports', tone: 'text-amber-300 border-amber-900/70' },
-  { id: 'udp', label: 'UDP', detail: 'Top 100 · privileged', tone: 'text-cyan-300 border-cyan-900/70' },
+  { id: 'udp', label: 'UDP', detail: 'Top 200 · service scan', tone: 'text-cyan-300 border-cyan-900/70' },
   { id: 'vuln', label: 'Vulnerability', detail: 'Vuln + safe NSE scripts', tone: 'text-red-300 border-red-900/70' },
 ] as const
 
@@ -1725,7 +1726,7 @@ function NmapOptionsPanel({ opts, setOption }: {
   opts: Record<string, string>
   setOption: (key: string, value: string) => void
 }) {
-  const profile = opts.profile || 'standard'
+  const profile = opts.profile || 'auto'
   const toggle = (key: string) => setOption(key, opts[key] === 'true' ? '' : 'true')
   return (
     <div className="space-y-2.5 py-1">
@@ -1746,9 +1747,14 @@ function NmapOptionsPanel({ opts, setOption }: {
             </button>
           ))}
         </div>
-        {(profile === 'udp' || profile === 'vuln') && (
-          <div className={cn('mt-1.5 rounded border px-2 py-1.5 text-[9px] leading-relaxed', profile === 'udp' ? 'border-cyan-900/60 bg-cyan-950/15 text-cyan-500' : 'border-red-900/60 bg-red-950/15 text-red-400')}>
-            {profile === 'udp' ? 'UDP/SYN/OS scans may require elevated privileges.' : 'Vulnerability profile runs active NSE checks. Confirm authorization and scope.'}
+        {(profile === 'auto' || profile === 'udp' || profile === 'vuln') && (
+          <div className={cn('mt-1.5 rounded border px-2 py-1.5 text-[9px] leading-relaxed',
+            profile === 'auto' ? 'border-emerald-900/60 bg-emerald-950/15 text-emerald-400'
+              : profile === 'udp' ? 'border-cyan-900/60 bg-cyan-950/15 text-cyan-500'
+                : 'border-red-900/60 bg-red-950/15 text-red-400')}>
+            {profile === 'auto' ? 'Runs two passes: a fast sweep of every port, then service, default and vuln scripts on only the open ones. The Ports field is ignored — it always sweeps all ports.'
+              : profile === 'udp' ? 'UDP/SYN/OS scans may require elevated privileges.'
+                : 'Vulnerability profile runs active NSE checks. Confirm authorization and scope.'}
           </div>
         )}
       </div>

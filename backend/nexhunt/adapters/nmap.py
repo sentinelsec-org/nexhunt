@@ -271,18 +271,82 @@ def parse_nmap_xml(xml_path: str, profile: str = "standard") -> list[dict]:
     return results
 
 
+def _scan_flag(options: dict) -> str:
+    protocol = str(options.get("protocol") or "tcp").lower()
+    if protocol == "udp":
+        return "-sU"
+    return "-sS" if str(options.get("scan_type") or "connect").lower() == "syn" else "-sT"
+
+
+def _common_flags(options: dict, clean_target: str) -> list[str]:
+    flags: list[str] = []
+    if _bool(options, "skip_discovery", True):  # assume an authorized, known-up target
+        flags.append("-Pn")
+    if _bool(options, "no_dns", True):
+        flags.append("-n")
+    if _bool(options, "ipv6") or ":" in clean_target:
+        flags.append("-6")
+    return flags
+
+
+def build_discovery_command(target: str, options: dict, xml_path: str) -> tuple[list[str], str]:
+    """Phase 1: sweep every port fast, no service/script probes, just find what's open."""
+    clean_target = normalize_target(target)
+    timing = str(options.get("timing") or "4")
+    if timing not in {"0", "1", "2", "3", "4", "5"}:
+        timing = "4"
+    cmd = ["nmap", _scan_flag(options), f"-T{timing}", "--open", *_common_flags(options, clean_target)]
+    # UDP has no fast all-port equivalent, so cap it; TCP sweeps the full range.
+    cmd.extend(["--top-ports", "200"] if str(options.get("protocol") or "tcp").lower() == "udp" else ["-p-"])
+    min_rate = str(options.get("min_rate") or "1800").strip()
+    if min_rate.isdigit():
+        cmd.extend(["--min-rate", str(max(1, min(int(min_rate), 100000)))])
+    cmd.extend(["-oX", xml_path, clean_target])
+    return cmd, clean_target
+
+
+def build_deep_command(target: str, ports_csv: str, options: dict, xml_path: str) -> tuple[list[str], str]:
+    """Phase 2: full service, default and vuln scripts against the open ports only."""
+    clean_target = normalize_target(target)
+    timing = str(options.get("timing") or "4")
+    if timing not in {"0", "1", "2", "3", "4", "5"}:
+        timing = "4"
+    intensity = str(options.get("version_intensity") or "7")
+    try:
+        intensity = str(max(0, min(int(intensity), 9)))
+    except ValueError:
+        intensity = "7"
+    cmd = [
+        "nmap", _scan_flag(options), "-sV", "--version-intensity", intensity,
+        "-sC", "--script", "default,vuln", "--reason", f"-T{timing}",
+        "-p", ports_csv, "--open", *_common_flags(options, clean_target),
+    ]
+    if _bool(options, "os_detection"):
+        cmd.extend(["-O", "--osscan-limit"])
+    script_args = str(options.get("script_args") or "").strip()
+    if script_args:
+        cmd.extend(["--script-args", script_args])
+    cmd.extend(["-oX", xml_path, clean_target])
+    return cmd, clean_target
+
+
 class NmapAdapter(ToolAdapter):
     name = "nmap"
     binary_name = "nmap"
     result_type = "port"
 
     async def run(self, target: str, options: dict) -> AsyncIterator[dict]:
+        profile = str(options.get("profile") or "auto").lower()
+        if profile == "auto":
+            async for item in self._run_two_phase(target, options):
+                yield item
+            return
+
         fd, xml_path = tempfile.mkstemp(prefix="nexhunt-nmap-", suffix=".xml")
         os.close(fd)
         Path(xml_path).unlink(missing_ok=True)
         try:
             cmd, clean_target = build_nmap_command(target, options, xml_path)
-            profile = str(options.get("profile") or "standard").lower()
             display_cmd = ["<temporary.xml>" if part == xml_path else part for part in cmd]
             yield {"_raw": True, "line": "$ " + " ".join(shlex.quote(part) for part in display_cmd)}
             yield {"_raw": True, "line": f"  Profile: {profile}  Target: {clean_target}"}
@@ -295,3 +359,39 @@ class NmapAdapter(ToolAdapter):
                 yield result
         finally:
             Path(xml_path).unlink(missing_ok=True)
+
+    async def _run_two_phase(self, target: str, options: dict) -> AsyncIterator[dict]:
+        fd1, xml1 = tempfile.mkstemp(prefix="nexhunt-nmap-p1-", suffix=".xml")
+        fd2, xml2 = tempfile.mkstemp(prefix="nexhunt-nmap-p2-", suffix=".xml")
+        os.close(fd1)
+        os.close(fd2)
+        Path(xml1).unlink(missing_ok=True)
+        Path(xml2).unlink(missing_ok=True)
+        try:
+            all_ports = str(options.get("protocol") or "tcp").lower() != "udp"
+            cmd1, clean_target = build_discovery_command(target, options, xml1)
+            yield {"_raw": True, "line": f"  Phase 1/2 — Fast port sweep ({'all 65,535 TCP ports' if all_ports else 'top 200 UDP ports'}) on {clean_target}"}
+            yield {"_raw": True, "line": "$ " + " ".join(shlex.quote("<phase1.xml>" if p == xml1 else p) for p in cmd1)}
+            async for line in self._run_subprocess(cmd1, timeout=1200, merge_stderr=True):
+                yield {"_raw": True, "line": line}
+
+            open_ports = sorted({r["port"] for r in parse_nmap_xml(xml1, "auto") if r.get("port")})
+            if not open_ports:
+                yield {"_raw": True, "line": "  No open ports found — nothing to probe deeper."}
+                return
+            ports_csv = ",".join(str(p) for p in open_ports)
+            yield {"_raw": True, "line": f"  Phase 1 done — {len(open_ports)} open port(s): {ports_csv}"}
+
+            cmd2, _ = build_deep_command(target, ports_csv, options, xml2)
+            yield {"_raw": True, "line": f"  Phase 2/2 — Deep scan (service + default + vuln scripts) on {len(open_ports)} open port(s)"}
+            yield {"_raw": True, "line": "$ " + " ".join(shlex.quote("<phase2.xml>" if p == xml2 else p) for p in cmd2)}
+            async for line in self._run_subprocess(cmd2, timeout=1800, merge_stderr=True):
+                yield {"_raw": True, "line": line}
+
+            parsed = parse_nmap_xml(xml2, "auto")
+            yield {"_raw": True, "line": f"  Structured results: {len(parsed)} open port(s) with service + script data"}
+            for result in parsed:
+                yield result
+        finally:
+            Path(xml1).unlink(missing_ok=True)
+            Path(xml2).unlink(missing_ok=True)
