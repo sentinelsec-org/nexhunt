@@ -308,6 +308,9 @@ def build_discovery_command(target: str, options: dict, xml_path: str) -> tuple[
 def build_deep_command(target: str, ports_csv: str, options: dict, xml_path: str) -> tuple[list[str], str]:
     """Phase 2: full service, default and vuln scripts against the open ports only."""
     clean_target = normalize_target(target)
+    ports_csv = ports_csv.strip()
+    if not _PORTS_RE.fullmatch(ports_csv):
+        raise ValueError("Deep scan ports must be numbers, ranges or a comma list")
     timing = str(options.get("timing") or "4")
     if timing not in {"0", "1", "2", "3", "4", "5"}:
         timing = "4"
@@ -339,6 +342,14 @@ class NmapAdapter(ToolAdapter):
         profile = str(options.get("profile") or "auto").lower()
         if profile == "auto":
             async for item in self._run_two_phase(target, options):
+                yield item
+            return
+        if profile == "discovery":
+            async for item in self._run_discovery(target, options):
+                yield item
+            return
+        if profile == "deep":
+            async for item in self._run_deep(target, options):
                 yield item
             return
 
@@ -395,3 +406,44 @@ class NmapAdapter(ToolAdapter):
         finally:
             Path(xml1).unlink(missing_ok=True)
             Path(xml2).unlink(missing_ok=True)
+
+    async def _run_discovery(self, target: str, options: dict) -> AsyncIterator[dict]:
+        """Fast sweep only — find open ports across the target, no deep probing."""
+        fd, xml_path = tempfile.mkstemp(prefix="nexhunt-nmap-disc-", suffix=".xml")
+        os.close(fd)
+        Path(xml_path).unlink(missing_ok=True)
+        try:
+            all_ports = str(options.get("protocol") or "tcp").lower() != "udp"
+            cmd, clean_target = build_discovery_command(target, options, xml_path)
+            yield {"_raw": True, "line": f"  Fast sweep ({'all 65,535 TCP ports' if all_ports else 'top 200 UDP ports'}) on {clean_target}"}
+            yield {"_raw": True, "line": "$ " + " ".join(shlex.quote("<sweep.xml>" if p == xml_path else p) for p in cmd)}
+            async for line in self._run_subprocess(cmd, timeout=1200, merge_stderr=True):
+                yield {"_raw": True, "line": line}
+            parsed = parse_nmap_xml(xml_path, "discovery")
+            yield {"_raw": True, "line": f"  {len(parsed)} open port(s) found — run Deep scan on a host for service + vuln detail"}
+            for result in parsed:
+                yield result
+        finally:
+            Path(xml_path).unlink(missing_ok=True)
+
+    async def _run_deep(self, target: str, options: dict) -> AsyncIterator[dict]:
+        """Deep service + default + vuln scripts against a supplied open-port list."""
+        ports_csv = str(options.get("ports") or "").strip()
+        if not ports_csv:
+            yield {"_raw": True, "line": "  Deep scan needs open ports — run a Fast sweep first."}
+            return
+        fd, xml_path = tempfile.mkstemp(prefix="nexhunt-nmap-deep-", suffix=".xml")
+        os.close(fd)
+        Path(xml_path).unlink(missing_ok=True)
+        try:
+            cmd, clean_target = build_deep_command(target, ports_csv, options, xml_path)
+            yield {"_raw": True, "line": f"  Deep scan (service + default + vuln scripts) on {clean_target} — ports {ports_csv}"}
+            yield {"_raw": True, "line": "$ " + " ".join(shlex.quote("<deep.xml>" if p == xml_path else p) for p in cmd)}
+            async for line in self._run_subprocess(cmd, timeout=1800, merge_stderr=True):
+                yield {"_raw": True, "line": line}
+            parsed = parse_nmap_xml(xml_path, "deep")
+            yield {"_raw": True, "line": f"  Structured results: {len(parsed)} open port(s) with service + script data"}
+            for result in parsed:
+                yield result
+        finally:
+            Path(xml_path).unlink(missing_ok=True)

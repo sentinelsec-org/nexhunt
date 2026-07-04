@@ -467,6 +467,27 @@ export function ReconPage() {
     }
   }
 
+  const handleNmapSweepAll = async () => {
+    const targets = [...new Set(liveHosts.map(h => h.host || h.url).filter(Boolean))]
+    if (targets.length === 0) { toast.error('No live hosts', 'Run Probe / Live Hosts first.'); return }
+    try {
+      await api.post('/api/recon/nmap-sweep', { targets, options: getSessionOpts(), project_id: activeProject ?? '' })
+      setActiveTab('ports')
+    } catch (err) { toast.error('Nmap sweep failed', err) }
+  }
+
+  const handleNmapDeep = async (host: string) => {
+    const openPorts = [...new Set(ports.filter(p => p.ip === host || p.hostname === host).map(p => p.port))].sort((a, b) => a - b)
+    if (openPorts.length === 0) { toast.error('No open ports for this host', 'Run a Fast sweep first.'); return }
+    try {
+      await api.post('/api/recon/nmap', {
+        target: host,
+        options: { ...getSessionOpts(), profile: 'deep', ports: openPorts.join(',') },
+        project_id: activeProject ?? '',
+      })
+    } catch (err) { toast.error('Deep scan failed', err) }
+  }
+
   const handleAnalyzeHostsAI = async () => {
     if (liveHosts.length === 0) return
     setHostsAiRunning(true)
@@ -664,7 +685,7 @@ export function ReconPage() {
                       {hasOpts && tool.installed && (
                         <div className="pl-1 space-y-1 border-l border-zinc-800 ml-1">
                           {tool.id === 'nmap' && (
-                            <NmapOptionsPanel opts={opts} setOption={(key, value) => setOption(tool.id, key, value)} />
+                            <NmapOptionsPanel opts={opts} setOption={(key, value) => setOption(tool.id, key, value)} onSweepAll={handleNmapSweepAll} liveHostCount={liveHosts.length} />
                           )}
                           {tool.id === 'subfinder' && (
                             <OptionInput label="Sources" placeholder="shodan,virustotal" value={opts.sources || ''} onChange={v => setOption(tool.id, 'sources', v)} />
@@ -1445,6 +1466,7 @@ export function ReconPage() {
                 setRiskOnly={setPortRiskOnly}
                 expanded={expandedPort}
                 setExpanded={setExpandedPort}
+                onDeepScan={handleNmapDeep}
               />
             )}
             {/* CVE Correlation tab */}
@@ -1722,9 +1744,11 @@ export function ReconPage() {
   )
 }
 
-function NmapOptionsPanel({ opts, setOption }: {
+function NmapOptionsPanel({ opts, setOption, onSweepAll, liveHostCount }: {
   opts: Record<string, string>
   setOption: (key: string, value: string) => void
+  onSweepAll: () => void
+  liveHostCount: number
 }) {
   const profile = opts.profile || 'auto'
   const toggle = (key: string) => setOption(key, opts[key] === 'true' ? '' : 'true')
@@ -1759,6 +1783,16 @@ function NmapOptionsPanel({ opts, setOption }: {
         )}
       </div>
 
+      <button
+        onClick={onSweepAll}
+        disabled={liveHostCount === 0}
+        className="w-full inline-flex items-center justify-center gap-1.5 rounded border border-orange-800 bg-orange-950/40 px-3 py-1.5 text-[10px] font-medium text-orange-300 hover:bg-orange-950/70 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+      >
+        <ScanLine size={11} /> Fast sweep all live hosts ({liveHostCount})
+      </button>
+      <p className="text-[9px] leading-relaxed text-zinc-600">Sweeps every port on each live host, then open a host in the Ports tab and hit Deep scan for service + vuln detail. Or scan a single target below.</p>
+
+      {profile !== 'auto' && (<>
       <OptionInput label="Ports" placeholder="profile default · 80,443 · - · top:500" value={opts.ports || ''} onChange={value => setOption('ports', value)} />
 
       <div className="grid grid-cols-2 gap-1.5">
@@ -1795,6 +1829,7 @@ function NmapOptionsPanel({ opts, setOption }: {
           <OptionInput label="NSE args" placeholder="userdb=users.txt" value={opts.script_args || ''} onChange={value => setOption('script_args', value)} />
         </div>
       </details>
+      </>)}
     </div>
   )
 }
@@ -1823,7 +1858,7 @@ function NmapToggle({ label, active, onClick }: { label: string; active: boolean
   )
 }
 
-function NmapResults({ ports, total, search, setSearch, riskOnly, setRiskOnly, expanded, setExpanded }: {
+function NmapResults({ ports, total, search, setSearch, riskOnly, setRiskOnly, expanded, setExpanded, onDeepScan }: {
   ports: PortResult[]
   total: number
   search: string
@@ -1832,6 +1867,7 @@ function NmapResults({ ports, total, search, setSearch, riskOnly, setRiskOnly, e
   setRiskOnly: (value: boolean) => void
   expanded: string | null
   setExpanded: (value: string | null) => void
+  onDeepScan: (host: string) => void
 }) {
   const groups = new Map<string, PortResult[]>()
   for (const port of ports) {
@@ -1864,7 +1900,10 @@ function NmapResults({ ports, total, search, setSearch, riskOnly, setRiskOnly, e
               <span className="font-mono text-[11px] font-semibold text-zinc-200">{host}</span>
               {first.hostname && first.hostname !== host && <span className="font-mono text-[9px] text-sky-400">{first.hostname}</span>}
               {os && <span className="flex items-center gap-1 text-[9px] text-zinc-500"><Fingerprint size={10} /> {os.name} <span className="text-zinc-700">{os.accuracy}%</span></span>}
-              <span className="ml-auto rounded border border-zinc-800 px-1.5 py-0.5 font-mono text-[8px] text-zinc-600">{hostPorts.length} services</span>
+              <div className="ml-auto flex items-center gap-2">
+                <button onClick={() => onDeepScan(host)} title="Run service + default + vuln scripts on this host's open ports" className="inline-flex items-center gap-1 rounded border border-orange-800/70 bg-orange-950/25 px-2 py-0.5 text-[9px] text-orange-300 hover:bg-orange-950/50 transition-colors"><ScanLine size={10} /> Deep scan</button>
+                <span className="rounded border border-zinc-800 px-1.5 py-0.5 font-mono text-[8px] text-zinc-600">{hostPorts.length} services</span>
+              </div>
             </header>
             <table className="w-full table-fixed text-xs">
               <thead><tr className="border-b border-zinc-900 text-left text-[9px] uppercase tracking-wider text-zinc-600"><th className="w-24 px-3 py-1.5">Port</th><th className="w-28 px-3 py-1.5">Service</th><th className="px-3 py-1.5">Fingerprint</th><th className="w-24 px-3 py-1.5">Evidence</th></tr></thead>

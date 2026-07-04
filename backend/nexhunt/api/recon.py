@@ -447,6 +447,66 @@ async def run_nmap(req: ReconRequest):
     return _start_recon("nmap", req.target, req.options, req.project_id or None)
 
 
+class NmapSweepRequest(_BaseModel):
+    targets: list[str]
+    options: dict = {}
+    project_id: str = ""
+
+
+@router.post("/nmap-sweep", dependencies=[Depends(require_pro("Nmap sweep"))])
+async def run_nmap_sweep(req: NmapSweepRequest):
+    """Fast open-port sweep across many live hosts at once (bounded concurrency).
+    Populates the Ports tab so the user can pick a host to Deep scan."""
+    targets = [t.strip() for t in dict.fromkeys(req.targets) if t.strip()][:50]
+    if not targets:
+        return {"error": "No targets provided"}
+    job_id = str(uuid.uuid4())
+
+    async def _sweep():
+        adapter = get_adapter("nmap")
+        if not adapter or not await adapter.check_installed():
+            await ws_manager.broadcast("tool_status", {"tool": "nmap-sweep", "event": "failed", "error": "nmap not installed"})
+            return
+        await ws_manager.broadcast("tool_status", {
+            "tool": "nmap-sweep", "event": "started", "job_id": job_id, "total": len(targets),
+        })
+        sem = asyncio.Semaphore(4)
+        done = 0
+
+        async def one(target: str):
+            nonlocal done
+            async with sem:
+                opts = {**req.options, "profile": "discovery"}
+                try:
+                    async for result in adapter.run(target, opts):
+                        if result.get("_raw"):
+                            await ws_manager.broadcast("tool_output", {"tool": "nmap-sweep", "line": result["line"]})
+                            continue
+                        await ws_manager.broadcast("recon_results", {
+                            "tool": "nmap", "type": "port", "results": [result],
+                            "project_id": req.project_id or "",
+                        })
+                        await _save_recon_result("port", target, result, req.project_id or None, "nmap")
+                except Exception as e:
+                    logger.warning(f"nmap-sweep {target} failed: {e}")
+                done += 1
+                await ws_manager.broadcast("tool_status", {
+                    "tool": "nmap-sweep", "event": "progress", "job_id": job_id,
+                    "done": done, "total": len(targets),
+                })
+
+        try:
+            await asyncio.gather(*[one(t) for t in targets])
+        finally:
+            _RECON_JOBS.pop(job_id, None)
+        await ws_manager.broadcast("tool_status", {
+            "tool": "nmap-sweep", "event": "completed", "job_id": job_id, "result_count": len(targets),
+        })
+
+    _RECON_JOBS[job_id] = asyncio.create_task(_sweep())
+    return {"status": "started", "job_id": job_id, "tool": "nmap-sweep", "targets": len(targets)}
+
+
 @router.post("/waybackurls")
 async def run_waybackurls(req: ReconRequest):
     return _start_recon("waybackurls", req.target, req.options, req.project_id or None)
