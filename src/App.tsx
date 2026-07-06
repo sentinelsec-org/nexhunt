@@ -198,7 +198,7 @@ function App() {
       }
 
       // Track recon tool running state + job IDs via WS
-      const reconTools = ['subfinder', 'amass', 'crtsh', 'httpx', 'httpx-probe', 'httpx-probe-all', 'nmap', 'waybackurls', 'gau', 'katana', 'katana-headless', 'linkfinder', 'paramspider', 'arjun', 'full_recon', 'endpoint_check']
+      const reconTools = ['subfinder', 'amass', 'crtsh', 'httpx', 'httpx-probe', 'httpx-probe-all', 'nmap', 'nmap-sweep', 'waybackurls', 'gau', 'katana', 'katana-headless', 'linkfinder', 'paramspider', 'arjun', 'full_recon', 'endpoint_check']
       if (reconTools.includes(status.tool)) {
         const s = data as { tool: string; event: string; job_id?: string }
         setReconToolRunning(s.tool, s.event === 'started')

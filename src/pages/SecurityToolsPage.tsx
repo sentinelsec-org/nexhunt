@@ -251,12 +251,15 @@ export function SecurityToolsPage({ embedded }: { embedded?: boolean }) {
   const { activeProject, globalTarget, getSessionOpts } = useAppStore()
   const { isPro } = useLicenseStore()
   const { findings, rawOutput, activeScans, activeJobIds, clearToolOutput, removeFindingsByTool } = useScannerStore()
-  const { liveHosts, urls, ports } = useReconStore()
+  const { liveHosts, urls, ports, endpoints } = useReconStore()
   const jsHostUrls = [...new Set(liveHosts.map(host => host.url).filter(Boolean))]
   const jsHostKey = jsHostUrls.join('\n')
   const exploitHosts = [...new Set([
     ...liveHosts.filter(host => host.technologies?.length).map(host => host.host),
     ...ports.filter(port => port.version && port.ip).map(port => port.ip),
+    ...endpoints.filter(endpoint => endpoint.status_code != null && endpoint.status_code !== 404).map(endpoint => {
+      try { return new URL(endpoint.url).hostname } catch { return '' }
+    }),
   ].filter(Boolean))]
   const exploitHostKey = exploitHosts.join('\n')
   const { addFinding: addToWorkspace } = useWorkspaceStore()
@@ -339,6 +342,10 @@ export function SecurityToolsPage({ embedded }: { embedded?: boolean }) {
     if (id === 'cloud_buckets')
       return { ...getSessionOpts(), seed_urls: urls.map(u => u.url).filter(Boolean).slice(0, 800), test_write: cloudTestWrite }
     if (id === 'exploit_intel') {
+      const selectedHostnames = new Set(selectedExploitHosts.map(host => {
+        try { return new URL(host.includes('://') ? host : `https://${host}`).hostname }
+        catch { return host }
+      }))
       const exploitPorts = ports
         .filter(p => p.version && selectedExploitHosts.some(h => h.includes(p.ip) || p.ip.includes(h.replace(/^https?:\/\//, '').split('/')[0])))
         .map(p => ({ ip: p.ip, port: p.port, service: p.service ?? '', version: p.version ?? '' }))
@@ -346,12 +353,18 @@ export function SecurityToolsPage({ embedded }: { embedded?: boolean }) {
       const exploitFindings = findings
         .filter(f => (f.tool === 'api_scanner' || f.tool === 'exposed_files') && f.url)
         .map(f => ({ tool: f.tool ?? '', url: f.url ?? '', title: f.title }))
-        .slice(0, 100)
+      const reconEndpointLeads = endpoints
+        .filter(endpoint => {
+          if (endpoint.status_code == null || endpoint.status_code === 404) return false
+          try { return selectedHostnames.has(new URL(endpoint.url).hostname) }
+          catch { return false }
+        })
+        .map(endpoint => ({ tool: 'recon_endpoint', url: endpoint.url, title: endpoint.title ?? '' }))
       return {
         ...getSessionOpts(),
         hosts: liveHosts.filter(h => h.technologies?.length && selectedExploitHosts.includes(h.host)).map(h => ({ host: h.host, technologies: h.technologies })).slice(0, 100),
         ports: exploitPorts,
-        findings_feed: exploitFindings,
+        findings_feed: [...reconEndpointLeads, ...exploitFindings].slice(0, 200),
       }
     }
     if (id === 'js_api_mapper')
@@ -373,7 +386,13 @@ export function SecurityToolsPage({ embedded }: { embedded?: boolean }) {
     (f.tool === 'api_scanner' || f.tool === 'exposed_files') && f.url
   ).length
 
-  const exploitIntelTotal = exploitIntelTechCount + exploitIntelPortCount + exploitIntelFindingCount
+  const exploitIntelEndpointCount = endpoints.filter(endpoint => {
+    if (endpoint.status_code == null || endpoint.status_code === 404) return false
+    try { return selectedExploitHostnames.has(new URL(endpoint.url).hostname) }
+    catch { return false }
+  }).length
+
+  const exploitIntelTotal = exploitIntelTechCount + exploitIntelPortCount + exploitIntelFindingCount + exploitIntelEndpointCount
 
   const handleRun = async () => {
     const target = targets[activeTab].trim()
@@ -789,7 +808,8 @@ export function SecurityToolsPage({ embedded }: { embedded?: boolean }) {
                       Will search <span className="text-rose-400 font-medium">{exploitIntelTotal}</span> lead{exploitIntelTotal !== 1 ? 's' : ''}{targets.exploit_intel.trim() ? ', plus what you typed' : ''}:
                       {exploitIntelTechCount > 0 && <> <span className="text-rose-300">{exploitIntelTechCount} versioned tech{exploitIntelTechCount !== 1 ? 's' : ''}</span> (HTTPX)</>}
                       {exploitIntelPortCount > 0 && <>{exploitIntelTechCount > 0 ? ',' : ''} <span className="text-orange-300">{exploitIntelPortCount} port banner{exploitIntelPortCount !== 1 ? 's' : ''}</span> (Nmap)</>}
-                      {exploitIntelFindingCount > 0 && <>{(exploitIntelTechCount > 0 || exploitIntelPortCount > 0) ? ',' : ''} <span className="text-yellow-300">{exploitIntelFindingCount} endpoint{exploitIntelFindingCount !== 1 ? 's' : ''}</span> (API Scanner / Exposed Files)</>}
+                      {exploitIntelEndpointCount > 0 && <>{(exploitIntelTechCount > 0 || exploitIntelPortCount > 0) ? ',' : ''} <span className="text-cyan-300">{exploitIntelEndpointCount} recon endpoint{exploitIntelEndpointCount !== 1 ? 's' : ''}</span></>}
+                      {exploitIntelFindingCount > 0 && <>{(exploitIntelTechCount > 0 || exploitIntelPortCount > 0 || exploitIntelEndpointCount > 0) ? ',' : ''} <span className="text-yellow-300">{exploitIntelFindingCount} scanner lead{exploitIntelFindingCount !== 1 ? 's' : ''}</span></>}
                       .
                     </div>
                     <div className="text-zinc-600">Versionless techs are skipped — run Nmap for service banners to get more leads.</div>
@@ -1445,7 +1465,7 @@ function ExploitIntelHostPicker({ selected, onChange }: {
   selected: string[]
   onChange: (hosts: string[]) => void
 }) {
-  const { liveHosts, ports } = useReconStore()
+  const { liveHosts, ports, endpoints } = useReconStore()
   const [open, setOpen] = useState(false)
   const [filter, setFilter] = useState('')
   const ref = useRef<HTMLDivElement>(null)
@@ -1461,7 +1481,14 @@ function ExploitIntelHostPicker({ selected, onChange }: {
   const techHosts = liveHosts
     .filter(host => host.technologies?.length)
     .map(host => ({ host: host.host, technologies: host.technologies || [] }))
-  const hosts = [...new Map([...portHosts.values(), ...techHosts].map(host => [host.host, host])).values()]
+  const endpointHosts = endpoints
+    .filter(endpoint => endpoint.status_code != null && endpoint.status_code !== 404)
+    .map(endpoint => {
+      try { return { host: new URL(endpoint.url).hostname, technologies: [] as string[] } }
+      catch { return null }
+    })
+    .filter((host): host is { host: string; technologies: string[] } => Boolean(host?.host))
+  const hosts = [...new Map([...endpointHosts, ...portHosts.values(), ...techHosts].map(host => [host.host, host])).values()]
   const visible = hosts.filter(host => !filter || `${host.host} ${(host.technologies || []).join(' ')}`.toLowerCase().includes(filter.toLowerCase()))
 
   useEffect(() => {

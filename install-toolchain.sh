@@ -17,6 +17,14 @@ export GOPATH="/root/go"
 GO_BIN="$GOPATH/bin"
 TOOLS_VENV="/opt/nexhunt-tooling"
 
+# The installer may run through sudo (SUDO_USER is available) or from a .deb
+# postinst (it is not). Pick the desktop UID 1000+ in the latter case so Nuclei
+# templates are installed for the user that actually runs the Electron app.
+TEMPLATE_USER="${SUDO_USER:-}"
+if [ -z "$TEMPLATE_USER" ] || [ "$TEMPLATE_USER" = "root" ] || ! id "$TEMPLATE_USER" >/dev/null 2>&1; then
+  TEMPLATE_USER="$(getent passwd | awk -F: '$3 >= 1000 && $3 < 65534 && $6 ~ /^\/home\// { print $1; exit }')"
+fi
+
 echo "Installing NexHunt system dependencies..."
 if command -v apt-get >/dev/null 2>&1 && command -v dpkg-query >/dev/null 2>&1; then
   DISTRO_FAMILY="debian"
@@ -283,9 +291,9 @@ fi
 
 # Populate nuclei templates now so the first scan is ready to run.
 if command -v nuclei >/dev/null 2>&1; then
-  if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != "root" ] && id "$SUDO_USER" >/dev/null 2>&1; then
-    TARGET_HOME="$(getent passwd "$SUDO_USER" | cut -d: -f6)"
-    runuser -u "$SUDO_USER" -- env HOME="$TARGET_HOME" \
+  if [ -n "$TEMPLATE_USER" ] && id "$TEMPLATE_USER" >/dev/null 2>&1; then
+    TARGET_HOME="$(getent passwd "$TEMPLATE_USER" | cut -d: -f6)"
+    runuser -u "$TEMPLATE_USER" -- env HOME="$TARGET_HOME" \
       nuclei -update-templates -silent || warn "Nuclei templates will update on first use"
   else
     nuclei -update-templates -silent || warn "Nuclei templates will update on first use"

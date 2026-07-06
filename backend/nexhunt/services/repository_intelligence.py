@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import io
 import json
 import os
@@ -33,12 +34,19 @@ CONFIG_NAMES = {
     "dockerfile", "docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml",
     "gemfile", "procfile", "makefile", "wp-config.php", "settings.py", "application.properties",
 }
+SENSITIVE_FILE_EXTENSIONS = {
+    ".p12", ".pfx", ".pem", ".key", ".keystore", ".jks", ".kdbx", ".ovpn",
+}
 
 SECRET_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("AWS Access Key", re.compile(r"\b(?:AKIA|ASIA)[A-Z0-9]{16}\b")),
     ("GitHub Token", re.compile(r"\b(?:gh[pousr]_[A-Za-z0-9]{20,255}|github_pat_[A-Za-z0-9_]{20,255})\b")),
     ("GitLab Token", re.compile(r"\bglpat-[A-Za-z0-9_-]{20,255}\b")),
     ("Slack Token", re.compile(r"\bxox[baprs]-[A-Za-z0-9-]{10,255}\b")),
+    ("Google API Key", re.compile(r"\bAIza[0-9A-Za-z_-]{35}\b")),
+    ("Stripe Secret Key", re.compile(r"\bsk_(?:live|test)_[0-9A-Za-z]{16,}\b")),
+    ("SendGrid API Key", re.compile(r"\bSG\.[0-9A-Za-z_-]{16,}\.[0-9A-Za-z_-]{20,}\b")),
+    ("Twilio API Key", re.compile(r"\bSK[0-9a-fA-F]{32}\b")),
     ("JWT", re.compile(r"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{6,}\b")),
     ("Private Key", re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----")),
     ("Connection String", re.compile(
@@ -48,6 +56,7 @@ SECRET_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("Authenticated URL", re.compile(r"\bhttps?://[^\s/'\"<>@]+(?::[^\s/'\"<>@]+)?@[^\s'\"<>]+", re.IGNORECASE)),
     ("Assigned Secret", re.compile(
         r"(?i)\b(?:api[_-]?key|access[_-]?token|auth[_-]?token|client[_-]?secret|secret[_-]?key|"
+        r"smtp[_-]?(?:pass|password)|oauth[_-]?(?:secret|token)|consumer[_-]?secret|private[_-]?key|"
         r"database[_-]?url|db[_-]?password|password|passwd|pwd)\b\s*[:=]\s*['\"]?([^\s'\"`,;}{]{6,})"
     )),
 ]
@@ -68,8 +77,25 @@ REMOTE_RE = re.compile(r"^\s*url\s*=\s*(.+?)\s*$", re.MULTILINE)
 
 PLACEHOLDERS = {
     "password", "secret", "changeme", "change_me", "example", "sample", "dummy", "test",
-    "your_token_here", "your-secret", "replace_me", "replace-me", "undefined", "null", "none",
+    "your_token_here", "your-secret", "your-client-secret", "your-access-token", "access-token",
+    "replace_me", "replace-me", "undefined", "null", "none", "notasecret", "n/a", "key", "token",
+    "apikey", "api_key",
 }
+
+# "Assigned Secret" is a loose keyword+value regex; most of its hits in real codebases are PHP/JS
+# code fragments (variable references, method calls) rather than literal values. Reject those.
+_CODE_FRAGMENT_RE = re.compile(r"[$()]|->")
+
+# Evidence coming from vendored/test/example code is much more likely to be a fixture or library
+# internal than an application secret. Flag it as low-confidence instead of dropping it, so the
+# UI and the AI briefing can deprioritize without hiding it outright.
+_LOW_CONFIDENCE_PATH_RE = re.compile(
+    r"(?i)(?:^|/)(?:tests?|vendor|mock|samples?)(?:/|$)|\.env-example|-example(?:\.|/|$)"
+)
+
+
+def _looks_like_code_fragment(value: str) -> bool:
+    return bool(_CODE_FRAGMENT_RE.search(value)) or value in {"true", "false", "null"}
 
 
 def normalize_target(value: str) -> tuple[str, str]:
@@ -327,6 +353,8 @@ def _secret_matches(text: str, source: str, commit: str = "working-tree") -> lis
             raw = raw.strip().rstrip(".,)")
             if raw.lower() in PLACEHOLDERS or len(raw) < 6:
                 continue
+            if detector == "Assigned Secret" and _looks_like_code_fragment(raw):
+                continue
             line = text.count("\n", 0, match.start()) + 1
             key = (detector, raw, line)
             if key in seen:
@@ -343,8 +371,80 @@ def _secret_matches(text: str, source: str, commit: str = "working-tree") -> lis
                 "commit": commit,
                 "evidence": evidence,
                 "historical": commit != "working-tree",
+                "low_confidence": bool(_LOW_CONFIDENCE_PATH_RE.search(source)),
             })
     return found
+
+
+async def _history_secret_matches(repo: Path, max_bytes: int = 300_000_000) -> tuple[list[dict], dict]:
+    """Scan each unique historical text blob once instead of replaying every commit diff."""
+    code, objects_out, _ = await _command("git", "rev-list", "--objects", "--all", cwd=repo, timeout=120)
+    if code != 0:
+        return [], {"objects_scanned": 0, "history_bytes": 0, "truncated": False}
+    candidates: list[tuple[str, str]] = []
+    seen_hashes: set[str] = set()
+    for row in objects_out.splitlines():
+        sha, separator, source = row.partition(" ")
+        if not separator or sha in seen_hashes:
+            continue
+        name = Path(source).name.lower()
+        suffix = Path(source).suffix.lower()
+        if suffix not in TEXT_EXTENSIONS and name not in CONFIG_NAMES and not name.startswith(".env"):
+            continue
+        seen_hashes.add(sha)
+        candidates.append((sha, source))
+        if len(candidates) >= 25_000:
+            break
+    if not candidates:
+        return [], {"objects_scanned": 0, "history_bytes": 0, "truncated": False}
+
+    proc = await asyncio.create_subprocess_exec(
+        "git", "cat-file", "--batch-check=%(objectname) %(objecttype) %(objectsize)",
+        cwd=str(repo), stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE, env=_safe_git_environment(),
+    )
+    query = ("\n".join(sha for sha, _ in candidates) + "\n").encode()
+    checked, _ = await asyncio.wait_for(proc.communicate(query), timeout=120)
+    path_by_hash = dict(candidates)
+    selected: list[tuple[str, str, int]] = []
+    total = 0
+    truncated = len(candidates) >= 25_000
+    for row in checked.decode(errors="replace").splitlines():
+        parts = row.split()
+        if len(parts) != 3 or parts[1] != "blob" or not parts[2].isdigit():
+            continue
+        size = int(parts[2])
+        if size > 2_000_000 or total + size > max_bytes:
+            truncated = True
+            continue
+        selected.append((parts[0], path_by_hash.get(parts[0], "history"), size))
+        total += size
+
+    proc = await asyncio.create_subprocess_exec(
+        "git", "cat-file", "--batch", cwd=str(repo), stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        env=_safe_git_environment(),
+    )
+    payload, _ = await asyncio.wait_for(
+        proc.communicate(("\n".join(sha for sha, _, _ in selected) + "\n").encode()), timeout=300,
+    )
+    matches: list[dict] = []
+    cursor = 0
+    for expected_sha, source, _ in selected:
+        header_end = payload.find(b"\n", cursor)
+        if header_end < 0:
+            truncated = True
+            break
+        header = payload[cursor:header_end].decode(errors="replace").split()
+        if len(header) < 3 or not header[2].isdigit():
+            truncated = True
+            break
+        size = int(header[2])
+        start = header_end + 1
+        blob = payload[start:start + size]
+        cursor = start + size + 1
+        matches.extend(_secret_matches(blob.decode(errors="replace"), source, f"object:{expected_sha}"))
+    return matches, {"objects_scanned": len(selected), "history_bytes": total, "truncated": truncated}
 
 
 async def scan_secrets(repo: Path, max_commits: int = 300) -> tuple[list[dict], dict]:
@@ -362,27 +462,11 @@ async def scan_secrets(repo: Path, max_commits: int = 300) -> tuple[list[dict], 
         except OSError:
             pass
 
-    code, stdout, _ = await _command("git", "rev-list", "--all", "--max-count", str(max_commits), cwd=repo, timeout=60)
-    commits = stdout.splitlines() if code == 0 else []
-    for commit in commits:
-        code, diff, _ = await _command(
-            "git", "show", "--no-ext-diff", "--no-textconv", "--format=", "--find-renames", "--find-copies", "--unified=0", commit,
-            cwd=repo, timeout=30,
-        )
-        if code != 0:
-            continue
-        if len(diff) > 5_000_000:
-            diff = diff[:5_000_000]
-        current_file = "history"
-        chunks: dict[str, list[str]] = {}
-        for line in diff.splitlines():
-            if line.startswith("+++ b/"):
-                current_file = line[6:]
-                continue
-            if line.startswith("+") and not line.startswith("+++"):
-                chunks.setdefault(current_file, []).append(line[1:])
-        for source, lines in chunks.items():
-            results.extend(_secret_matches("\n".join(lines), source, commit))
+    _, commit_count, _ = await _command("git", "rev-list", "--all", "--count", cwd=repo, timeout=60)
+    history_detail = {"objects_scanned": 0, "history_bytes": 0, "truncated": False}
+    if max_commits > 0:
+        historical, history_detail = await _history_secret_matches(repo)
+        results.extend(historical)
 
     unique: list[dict] = []
     seen: set[tuple[str, str, str, str]] = set()
@@ -393,7 +477,12 @@ async def scan_secrets(repo: Path, max_commits: int = 300) -> tuple[list[dict], 
             unique.append(item)
         if len(unique) >= 1500:
             break
-    return unique, {"commits_scanned": len(commits), "truncated": len(results) > len(unique)}
+    commits_scanned = int(commit_count.strip()) if commit_count.strip().isdigit() and max_commits > 0 else 0
+    return unique, {
+        "commits_scanned": commits_scanned,
+        **history_detail,
+        "truncated": history_detail["truncated"] or len(results) > len(unique),
+    }
 
 
 async def repository_metadata(repo: Path) -> dict:
@@ -501,6 +590,223 @@ def extract_architecture(repo: Path) -> dict:
     }
 
 
+def _line_evidence(text: str, offset: int) -> tuple[int, str]:
+    line = text.count("\n", 0, offset) + 1
+    start = text.rfind("\n", 0, offset) + 1
+    end = text.find("\n", offset)
+    return line, text[start:(end if end >= 0 else len(text))].strip()[:800]
+
+
+def analyze_code_risks(repo: Path) -> dict:
+    """Build a plain-text, source-linked risk ledger without executing recovered code."""
+    findings: list[dict] = []
+    routes: list[dict] = []
+    technologies: set[str] = set()
+    sensitive_files: list[dict] = []
+    paths = {str(path.relative_to(repo)).replace(os.sep, "/") for path in _text_files(repo, 8000)}
+
+    technology_markers = {
+        "CodeIgniter": ("application/config/config.php", "system/core/CodeIgniter.php", "application/controllers/"),
+        "Laravel": ("artisan", "app/Http/Controllers/", "config/app.php"),
+        "WordPress": ("wp-config.php", "wp-content/"),
+        "Symfony": ("bin/console", "config/bundles.php"),
+        "Node.js": ("package.json",),
+        "Django": ("manage.py", "settings.py"),
+    }
+    for technology, markers in technology_markers.items():
+        if any(any(path == marker or path.startswith(marker) for path in paths) for marker in markers):
+            technologies.add(technology)
+
+    for root, dirs, names in os.walk(repo):
+        dirs[:] = [name for name in dirs if name not in SKIP_DIRS]
+        for name in names:
+            path = Path(root) / name
+            relative = str(path.relative_to(repo)).replace(os.sep, "/")
+            suffix = path.suffix.lower()
+            if suffix in SENSITIVE_FILE_EXTENSIONS:
+                try:
+                    payload = path.read_bytes()
+                except OSError:
+                    continue
+                if suffix == ".pem":
+                    text_guess = payload.decode(errors="replace")
+                    if "PRIVATE KEY" not in text_guess and "BEGIN CERTIFICATE" in text_guess:
+                        # A CA/certificate bundle with no private key is public material (e.g. a
+                        # library vendoring Mozilla's cacert.pem for TLS verification), not a secret.
+                        continue
+                digest = hashlib.sha256(payload).hexdigest()
+                size = len(payload)
+                sensitive_files.append({"source": relative, "size": size, "sha256": digest, "extension": suffix})
+                findings.append({
+                    "severity": "critical" if suffix in {".p12", ".pfx", ".key", ".pem"} else "high",
+                    "category": "sensitive-file",
+                    "title": f"Sensitive cryptographic material: {name}",
+                    "source": relative, "line": 1, "symbol": "", 
+                    "evidence": f"{relative} ({size} bytes, SHA-256 {digest})",
+                    "rationale": "Private keys, certificate bundles and keystores can grant service or signing access even when no text secret is visible.",
+                    "remediation": "Revoke or rotate the material, remove it from every Git object and store replacements in a managed secret store.",
+                })
+            if suffix not in TEXT_EXTENSIONS and name.lower() not in CONFIG_NAMES:
+                continue
+            try:
+                text = path.read_text(errors="replace")
+            except OSError:
+                continue
+
+            if suffix == ".php" and ("application/controllers/" in relative or "/controllers/" in relative.lower()):
+                class_match = re.search(r"\bclass\s+(\w+)\s+extends\s+(\w+)", text, re.IGNORECASE)
+                class_name = class_match.group(1) if class_match else path.stem
+                base_class = class_match.group(2) if class_match else "unknown"
+                for method in re.finditer(r"(?im)^\s*(?:public\s+)?function\s+(\w+)\s*\(", text):
+                    method_name = method.group(1)
+                    if method_name.startswith("_"):
+                        continue
+                    line, evidence = _line_evidence(text, method.start())
+                    route = f"/{path.stem.lower()}" + ("" if method_name == "index" else f"/{method_name}")
+                    routes.append({
+                        "route": route, "controller": class_name, "method": method_name,
+                        "base_class": base_class, "source": relative, "line": line,
+                    })
+                if base_class.lower() == "ci_controller":
+                    line, evidence = _line_evidence(text, class_match.start() if class_match else 0)
+                    findings.append({
+                        "severity": "high", "category": "authorization",
+                        "title": f"Controller bypasses the application base controller: {class_name}",
+                        "source": relative, "line": line, "symbol": class_name, "evidence": evidence,
+                        "rationale": "Direct CI_Controller inheritance can bypass authentication, authorization or audit controls implemented in MY_Controller.",
+                        "remediation": "Verify every public method and inherit from the guarded base controller or apply equivalent authorization explicitly.",
+                    })
+
+            rules: list[tuple[str, str, str, re.Pattern[str], str, str]] = [
+                ("critical", "command-execution", "User-controlled command execution sink", re.compile(r"(?i)\b(?:shell_exec|exec|system|passthru|popen|proc_open)\s*\([^\n]*(?:\$_(?:GET|POST|REQUEST)|\$this->input)"), "Input appears to reach an operating-system command primitive.", "Remove the shell call or enforce a strict allowlist and argument-safe API."),
+                ("high", "ssrf", "Variable URL reaches an outbound request", re.compile(r"(?i)\b(?:file_get_contents|fopen|curl_init)\s*\(\s*\$(?:url|uri|endpoint|remote|link|host)\w*|CURLOPT_URL\s*,\s*\$"), "A caller-influenced URL may let the server request internal or cloud-metadata addresses.", "Allowlist scheme, host and port; resolve DNS safely and block private, loopback and link-local ranges."),
+                ("high", "file-upload", "File upload reaches server storage", re.compile(r"(?i)\b(?:move_uploaded_file|do_upload\s*\(|\$_FILES\b)"), "Uploaded content can become code execution or stored XSS when extension, MIME, path and serving origin are not constrained.", "Validate content server-side, generate names, store outside the web root and serve from a non-executable origin."),
+                ("high", "file-write", "Caller-influenced filesystem operation", re.compile(r"(?i)\b(?:unlink|rename|copy|file_put_contents|mkdir|rmdir)\s*\([^\n]*(?:\$_(?:GET|POST|REQUEST)|\$this->input)"), "Request data appears in a filesystem operation and may allow traversal or destructive writes.", "Resolve against a fixed base directory and reject paths that escape it."),
+                ("high", "cloud-action", "Cloud or cache mutation endpoint", re.compile(r"(?i)\b(?:deleteObject|putObject|copyObject|purge_all|purge_cache|invalidate)\s*\("), "This code performs a high-impact external mutation that needs explicit authorization and tightly scoped credentials.", "Require authorization, CSRF protection where relevant, audit logging and least-privilege service credentials."),
+                ("medium", "debug-exposure", "PHP environment disclosure", re.compile(r"(?i)\bphpinfo\s*\("), "PHP environment output can reveal paths, configuration, tokens and personal data.", "Remove the endpoint or make it inaccessible outside a controlled development environment."),
+                ("high", "dynamic-sql", "Request data appears in a SQL query", re.compile(r"(?i)(?:query|mysqli_query|mysql_query)\s*\([^\n]*(?:\$_(?:GET|POST|REQUEST)|\$this->input)"), "Untrusted input appears to reach a raw SQL query.", "Use parameterized queries and validate the expected data type."),
+            ]
+            for severity, category, title, pattern, rationale, remediation in rules:
+                for match in pattern.finditer(text):
+                    line, evidence = _line_evidence(text, match.start())
+                    findings.append({
+                        "severity": severity, "category": category, "title": title,
+                        "source": relative, "line": line, "symbol": "", "evidence": evidence,
+                        "rationale": rationale, "remediation": remediation,
+                    })
+
+    severity_rank = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
+    unique: list[dict] = []
+    seen: set[tuple[str, str, int, str]] = set()
+    for finding in sorted(findings, key=lambda item: (severity_rank.get(item["severity"], 9), item["source"], item["line"])):
+        key = (finding["category"], finding["source"], finding["line"], finding["title"])
+        if key not in seen:
+            seen.add(key)
+            finding["command"] = f"git -C {shlex.quote(str(repo))} blame -L {finding['line']},{finding['line']} -- {shlex.quote(finding['source'])}"
+            unique.append(finding)
+        if len(unique) >= 2000:
+            break
+    return {
+        "technologies": sorted(technologies), "routes": routes[:2000],
+        "sensitive_files": sensitive_files[:500], "findings": unique,
+    }
+
+
+def build_next_steps(repo: Path, analysis: dict) -> list[dict]:
+    steps: list[dict] = []
+    if analysis["sensitive_files"]:
+        steps.append({
+            "priority": "immediate", "title": "Inventory and rotate cryptographic material",
+            "reason": f"{len(analysis['sensitive_files'])} sensitive key or certificate files were found.",
+            "command": f"find {shlex.quote(str(repo))} -type f \\( -name '*.p12' -o -name '*.pfx' -o -name '*.pem' -o -name '*.key' -o -name '*.jks' \\) -print",
+        })
+    if analysis["routes"]:
+        steps.append({
+            "priority": "high", "title": "Review controller exposure and authorization",
+            "reason": f"{len(analysis['routes'])} controller methods were mapped from source.",
+            "command": f"rg -n \"class .* extends|public function|function \" {shlex.quote(str(repo / 'application' / 'controllers'))}",
+        })
+    steps.append({
+        "priority": "high", "title": "Inspect every high-risk line with Git attribution",
+        "reason": "The Findings view includes a safe, local git blame command for each result.",
+        "command": f"git -C {shlex.quote(str(repo))} log --all --oneline --decorate -- application/config application/controllers",
+    })
+    steps.append({
+        "priority": "normal", "title": "Confirm that secrets were removed from history",
+        "reason": "Deleting a value from HEAD does not remove it from historical Git objects.",
+        "command": f"git -C {shlex.quote(str(repo))} rev-list --objects --all",
+    })
+    return steps
+
+
+def build_ai_digest(report: dict) -> str:
+    """Condense a repository intelligence report into a compact, high-signal digest for the AI
+    briefing. Raw reports can hold thousands of low-value regex hits (400+ secrets is common) that
+    would blow past a free-tier LLM's context budget, so this keeps only what a triage pass needs:
+    top findings, high-confidence secrets first, and counts for everything else."""
+    lines: list[str] = [f"Target: {report.get('target', '')}"]
+    technologies = report.get("technologies") or []
+    lines.append(f"Detected framework/stack: {', '.join(technologies) or 'unknown'}")
+
+    summary = report.get("summary") or {}
+    lines.append(
+        f"Scan summary: {summary.get('commits', 0)} commits, {summary.get('files', 0)} files, "
+        f"{summary.get('secrets', 0)} secret matches ({summary.get('historical_secrets', 0)} only in "
+        f"deleted history), {summary.get('findings', 0)} code findings "
+        f"({summary.get('critical_findings', 0)} flagged critical), {summary.get('hosts', 0)} referenced "
+        f"hosts, {summary.get('routes', 0)} controller routes mapped."
+    )
+
+    findings = report.get("findings") or []
+    if findings:
+        lines.append(f"\n## Code findings (top {min(30, len(findings))} of {len(findings)}, most severe first)")
+        for item in findings[:30]:
+            lines.append(f"- [{item['severity'].upper()}] {item['title']} — {item['source']}:{item['line']}")
+            lines.append(f"  evidence: {item['evidence'][:220]}")
+
+    secrets = report.get("secrets") or []
+    if secrets:
+        high_conf = [s for s in secrets if not s.get("low_confidence") and s["detector"] != "Assigned Secret"]
+        assigned = [s for s in secrets if s["detector"] == "Assigned Secret" and not s.get("low_confidence")]
+        low_conf_count = sum(1 for s in secrets if s.get("low_confidence"))
+        shown = (high_conf + assigned)[:40]
+        lines.append(
+            f"\n## Secret matches — high-confidence detectors first, {len(shown)} of {len(secrets)} shown "
+            f"({low_conf_count} more auto-flagged as low-confidence vendor/test noise, omitted here)"
+        )
+        for item in shown:
+            scope = "historical only (deleted, but still in Git objects)" if item["historical"] else "in current working tree"
+            lines.append(f"- {item['detector']} in {item['source']}:{item['line']} ({scope}): {item['raw'][:120]}")
+
+    sensitive_files = report.get("sensitive_files") or []
+    if sensitive_files:
+        lines.append(f"\n## Sensitive key/certificate files ({len(sensitive_files)})")
+        for item in sensitive_files[:20]:
+            lines.append(f"- {item['source']} ({item['extension']}, {item['size']} bytes, sha256 {item['sha256'][:16]}...)")
+
+    providers = report.get("providers") or []
+    if providers:
+        lines.append("\n## Source-control provider evidence")
+        for item in providers[:10]:
+            lines.append(f"- {item['provider']} ({item['kind']}): {item['evidence'][:150]} — {item['source']}")
+
+    architecture = report.get("architecture") or {}
+    hosts = architecture.get("hosts") or []
+    if hosts:
+        lines.append(f"\n## Referenced hosts ({len(hosts)}, showing up to 40)")
+        lines.append(", ".join(hosts[:40]))
+
+    services = architecture.get("services") or []
+    exposed = [item for item in services if item.get("credentials_exposed")]
+    if exposed:
+        lines.append(f"\n## Connection strings with embedded credentials ({len(exposed)})")
+        for item in exposed[:15]:
+            port_part = f":{item['port']}" if item.get("port") else ""
+            lines.append(f"- {item['scheme']}://{item['host']}{port_part} — {item['source']}")
+
+    return "\n".join(lines)
+
+
 async def analyze_repository(
     target: str,
     project_id: str,
@@ -536,6 +842,9 @@ async def analyze_repository(
 
     await progress("architecture", "Extracting hosts, services and connection paths", None)
     architecture = extract_architecture(repo)
+    await progress("code-analysis", "Mapping frameworks, routes and dangerous data flows", None)
+    code_analysis = analyze_code_risks(repo)
+    next_steps = build_next_steps(repo, code_analysis)
     now = datetime.now(timezone.utc).isoformat()
     report = {
         "target": base_url,
@@ -548,6 +857,13 @@ async def analyze_repository(
         "secrets": secrets,
         "providers": providers,
         "architecture": architecture,
+        "technologies": code_analysis["technologies"],
+        "routes": code_analysis["routes"],
+        "sensitive_files": code_analysis["sensitive_files"],
+        "findings": code_analysis["findings"],
+        "next_steps": next_steps,
+        "ai_brief": None,
+        "ai_brief_generated_at": None,
         "summary": {
             "commits": repository.get("commits", 0),
             "files": repository.get("files", 0),
@@ -556,6 +872,9 @@ async def analyze_repository(
             "providers": len({item["provider"] for item in providers}),
             "hosts": len(architecture["hosts"]),
             "services": len(architecture["services"]),
+            "findings": len(code_analysis["findings"]),
+            "critical_findings": sum(1 for item in code_analysis["findings"] if item["severity"] == "critical"),
+            "routes": len(code_analysis["routes"]),
         },
     }
     report_path = workspace / "report.json"

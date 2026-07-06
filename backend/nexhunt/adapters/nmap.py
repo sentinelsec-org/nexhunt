@@ -194,7 +194,7 @@ def _scripts(element: ET.Element | None) -> tuple[str, list[dict]]:
     return text, rows
 
 
-def parse_nmap_xml(xml_path: str, profile: str = "standard") -> list[dict]:
+def parse_nmap_xml(xml_path: str, profile: str = "standard", scan_target: str = "") -> list[dict]:
     path = Path(xml_path)
     if not path.is_file() or path.stat().st_size == 0:
         return []
@@ -234,7 +234,11 @@ def parse_nmap_xml(xml_path: str, profile: str = "standard") -> list[dict]:
         for port in host.findall("./ports/port"):
             state_node = port.find("state")
             state = state_node.get("state", "unknown") if state_node is not None else "unknown"
-            if not state.startswith("open"):
+            # `open|filtered` means Nmap could not determine whether the port is
+            # open. Treating it as confirmed is especially noisy on full sweeps:
+            # a filtering firewall can otherwise produce tens of thousands of
+            # fake, versionless services.
+            if state != "open":
                 continue
             service_node = port.find("service")
             service = service_node.attrib if service_node is not None else {}
@@ -244,6 +248,10 @@ def parse_nmap_xml(xml_path: str, profile: str = "standard") -> list[dict]:
             version = " ".join(part for part in version_parts if part).strip() or None
             results.append({
                 "_raw": False,
+                # Keep the requested DNS name distinct from the resolved IP.
+                # CDN-backed targets commonly share a few addresses; using the
+                # IP as identity collapses dozens of separately scoped hosts.
+                "target": scan_target or hostname or ip,
                 "ip": ip,
                 "hostname": hostname,
                 "addresses": addresses,
@@ -290,14 +298,17 @@ def _common_flags(options: dict, clean_target: str) -> list[str]:
 
 
 def build_discovery_command(target: str, options: dict, xml_path: str) -> tuple[list[str], str]:
-    """Phase 1: sweep every port fast, no service/script probes, just find what's open."""
+    """Phase 1: find confirmed open ports without service or NSE probes."""
     clean_target = normalize_target(target)
     timing = str(options.get("timing") or "4")
     if timing not in {"0", "1", "2", "3", "4", "5"}:
         timing = "4"
     cmd = ["nmap", _scan_flag(options), f"-T{timing}", "--open", *_common_flags(options, clean_target)]
-    # UDP has no fast all-port equivalent, so cap it; TCP sweeps the full range.
-    cmd.extend(["--top-ports", "200"] if str(options.get("protocol") or "tcp").lower() == "udp" else ["-p-"])
+    # A multi-host sweep is an inventory pass, not a 65k scan. Default to the
+    # most useful 1,000 TCP ports (or 200 UDP ports), while keeping an explicit
+    # override for deliberate single-target workflows.
+    default_ports = "top:200" if str(options.get("protocol") or "tcp").lower() == "udp" else "top:1000"
+    cmd.extend(_ports_args(str(options.get("discovery_ports") or default_ports)))
     min_rate = str(options.get("min_rate") or "1800").strip()
     if min_rate.isdigit():
         cmd.extend(["--min-rate", str(max(1, min(int(min_rate), 100000)))])
@@ -364,7 +375,7 @@ class NmapAdapter(ToolAdapter):
             timeout = 1800 if profile == "full" else 900
             async for line in self._run_subprocess(cmd, timeout=timeout, merge_stderr=True):
                 yield {"_raw": True, "line": line}
-            parsed = parse_nmap_xml(xml_path, profile)
+            parsed = parse_nmap_xml(xml_path, profile, clean_target)
             yield {"_raw": True, "line": f"  Structured results: {len(parsed)} open ports"}
             for result in parsed:
                 yield result
@@ -379,14 +390,14 @@ class NmapAdapter(ToolAdapter):
         Path(xml1).unlink(missing_ok=True)
         Path(xml2).unlink(missing_ok=True)
         try:
-            all_ports = str(options.get("protocol") or "tcp").lower() != "udp"
             cmd1, clean_target = build_discovery_command(target, options, xml1)
-            yield {"_raw": True, "line": f"  Phase 1/2 — Fast port sweep ({'all 65,535 TCP ports' if all_ports else 'top 200 UDP ports'}) on {clean_target}"}
+            discovery_ports = str(options.get("discovery_ports") or ("top:200" if str(options.get("protocol") or "tcp").lower() == "udp" else "top:1000"))
+            yield {"_raw": True, "line": f"  Phase 1/2 - Fast port sweep ({discovery_ports}) on {clean_target}"}
             yield {"_raw": True, "line": "$ " + " ".join(shlex.quote("<phase1.xml>" if p == xml1 else p) for p in cmd1)}
             async for line in self._run_subprocess(cmd1, timeout=1200, merge_stderr=True):
                 yield {"_raw": True, "line": line}
 
-            open_ports = sorted({r["port"] for r in parse_nmap_xml(xml1, "auto") if r.get("port")})
+            open_ports = sorted({r["port"] for r in parse_nmap_xml(xml1, "auto", clean_target) if r.get("port")})
             if not open_ports:
                 yield {"_raw": True, "line": "  No open ports found — nothing to probe deeper."}
                 return
@@ -399,7 +410,7 @@ class NmapAdapter(ToolAdapter):
             async for line in self._run_subprocess(cmd2, timeout=1800, merge_stderr=True):
                 yield {"_raw": True, "line": line}
 
-            parsed = parse_nmap_xml(xml2, "auto")
+            parsed = parse_nmap_xml(xml2, "auto", clean_target)
             yield {"_raw": True, "line": f"  Structured results: {len(parsed)} open port(s) with service + script data"}
             for result in parsed:
                 yield result
@@ -413,13 +424,13 @@ class NmapAdapter(ToolAdapter):
         os.close(fd)
         Path(xml_path).unlink(missing_ok=True)
         try:
-            all_ports = str(options.get("protocol") or "tcp").lower() != "udp"
             cmd, clean_target = build_discovery_command(target, options, xml_path)
-            yield {"_raw": True, "line": f"  Fast sweep ({'all 65,535 TCP ports' if all_ports else 'top 200 UDP ports'}) on {clean_target}"}
+            discovery_ports = str(options.get("discovery_ports") or ("top:200" if str(options.get("protocol") or "tcp").lower() == "udp" else "top:1000"))
+            yield {"_raw": True, "line": f"  Fast sweep ({discovery_ports}) on {clean_target}"}
             yield {"_raw": True, "line": "$ " + " ".join(shlex.quote("<sweep.xml>" if p == xml_path else p) for p in cmd)}
             async for line in self._run_subprocess(cmd, timeout=1200, merge_stderr=True):
                 yield {"_raw": True, "line": line}
-            parsed = parse_nmap_xml(xml_path, "discovery")
+            parsed = parse_nmap_xml(xml_path, "discovery", clean_target)
             yield {"_raw": True, "line": f"  {len(parsed)} open port(s) found — run Deep scan on a host for service + vuln detail"}
             for result in parsed:
                 yield result
@@ -441,7 +452,7 @@ class NmapAdapter(ToolAdapter):
             yield {"_raw": True, "line": "$ " + " ".join(shlex.quote("<deep.xml>" if p == xml_path else p) for p in cmd)}
             async for line in self._run_subprocess(cmd, timeout=1800, merge_stderr=True):
                 yield {"_raw": True, "line": line}
-            parsed = parse_nmap_xml(xml_path, "deep")
+            parsed = parse_nmap_xml(xml_path, "deep", clean_target)
             yield {"_raw": True, "line": f"  Structured results: {len(parsed)} open port(s) with service + script data"}
             for result in parsed:
                 yield result

@@ -5,6 +5,7 @@ import asyncio
 import json
 import logging
 import uuid
+from datetime import datetime, timezone
 from urllib.parse import quote, urlparse
 
 import httpx
@@ -16,7 +17,8 @@ from nexhunt.config import settings
 from nexhunt.database import DefaultSession
 from nexhunt.models.project import Project
 from nexhunt.models.recon_result import ReconResult
-from nexhunt.services.repository_intelligence import analyze_repository, normalize_target, workspace_for
+from nexhunt.services.copilot_service import copilot_service
+from nexhunt.services.repository_intelligence import analyze_repository, build_ai_digest, normalize_target, workspace_for
 from nexhunt.services.scope import is_in_scope
 from nexhunt.ws.manager import ws_manager
 
@@ -43,6 +45,11 @@ class ProviderRequest(BaseModel):
     provider: str
     token: str = Field(min_length=1, max_length=4096)
     workspace: str = Field(default="", max_length=255)
+
+
+class BriefRequest(BaseModel):
+    project_id: str = Field(min_length=1, max_length=80)
+    target: str = Field(min_length=1, max_length=2048)
 
 
 class ImportAssetsRequest(BaseModel):
@@ -216,6 +223,94 @@ async def latest_report(project_id: str, target: str):
         raise HTTPException(status_code=500, detail=f"Stored report cannot be read: {error}") from error
 
 
+@router.post("/ai-brief")
+async def generate_brief(request: BriefRequest):
+    """Have the AI triage the stored report: separate real findings from scanner noise
+    (vendored certs, test fixtures, code fragments misread as secrets) and produce a
+    prioritized, actionable brief. Persisted back into report.json so it survives navigation."""
+    await _project(request.project_id)
+    try:
+        base, _ = normalize_target(request.target)
+        report_path = workspace_for(request.project_id, base, settings.db_dir) / "report.json"
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    if not report_path.is_file():
+        raise HTTPException(status_code=404, detail="No stored report for this target. Run an analysis first.")
+    try:
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise HTTPException(status_code=500, detail=f"Stored report cannot be read: {error}") from error
+
+    digest = build_ai_digest(report)
+    es = settings.language == "es"
+    if es:
+        system = (
+            "Eres un analista senior de seguridad haciendo triage de los resultados de un escaneo "
+            "automatizado de repository intelligence (fuente recuperada de un .git expuesto). El escaneo "
+            "es intencionalmente ruidoso: marca con regex y heuristicas simples cualquier cosa que PAREZCA "
+            "un secreto o un patron riesgoso, sin entender el contexto real. Tu trabajo es leer la evidencia "
+            "condensada y convertirla en un briefing corto y decisivo que un pentester pueda usar de inmediato.\n\n"
+            "Reglas estrictas:\n"
+            "- Responde SIEMPRE en espanol.\n"
+            "- Separa hallazgos REALES y accionables del RUIDO. Se directo sobre falsos positivos (un bundle "
+            "de certificados CA publico vendorizado con una libreria OAuth NO es un secreto; un fixture de "
+            "test como 'your-client-secret' NO es una credencial real; un match de regex que en realidad es "
+            "una variable PHP o una llamada a metodo NO es un secreto).\n"
+            "- Para cada hallazgo real que mantengas: que es, por que importa, y el proximo paso exacto para "
+            "verificarlo o explotarlo (un comando real: curl, git blame, la CLI oficial del proveedor, etc.) "
+            "- nada de consejos genericos.\n"
+            "- Prioriza por impacto real, no por la severidad que le asigno el escaner.\n"
+            "- Si una credencial parece real y emitida por un proveedor (AWS, Google, GitHub, Stripe, Twitter/X "
+            "OAuth, etc.), indica como validarla de forma segura y de solo lectura, y el radio de impacto si es valida.\n"
+            "- Nunca inventes herramientas ni comandos. NUNCA generes bloques ```nexhunt-tool``` ni "
+            "```nexhunt-investigate``` - esto es un analisis unico, no un agente.\n"
+            "- Se conciso. Usa markdown con estas secciones exactas:\n\n"
+            "## Resumen ejecutivo\n2-3 frases: que es este codebase, y lo mas importante que se encontro.\n\n"
+            "## Lo que realmente importa (priorizado)\nPara cada hallazgo real: titulo, ubicacion (archivo:linea), "
+            "por que importa, proximo paso/comando exacto.\n\n"
+            "## Ruido que podes ignorar\nEn bullets, breve - nombra el patron y por que es un falso positivo.\n\n"
+            "## Proximos pasos\nUna checklist corta y ordenada de que hacer ahora."
+        )
+    else:
+        system = (
+            "You are a senior security analyst triaging the results of an automated repository-intelligence "
+            "scan (source recovered from an exposed .git directory). The scan is intentionally noisy: it flags "
+            "with plain regexes and heuristics anything that LOOKS like a secret or a risky pattern, with no "
+            "understanding of real context. Your job is to read the condensed evidence and turn it into a short, "
+            "decisive brief a pentester can act on immediately.\n\n"
+            "Strict rules:\n"
+            "- Separate REAL, actionable findings from NOISE. Be blunt about false positives (a public CA "
+            "certificate bundle vendored with an OAuth library is NOT a secret; a hardcoded test fixture like "
+            "'your-client-secret' is NOT a real credential; a regex match that is actually a PHP variable "
+            "reference or method call is NOT a secret).\n"
+            "- For each real finding you keep: say what it is, why it matters, and the exact next step to verify "
+            "or exploit it (a real command: curl, git blame, the provider's CLI, etc.) - no generic advice.\n"
+            "- Prioritize by real-world impact, not by the severity label the scanner assigned.\n"
+            "- If credentials look real and provider-issued (AWS, Google, GitHub, Stripe, Twitter/X OAuth, etc.), "
+            "say how to safely validate them read-only and what the blast radius would be if valid.\n"
+            "- Never invent tools or commands. NEVER output ```nexhunt-tool``` or ```nexhunt-investigate``` "
+            "blocks - this is a one-shot analysis, not an agent.\n"
+            "- Be concise. Use markdown with exactly these sections:\n\n"
+            "## Executive summary\n2-3 sentences: what this codebase is, and the single most important thing found.\n\n"
+            "## What actually matters (ranked)\nFor each real issue: title, evidence location (file:line), why it "
+            "matters, exact next step/command.\n\n"
+            "## Noise you can ignore\nBulleted, brief - name the pattern and why it's a false positive.\n\n"
+            "## Next steps\nA short ordered checklist of what to do right now."
+        )
+
+    try:
+        brief = await copilot_service._dispatch(digest, system=system, max_tokens=3000)
+    except Exception as error:
+        raise HTTPException(status_code=502, detail=f"AI briefing failed: {error}") from error
+
+    generated_at = datetime.now(timezone.utc).isoformat()
+    report["ai_brief"] = brief
+    report["ai_brief_generated_at"] = generated_at
+    report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
+    report_path.chmod(0o600)
+    return {"ai_brief": brief, "ai_brief_generated_at": generated_at}
+
+
 def _provider_urls(request: ProviderRequest) -> tuple[str, str, dict[str, str]]:
     provider = request.provider.strip().lower()
     if provider == "github":
@@ -339,3 +434,4 @@ def re_full_host(value: str) -> bool:
         return True
     except ValueError:
         return bool(host and all(part and len(part) <= 63 for part in host.split(".")))
+

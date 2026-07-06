@@ -142,7 +142,12 @@ def _parse_session_headers(raw: str) -> dict[str, str]:
     return out
 
 
-async def _discovered_endpoint_urls(project_id: str | None, base: str) -> list[str]:
+async def _discovered_endpoint_urls(
+    project_id: str | None,
+    base: str,
+    *,
+    status_200_only: bool = False,
+) -> list[str]:
     """Live URLs found by the check-endpoints scan for this project, restricted to
     the target's root domain (so subdomains like api.example.com are included but
     unrelated project targets are not). Lets pipelines also process endpoints the
@@ -168,8 +173,11 @@ async def _discovered_endpoint_urls(project_id: str | None, base: str) -> list[s
     seen: set[str] = set()
     for raw in rows:
         try:
-            u = json.loads(raw).get("url", "")
+            data = json.loads(raw)
+            u = data.get("url", "")
         except Exception:
+            continue
+        if status_200_only and data.get("status_code") != 200:
             continue
         if u and u not in seen and _in_scope(urlparse(u).netloc):
             seen.add(u)
@@ -974,15 +982,15 @@ async def run_js_scan_pipeline(req: PipelineRequest):
     cookie_js = opts.get("cookie", "") or None
     sess_hdrs_js = _parse_session_headers(opts.get("session_headers", ""))
 
-    # Fold in endpoints discovered by check-endpoints so their JS bundles and
-    # inline scripts are scanned even when the crawler never linked to them.
-    discovered = await _discovered_endpoint_urls(project_id, base_domain)
+    _SKIP_PAGE = (".js", ".css", ".png", ".jpg", ".jpeg", ".gif", ".svg",
+                  ".ico", ".woff", ".woff2", ".ttf", ".pdf", ".zip", ".mp4")
+    # Add only endpoint-check URLs that returned an exact HTTP 200. Error,
+    # forbidden, missing and unknown responses do not expand the JS scan.
+    discovered = await _discovered_endpoint_urls(project_id, base_domain, status_200_only=True)
     for u in discovered:
         if u.split("?")[0].endswith(".js"):
             js_urls.add(u)
 
-    _SKIP_PAGE = (".js", ".css", ".png", ".jpg", ".jpeg", ".gif", ".svg",
-                  ".ico", ".woff", ".woff2", ".ttf", ".pdf", ".zip", ".mp4")
     html_pages = list({
         r["url"] for r in all_results
         if not r["url"].split("?")[0].lower().endswith(_SKIP_PAGE)

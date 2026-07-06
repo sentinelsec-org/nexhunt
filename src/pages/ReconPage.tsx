@@ -10,7 +10,7 @@ import { useAppStore } from '@/stores/app-store'
 import { api } from '@/api/http-client'
 import { toast } from '@/stores/toast-store'
 import { API_BASE } from '@/lib/constants'
-import { cn } from '@/lib/utils'
+import { cn, formatBytes } from '@/lib/utils'
 import type { PortResult } from '@/types'
 import {
   Radar,
@@ -54,7 +54,7 @@ function downloadText(content: string, filename: string) {
 type ReconTab = 'subdomains' | 'live_hosts' | 'urls' | 'ports' | 'screenshots' | 'cve' | 'endpoints'
 
 const NMAP_PROFILES = [
-  { id: 'auto', label: 'Auto (recommended)', detail: 'All 65k ports fast, then deep scripts + vuln on open ones', tone: 'text-emerald-300 border-emerald-800/70' },
+  { id: 'auto', label: 'Auto (recommended)', detail: 'Top 1,000 fast, then versions + NSE on confirmed opens', tone: 'text-emerald-300 border-emerald-800/70' },
   { id: 'quick', label: 'Quick', detail: 'Top 100 · light versions', tone: 'text-sky-400 border-sky-900/60' },
   { id: 'standard', label: 'Standard', detail: 'Top 1,000 · default scripts', tone: 'text-orange-300 border-orange-800/70' },
   { id: 'full', label: 'Full TCP', detail: 'All 65,535 ports', tone: 'text-amber-300 border-amber-900/70' },
@@ -73,6 +73,7 @@ function nmapExposure(port: number) {
 
 const ENDPOINT_CATEGORIES = [
   { id: 'api',       label: 'API / Swagger',   desc: 'Swagger, OpenAPI, GraphQL, REST discovery' },
+  { id: 'technologies', label: 'Common Technologies', desc: 'Jenkins, Grafana, Prometheus, Elastic, Kubernetes, Vault, Consul and more' },
   { id: 'sensitive', label: 'Sensitive Files',  desc: '.env, .git, .svn, configs, keys' },
   { id: 'backups',   label: 'Backups / Dumps',  desc: '.zip, .sql, .bak, old archives' },
   { id: 'admin',     label: 'Admin Panels',     desc: '/admin, /panel, /dashboard, /console' },
@@ -177,7 +178,7 @@ export function ReconPage() {
   const [endpointHostFilter, setEndpointHostFilter] = useState('')
   const [manualHost, setManualHost] = useState('')
   const [urlSearch, setUrlSearch] = useState('')
-  const [urlCategoryFilter, setUrlCategoryFilter] = useState<'all' | 'interesting' | 'api' | 'config' | 'backup' | 'scripts' | 'media'>('all')
+  const [urlCategoryFilter, setUrlCategoryFilter] = useState<'all' | 'interesting' | 'sensitive' | 'api' | 'config' | 'backup' | 'scripts' | 'media'>('all')
 
   // Close live host picker on outside click
   useEffect(() => {
@@ -198,6 +199,13 @@ export function ReconPage() {
   const [endpointMenuOpen, setEndpointMenuOpen] = useState(false)
   const endpointMenuRef = useRef<HTMLDivElement>(null)
   const { subdomains, urls, ports, liveHosts, endpoints, cveResult, cveRunning, setCveResult, setCveRunning, clearRecon, activeReconTools, activeReconJobIds, addLiveHosts, removeLiveHost } = useReconStore()
+  const confirmedPorts = useMemo(() => {
+    const open = ports.filter(port => !port.state || port.state === 'open')
+    const targetAware = new Set(open.filter(port => port.target).map(port => `${port.ip}:${port.port}/${port.proto || 'tcp'}`))
+    // Hide legacy rows that were stored before scans preserved the requested
+    // hostname. Their target-aware replacements retain the same IP/port.
+    return open.filter(port => port.target || !targetAware.has(`${port.ip}:${port.port}/${port.proto || 'tcp'}`))
+  }, [ports])
 
   // Close endpoint menu on outside click
   useEffect(() => {
@@ -216,7 +224,8 @@ export function ReconPage() {
   function classifyUrl(url: string): 'sensitive' | 'api' | 'config' | 'backup' | 'scripts' | 'media' | 'other' {
     const u = url.toLowerCase()
     const ext = u.split('?')[0].split('#')[0].split('.').pop() ?? ''
-    if (/\.(env|bak|backup|sql|key|pem|p12|pfx|cer|der|dump|shadow|passwd|htpasswd)$/.test(u) ||
+    if (/\.(env|bak|backup|sql|key|pem|p12|pfx|cer|der|dump|shadow|passwd|htpasswd)(?:[?#]|$)/.test(u) ||
+        /\/(?:\.git|\.svn|\.hg)(?:\/|$)/.test(u) ||
         /[?&](token|api_key|apikey|auth|secret|password|pass|pwd|key|access_token)=/i.test(url))
       return 'sensitive'
     if (/\/(api|v\d+|graphql|rest|swagger|openapi|internal|admin|dashboard|panel|console|debug)\b/.test(u))
@@ -242,12 +251,47 @@ export function ReconPage() {
     other:     '',
   }
 
-  const filteredUrls = urls.filter(u => {
-    if (urlSearch && !u.url.toLowerCase().includes(urlSearch.toLowerCase())) return false
-    if (urlCategoryFilter === 'all') return true
-    if (urlCategoryFilter === 'interesting') return ['sensitive', 'api', 'backup', 'config'].includes(classifyUrl(u.url))
-    return classifyUrl(u.url) === urlCategoryFilter
-  })
+  function urlPriority(url: string, statusCode: number | null) {
+    const lower = url.toLowerCase()
+    const category = classifyUrl(url)
+    const categoryScore: Record<string, number> = {
+      sensitive: 120,
+      config: 100,
+      backup: 90,
+      api: 80,
+      scripts: 35,
+      other: 10,
+      media: 0,
+    }
+    let score = categoryScore[category] ?? 0
+    if (/[?&][^=&#]+=[^&#]*/.test(url)) score += 45
+    if (/\.(php|asp|aspx|jsp|cgi)(?:[?#]|$)/.test(lower)) score += 30
+    if (/(?:^|\/)(?:config|settings|credentials|secrets?|database)(?:\.[^/?#]+)?(?:[?#]|$)/.test(lower)) score += 35
+    if (/\/(?:admin|internal|debug|console|dashboard|login|auth|graphql|swagger|openapi|actuator|metrics)(?:\/|[?#]|$)/.test(lower)) score += 35
+    if (statusCode === 200) score += 12
+    else if (statusCode === 401 || statusCode === 403) score += 10
+    return score
+  }
+
+  function urlStatusClass(statusCode: number | null) {
+    if (statusCode == null) return 'border-zinc-800 bg-zinc-900 text-zinc-600'
+    if (statusCode >= 200 && statusCode < 300) return 'border-emerald-900/70 bg-emerald-950/30 text-emerald-400'
+    if (statusCode >= 300 && statusCode < 400) return 'border-sky-900/70 bg-sky-950/30 text-sky-400'
+    if (statusCode === 401 || statusCode === 403) return 'border-amber-900/70 bg-amber-950/30 text-amber-400'
+    if (statusCode >= 400 && statusCode < 500) return 'border-red-900/70 bg-red-950/30 text-red-400'
+    return 'border-orange-900/70 bg-orange-950/30 text-orange-400'
+  }
+
+  const filteredUrls = urls
+    .filter(u => {
+      if (urlSearch && !u.url.toLowerCase().includes(urlSearch.toLowerCase())) return false
+      if (urlCategoryFilter === 'all') return true
+      if (urlCategoryFilter === 'interesting') return ['sensitive', 'api', 'backup', 'config'].includes(classifyUrl(u.url))
+      return classifyUrl(u.url) === urlCategoryFilter
+    })
+    .map((url, originalIndex) => ({ url, originalIndex, priority: urlPriority(url.url, url.status_code) }))
+    .sort((a, b) => b.priority - a.priority || a.originalIndex - b.originalIndex)
+    .map(item => item.url)
 
   const interestingCount = urls.filter(u => ['sensitive', 'api', 'backup', 'config'].includes(classifyUrl(u.url))).length
 
@@ -435,12 +479,12 @@ export function ReconPage() {
   const [hostsAiRunning, setHostsAiRunning] = useState(false)
   const { screenshots, screenshotRunning, screenshotProgress } = useReconStore()
   const probingAll = isToolRunning('httpx-probe')
-  const filteredPorts = useMemo(() => ports.filter(port => {
+  const filteredPorts = useMemo(() => confirmedPorts.filter(port => {
     if (portRiskOnly && nmapExposure(port.port) === 'normal') return false
     if (!portSearch.trim()) return true
     const query = portSearch.toLowerCase()
-    return `${port.ip} ${port.hostname || ''} ${port.port} ${port.proto || ''} ${port.service || ''} ${port.product || ''} ${port.version || ''} ${(port.cpes || []).join(' ')}`.toLowerCase().includes(query)
-  }), [ports, portRiskOnly, portSearch])
+    return `${port.target || ''} ${port.ip} ${port.hostname || ''} ${port.port} ${port.proto || ''} ${port.service || ''} ${port.product || ''} ${port.version || ''} ${(port.cpes || []).join(' ')}`.toLowerCase().includes(query)
+  }), [confirmedPorts, portRiskOnly, portSearch])
 
   const handleScreenshotAll = async () => {
     if (liveHosts.length === 0) return
@@ -477,7 +521,7 @@ export function ReconPage() {
   }
 
   const handleNmapDeep = async (host: string) => {
-    const openPorts = [...new Set(ports.filter(p => p.ip === host || p.hostname === host).map(p => p.port))].sort((a, b) => a - b)
+    const openPorts = [...new Set(confirmedPorts.filter(p => p.target === host || p.ip === host || p.hostname === host).map(p => p.port))].sort((a, b) => a - b)
     if (openPorts.length === 0) { toast.error('No open ports for this host', 'Run a Fast sweep first.'); return }
     try {
       await api.post('/api/recon/nmap', {
@@ -510,7 +554,7 @@ export function ReconPage() {
     { id: 'subdomains' as ReconTab, icon: Globe, label: 'Subdomains', count: subdomains.length, color: 'text-blue-400' },
     { id: 'live_hosts' as ReconTab, icon: Wifi, label: 'Live Hosts', count: liveHosts.length, color: 'text-green-400' },
     { id: 'urls' as ReconTab, icon: Link, label: 'URLs', count: urls.length, color: 'text-purple-400' },
-    { id: 'ports' as ReconTab, icon: Network, label: 'Ports', count: ports.length, color: 'text-orange-400' },
+    { id: 'ports' as ReconTab, icon: Network, label: 'Ports', count: confirmedPorts.length, color: 'text-orange-400' },
     { id: 'screenshots' as ReconTab, icon: Camera, label: 'Screenshots', count: screenshots.length, color: 'text-pink-400' },
     { id: 'cve' as ReconTab, icon: ShieldAlert, label: 'CVE', count: (cveResult && 'results' in cveResult ? cveResult.results.length : 0), color: 'text-red-400' },
     { id: 'endpoints' as ReconTab, icon: Route, label: 'Endpoints', count: endpoints.length, color: 'text-cyan-400' },
@@ -685,7 +729,7 @@ export function ReconPage() {
                       {hasOpts && tool.installed && (
                         <div className="pl-1 space-y-1 border-l border-zinc-800 ml-1">
                           {tool.id === 'nmap' && (
-                            <NmapOptionsPanel opts={opts} setOption={(key, value) => setOption(tool.id, key, value)} onSweepAll={handleNmapSweepAll} liveHostCount={liveHosts.length} />
+                            <NmapOptionsPanel opts={opts} setOption={(key, value) => setOption(tool.id, key, value)} onSweepAll={handleNmapSweepAll} liveHostCount={liveHosts.length} sweepRunning={isToolRunning('nmap-sweep')} />
                           )}
                           {tool.id === 'subfinder' && (
                             <OptionInput label="Sources" placeholder="shodan,virustotal" value={opts.sources || ''} onChange={v => setOption(tool.id, 'sources', v)} />
@@ -1372,6 +1416,7 @@ export function ReconPage() {
                       <th className="px-3 py-2 w-20">Type</th>
                       <th className="px-3 py-2 w-24">Source</th>
                       <th className="px-3 py-2 w-16">Status</th>
+                      <th className="px-3 py-2 w-20">Size</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1392,13 +1437,20 @@ export function ReconPage() {
                             )}
                           </td>
                           <td className="px-3 py-1.5 text-zinc-500">{u.source}</td>
-                          <td className="px-3 py-1.5 text-zinc-500">{u.status_code ?? '—'}</td>
+                          <td className="px-3 py-1.5">
+                            <span className={cn('inline-flex min-w-9 justify-center rounded border px-1.5 py-0.5 font-mono text-[10px] font-semibold', urlStatusClass(u.status_code))}>
+                              {u.status_code ?? '-'}
+                            </span>
+                          </td>
+                          <td className="px-3 py-1.5 font-mono text-[10px] text-zinc-500">
+                            {u.content_length != null ? formatBytes(u.content_length) : '-'}
+                          </td>
                         </tr>
                       )
                     })}
                     {filteredUrls.length === 0 && (
                       <tr>
-                        <td colSpan={5} className="px-3 py-12 text-center text-zinc-600">
+                        <td colSpan={6} className="px-3 py-12 text-center text-zinc-600">
                           {urls.length === 0 ? 'No URLs discovered yet. Run Stage 3.' : 'No URLs match the current filter.'}
                         </td>
                       </tr>
@@ -1459,7 +1511,7 @@ export function ReconPage() {
             {activeTab === 'ports' && (
               <NmapResults
                 ports={filteredPorts}
-                total={ports.length}
+                total={confirmedPorts.length}
                 search={portSearch}
                 setSearch={setPortSearch}
                 riskOnly={portRiskOnly}
@@ -1467,6 +1519,7 @@ export function ReconPage() {
                 expanded={expandedPort}
                 setExpanded={setExpandedPort}
                 onDeepScan={handleNmapDeep}
+                deepScanRunning={isToolRunning('nmap')}
               />
             )}
             {/* CVE Correlation tab */}
@@ -1682,6 +1735,11 @@ export function ReconPage() {
                         <div key={i} className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-zinc-800/50 transition-colors group">
                           <span className={cn('text-[10px] font-mono font-bold shrink-0 w-8 text-center rounded px-1', statusClass(ep.status_code))}>{ep.status_code ?? '?'}</span>
                           <span className="text-xs text-zinc-200 font-mono flex-1 truncate">{ep.url}</span>
+                          {ep.technology_hints?.length ? (
+                            <span className="max-w-40 truncate rounded border border-cyan-900/70 bg-cyan-950/25 px-1.5 py-0.5 text-[9px] font-medium text-cyan-400" title={ep.technology_hints.join(', ')}>
+                              {ep.technology_hints.join(', ')}
+                            </span>
+                          ) : null}
                           {ep.title && <span className="text-[10px] text-zinc-500 truncate max-w-32 shrink-0">{ep.title}</span>}
                           {ep.content_length != null && (
                             <span className="text-[9px] text-zinc-600 font-mono shrink-0 w-16 text-right">{ep.content_length} B</span>
@@ -1744,11 +1802,12 @@ export function ReconPage() {
   )
 }
 
-function NmapOptionsPanel({ opts, setOption, onSweepAll, liveHostCount }: {
+function NmapOptionsPanel({ opts, setOption, onSweepAll, liveHostCount, sweepRunning }: {
   opts: Record<string, string>
   setOption: (key: string, value: string) => void
   onSweepAll: () => void
   liveHostCount: number
+  sweepRunning: boolean
 }) {
   const profile = opts.profile || 'auto'
   const toggle = (key: string) => setOption(key, opts[key] === 'true' ? '' : 'true')
@@ -1776,7 +1835,7 @@ function NmapOptionsPanel({ opts, setOption, onSweepAll, liveHostCount }: {
             profile === 'auto' ? 'border-emerald-900/60 bg-emerald-950/15 text-emerald-400'
               : profile === 'udp' ? 'border-cyan-900/60 bg-cyan-950/15 text-cyan-500'
                 : 'border-red-900/60 bg-red-950/15 text-red-400')}>
-            {profile === 'auto' ? 'Runs two passes: a fast sweep of every port, then service, default and vuln scripts on only the open ones. The Ports field is ignored — it always sweeps all ports.'
+            {profile === 'auto' ? 'Runs two passes: a fast top-1,000 inventory, then service detection and NSE checks on confirmed open ports only.'
               : profile === 'udp' ? 'UDP/SYN/OS scans may require elevated privileges.'
                 : 'Vulnerability profile runs active NSE checks. Confirm authorization and scope.'}
           </div>
@@ -1785,12 +1844,12 @@ function NmapOptionsPanel({ opts, setOption, onSweepAll, liveHostCount }: {
 
       <button
         onClick={onSweepAll}
-        disabled={liveHostCount === 0}
+        disabled={liveHostCount === 0 || sweepRunning}
         className="w-full inline-flex items-center justify-center gap-1.5 rounded border border-orange-800 bg-orange-950/40 px-3 py-1.5 text-[10px] font-medium text-orange-300 hover:bg-orange-950/70 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
       >
-        <ScanLine size={11} /> Fast sweep all live hosts ({liveHostCount})
+        {sweepRunning ? <Loader2 size={11} className="animate-spin" /> : <ScanLine size={11} />} {sweepRunning ? 'Sweeping live hosts...' : `Fast sweep all live hosts (${liveHostCount})`}
       </button>
-      <p className="text-[9px] leading-relaxed text-zinc-600">Sweeps every port on each live host, then open a host in the Ports tab and hit Deep scan for service + vuln detail. Or scan a single target below.</p>
+      <p className="text-[9px] leading-relaxed text-zinc-600">Checks the top 1,000 TCP ports on every live host without version probes. Then use Deep scan on a host to fingerprint only confirmed opens and run relevant NSE checks.</p>
 
       {profile !== 'auto' && (<>
       <OptionInput label="Ports" placeholder="profile default · 80,443 · - · top:500" value={opts.ports || ''} onChange={value => setOption('ports', value)} />
@@ -1858,7 +1917,7 @@ function NmapToggle({ label, active, onClick }: { label: string; active: boolean
   )
 }
 
-function NmapResults({ ports, total, search, setSearch, riskOnly, setRiskOnly, expanded, setExpanded, onDeepScan }: {
+function NmapResults({ ports, total, search, setSearch, riskOnly, setRiskOnly, expanded, setExpanded, onDeepScan, deepScanRunning }: {
   ports: PortResult[]
   total: number
   search: string
@@ -1868,10 +1927,11 @@ function NmapResults({ ports, total, search, setSearch, riskOnly, setRiskOnly, e
   expanded: string | null
   setExpanded: (value: string | null) => void
   onDeepScan: (host: string) => void
+  deepScanRunning: boolean
 }) {
   const groups = new Map<string, PortResult[]>()
   for (const port of ports) {
-    const key = port.ip || port.hostname || 'unknown'
+    const key = port.target || port.hostname || port.ip || 'unknown'
     groups.set(key, [...(groups.get(key) || []), port])
   }
   const grouped = [...groups.entries()].sort(([a], [b]) => a.localeCompare(b))
@@ -1898,18 +1958,19 @@ function NmapResults({ ports, total, search, setSearch, riskOnly, setRiskOnly, e
             <header className="flex flex-wrap items-center gap-2 border-b border-zinc-800 bg-zinc-900/40 px-3 py-2">
               <Server size={12} className="text-orange-400" />
               <span className="font-mono text-[11px] font-semibold text-zinc-200">{host}</span>
+              {first.ip && first.ip !== host && <span className="font-mono text-[9px] text-zinc-600">{first.ip}</span>}
               {first.hostname && first.hostname !== host && <span className="font-mono text-[9px] text-sky-400">{first.hostname}</span>}
               {os && <span className="flex items-center gap-1 text-[9px] text-zinc-500"><Fingerprint size={10} /> {os.name} <span className="text-zinc-700">{os.accuracy}%</span></span>}
               <div className="ml-auto flex items-center gap-2">
-                <button onClick={() => onDeepScan(host)} title="Run service + default + vuln scripts on this host's open ports" className="inline-flex items-center gap-1 rounded border border-orange-800/70 bg-orange-950/25 px-2 py-0.5 text-[9px] text-orange-300 hover:bg-orange-950/50 transition-colors"><ScanLine size={10} /> Deep scan</button>
-                <span className="rounded border border-zinc-800 px-1.5 py-0.5 font-mono text-[8px] text-zinc-600">{hostPorts.length} services</span>
+                <button disabled={deepScanRunning} onClick={() => onDeepScan(host)} title="Run version detection and relevant NSE scripts on this host's confirmed open ports" className="inline-flex items-center gap-1 rounded border border-orange-800/70 bg-orange-950/25 px-2 py-0.5 text-[9px] text-orange-300 hover:bg-orange-950/50 disabled:cursor-wait disabled:opacity-50 transition-colors">{deepScanRunning ? <Loader2 size={10} className="animate-spin" /> : <ScanLine size={10} />} Deep scan</button>
+                <span className="rounded border border-zinc-800 px-1.5 py-0.5 font-mono text-[8px] text-zinc-600">{hostPorts.length} open</span>
               </div>
             </header>
             <table className="w-full table-fixed text-xs">
               <thead><tr className="border-b border-zinc-900 text-left text-[9px] uppercase tracking-wider text-zinc-600"><th className="w-24 px-3 py-1.5">Port</th><th className="w-28 px-3 py-1.5">Service</th><th className="px-3 py-1.5">Fingerprint</th><th className="w-24 px-3 py-1.5">Evidence</th></tr></thead>
               <tbody>
                 {hostPorts.sort((a, b) => a.port - b.port).map(port => {
-                  const key = `${port.ip}:${port.port}/${port.proto || 'tcp'}`
+                  const key = `${port.target || port.hostname || port.ip}:${port.port}/${port.proto || 'tcp'}`
                   const isExpanded = expanded === key
                   const exposure = nmapExposure(port.port)
                   const hasEvidence = Boolean(port.scripts || port.host_scripts || port.cpes?.length || port.trace?.length || port.os_matches?.length)
@@ -1917,8 +1978,8 @@ function NmapResults({ ports, total, search, setSearch, riskOnly, setRiskOnly, e
                     <Fragment key={key}>
                       <tr onClick={() => setExpanded(isExpanded ? null : key)} className="cursor-pointer border-b border-zinc-900/80 hover:bg-zinc-900/40">
                         <td className="px-3 py-2"><span className={cn('font-mono font-bold', exposure === 'high' ? 'text-red-400' : exposure === 'review' ? 'text-amber-400' : 'text-green-400')}>{port.port}</span><span className="ml-1 font-mono text-[8px] text-zinc-700">/{port.proto || 'tcp'}</span></td>
-                        <td className="px-3 py-2"><span className="text-zinc-300">{port.service || 'unknown'}</span>{port.service_tunnel && <span className="ml-1 text-[8px] text-sky-500">+{port.service_tunnel}</span>}</td>
-                        <td className="truncate px-3 py-2 font-mono text-[10px] text-zinc-500" title={port.version || ''}>{port.version || port.product || 'No version fingerprint'}</td>
+                        <td className="px-3 py-2"><span className={port.service && port.service !== 'unknown' ? 'text-zinc-300' : 'text-zinc-600'}>{port.service && port.service !== 'unknown' ? port.service : 'Not fingerprinted'}</span>{port.service_tunnel && <span className="ml-1 text-[8px] text-sky-500">+{port.service_tunnel}</span>}</td>
+                        <td className="truncate px-3 py-2 font-mono text-[10px] text-zinc-500" title={port.version || ''}>{port.version || port.product || (port.scan_profile === 'discovery' ? 'Run Deep scan for -sV and NSE' : 'No version identified')}</td>
                         <td className="px-3 py-2">{hasEvidence ? <span className="inline-flex items-center gap-1 text-[9px] text-sky-400"><Fingerprint size={10} /> inspect</span> : <span className="text-[9px] text-zinc-700">—</span>}</td>
                       </tr>
                       {isExpanded && (

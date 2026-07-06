@@ -2,7 +2,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from nexhunt.adapters.nmap import build_nmap_command, normalize_target, parse_nmap_xml
+from nexhunt.adapters.nmap import (
+    build_discovery_command,
+    build_nmap_command,
+    normalize_target,
+    parse_nmap_xml,
+)
 
 
 NMAP_XML = """<?xml version="1.0"?>
@@ -20,6 +25,10 @@ NMAP_XML = """<?xml version="1.0"?>
         <script id="ssl-cert" output="CN=api.internal.test" />
       </port>
       <port protocol="tcp" portid="22"><state state="closed" reason="reset" /></port>
+      <port protocol="tcp" portid="31337">
+        <state state="open|filtered" reason="no-response" />
+        <service name="unknown" conf="3" />
+      </port>
     </ports>
     <os><osmatch name="Linux 5.x" accuracy="96" line="1" /></os>
     <hostscript><script id="host-info" output="environment: staging" /></hostscript>
@@ -58,10 +67,11 @@ class NmapAdapterTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "nmap.xml"
             path.write_text(NMAP_XML)
-            results = parse_nmap_xml(str(path), "standard")
+            results = parse_nmap_xml(str(path), "standard", "app.example.test")
         self.assertEqual(len(results), 1)
         row = results[0]
         self.assertEqual(row["ip"], "10.20.30.40")
+        self.assertEqual(row["target"], "app.example.test")
         self.assertEqual(row["hostname"], "api.internal.test")
         self.assertEqual(row["port"], 443)
         self.assertEqual(row["product"], "nginx")
@@ -69,6 +79,18 @@ class NmapAdapterTests(unittest.TestCase):
         self.assertIn("ssl-cert", row["scripts"])
         self.assertEqual(row["os_matches"][0]["accuracy"], 96)
         self.assertEqual(row["trace"][0]["host"], "gateway")
+
+    def test_discovery_is_bounded_and_ignores_ambiguous_ports(self):
+        command, _ = build_discovery_command("example.com", {}, "/tmp/out.xml")
+        self.assertIn("--top-ports", command)
+        self.assertEqual(command[command.index("--top-ports") + 1], "1000")
+        self.assertNotIn("-sV", command)
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "nmap.xml"
+            path.write_text(NMAP_XML)
+            results = parse_nmap_xml(str(path), "discovery")
+        self.assertEqual([row["port"] for row in results], [443])
 
 
 if __name__ == "__main__":

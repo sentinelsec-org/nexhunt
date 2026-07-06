@@ -134,6 +134,7 @@ export interface UrlResult {
   source: string
   status_code: number | null
   content_type: string | null
+  content_length?: number | null
 }
 
 export interface PortResult {

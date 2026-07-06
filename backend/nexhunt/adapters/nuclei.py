@@ -1,11 +1,22 @@
 import json
 import os
 import tempfile
+from pathlib import Path
 from typing import AsyncIterator
 from nexhunt.adapters.base import ToolAdapter
 
 # Default template path — detected at startup
 _DEFAULT_TEMPLATES = os.path.expanduser("~/nuclei-templates")
+
+
+def _templates_root() -> str | None:
+    candidates = [
+        os.environ.get("NUCLEI_TEMPLATES", ""),
+        _DEFAULT_TEMPLATES,
+        "/opt/nuclei-templates",
+        "/usr/share/nuclei-templates",
+    ]
+    return next((path for path in candidates if path and Path(path).is_dir()), None)
 
 
 class NucleiAdapter(ToolAdapter):
@@ -28,6 +39,12 @@ class NucleiAdapter(ToolAdapter):
         scan_type = options.get("scan_type", "")
         proxy = options.get("proxy", "")
         headers = options.get("headers", "")  # comma-separated "Name: Value" pairs
+        templates_root = _templates_root()
+        if not templates_root:
+            raise RuntimeError(
+                "Nuclei templates are not installed for the user running NexHunt. "
+                "Run: nuclei -update-templates"
+            )
 
         # Support bulk scanning: if options["targets"] is a list, write to temp file
         targets_list: list[str] = options.get("targets", [])
@@ -60,18 +77,20 @@ class NucleiAdapter(ToolAdapter):
         # Template selection: explicit > scan_type preset > default fast set
         if templates:
             if not os.path.isabs(templates):
-                templates = os.path.join(_DEFAULT_TEMPLATES, templates)
+                templates = os.path.join(templates_root, templates)
+            if not Path(templates).exists():
+                raise RuntimeError(f"Nuclei template path does not exist: {templates}")
             cmd.extend(["-t", templates])
         elif scan_type == "cves":
-            cmd.extend(["-t", f"{_DEFAULT_TEMPLATES}/http/cves/"])
+            cmd.extend(["-t", f"{templates_root}/http/cves/"])
         elif scan_type == "misconfig":
-            cmd.extend(["-t", f"{_DEFAULT_TEMPLATES}/http/misconfiguration/"])
+            cmd.extend(["-t", f"{templates_root}/http/misconfiguration/"])
         elif scan_type == "exposure":
-            cmd.extend(["-t", f"{_DEFAULT_TEMPLATES}/http/exposures/"])
+            cmd.extend(["-t", f"{templates_root}/http/exposures/"])
         elif scan_type == "takeover":
-            cmd.extend(["-t", f"{_DEFAULT_TEMPLATES}/http/takeovers/"])
+            cmd.extend(["-t", f"{templates_root}/http/takeovers/"])
         elif scan_type == "default-logins":
-            cmd.extend(["-t", f"{_DEFAULT_TEMPLATES}/http/default-logins/"])
+            cmd.extend(["-t", f"{templates_root}/http/default-logins/"])
         elif scan_type == "ssrf":
             cmd.extend(["-tags", "ssrf,redirect"])
         elif scan_type == "xss":
@@ -86,7 +105,7 @@ class NucleiAdapter(ToolAdapter):
             cmd.extend(["-tags", "jwt"])
         elif scan_type == "cors":
             # Template tags: cors,generic,misconfig,vuln (NOT "misconfiguration")
-            cmd.extend(["-t", f"{_DEFAULT_TEMPLATES}/http/vulnerabilities/generic/cors-misconfig.yaml"])
+            cmd.extend(["-t", f"{templates_root}/http/vulnerabilities/generic/cors-misconfig.yaml"])
         elif scan_type == "xxe":
             cmd.extend(["-tags", "xxe"])
         elif scan_type == "ssti":
@@ -121,9 +140,9 @@ class NucleiAdapter(ToolAdapter):
         else:
             # Default: technologies + exposures + misconfiguration (fast, useful)
             cmd.extend([
-                "-t", f"{_DEFAULT_TEMPLATES}/http/technologies/",
-                "-t", f"{_DEFAULT_TEMPLATES}/http/exposures/",
-                "-t", f"{_DEFAULT_TEMPLATES}/http/misconfiguration/",
+                "-t", f"{templates_root}/http/technologies/",
+                "-t", f"{templates_root}/http/exposures/",
+                "-t", f"{templates_root}/http/misconfiguration/",
             ])
 
         if severity:
@@ -150,7 +169,7 @@ class NucleiAdapter(ToolAdapter):
         cmd = self._with_extra_args(cmd, options)
         yield {"_raw": True, "line": "$ " + " ".join(cmd)}
         try:
-            async for line in self._run_subprocess(cmd, timeout=timeout, merge_stderr=True):
+            async for line in self._run_subprocess(cmd, timeout=timeout, merge_stderr=True, check_exit=True):
                 # Pass [INF]/[WRN]/[ERR] lines straight through as raw output
                 if line.startswith("[INF]") or line.startswith("[WRN]") or line.startswith("[ERR]") \
                         or line.startswith("[STDERR] [INF]") or line.startswith("[STDERR] [WRN]") \
@@ -162,6 +181,10 @@ class NucleiAdapter(ToolAdapter):
                 # Try to parse as JSONL finding
                 try:
                     data = json.loads(line)
+                    if not data.get("template-id"):
+                        # Nuclei emits JSON stats alongside JSONL findings.
+                        yield {"_raw": True, "line": line}
+                        continue
                     info = data.get("info", {})
                     classification = info.get("classification", {})
 

@@ -414,9 +414,11 @@ async def probe_urls(req: UrlProbeRequest):
                         try:
                             r = await client.get(u)
                             status = r.status_code
+                            content_length = len(r.content)
                         except Exception:
                             status = None
-                        batch.append({"url": u, "status_code": status})
+                            content_length = None
+                        batch.append({"url": u, "status_code": status, "content_length": content_length})
                         done += 1
                         if len(batch) >= 25:
                             await flush()
@@ -470,18 +472,42 @@ async def run_nmap_sweep(req: NmapSweepRequest):
         await ws_manager.broadcast("tool_status", {
             "tool": "nmap-sweep", "event": "started", "job_id": job_id, "total": len(targets),
         })
-        sem = asyncio.Semaphore(4)
+        # Concurrent full-port TCP-connect sweeps against many subdomains of the same domain
+        # routinely trip CDN/WAF rate-limiting keyed on source IP across the whole estate, not
+        # per-subdomain: verified against real infra that even 2-way concurrency silently returns
+        # 0 open ports for ~40% of hosts, while sequential (1-way) scanning was 100% reliable across
+        # every host tested. A security tool missing real open ports is worse than a slower sweep,
+        # so this stays sequential; the retry-on-zero below is just a safety net for transient blips.
+        sem = asyncio.Semaphore(1)
         done = 0
 
         async def one(target: str):
             nonlocal done
             async with sem:
-                opts = {**req.options, "profile": "discovery"}
-                try:
+                # Sweep All is intentionally bounded: enumerate every host fast,
+                # then let the user fingerprint only confirmed open ports.
+                opts = {
+                    **req.options,
+                    "profile": "discovery",
+                    "protocol": "tcp",
+                    "discovery_ports": "top:1000",
+                    "no_dns": True,
+                }
+
+                async def sweep_once() -> list[dict]:
+                    found = []
                     async for result in adapter.run(target, opts):
                         if result.get("_raw"):
                             await ws_manager.broadcast("tool_output", {"tool": "nmap-sweep", "line": result["line"]})
                             continue
+                        found.append(result)
+                    return found
+
+                try:
+                    results = await sweep_once()
+                    if not results:
+                        results = await sweep_once()
+                    for result in results:
                         await ws_manager.broadcast("recon_results", {
                             "tool": "nmap", "type": "port", "results": [result],
                             "project_id": req.project_id or "",
@@ -641,6 +667,115 @@ async def run_full_recon(req: ReconRequest):
 
 # ── Endpoint discovery ──────────────────────────────────────────────────────────
 
+# Read-only routes that identify common infrastructure and developer products.
+# The product map drives discovery and annotates matches for downstream tools.
+COMMON_TECHNOLOGY_ENDPOINTS: dict[str, list[str]] = {
+    "Jenkins": [
+        "/jenkins/", "/api/json", "/whoAmI/api/json", "/computer/api/json",
+        "/queue/api/json", "/pluginManager/api/json", "/manage", "/systemInfo", "/script",
+    ],
+    "Apache Tomcat": [
+        "/manager/html", "/manager/status", "/manager/text/list", "/host-manager/html",
+        "/docs/", "/examples/", "/server-status",
+    ],
+    "JBoss / WildFly": [
+        "/jmx-console/", "/web-console/", "/invoker/JMXInvokerServlet",
+        "/console/", "/console/login", "/management", "/jbossws/services",
+    ],
+    "Oracle WebLogic": [
+        "/console/", "/console/login/LoginForm.jsp", "/consolehelp/",
+        "/wls-wsat/CoordinatorPortType", "/_async/AsyncResponseService",
+        "/bea_wls_deployment_internal/", "/uddiexplorer/",
+    ],
+    "Grafana": [
+        "/grafana/", "/login", "/api/health", "/api/frontend/settings",
+        "/api/plugins", "/api/datasources", "/api/org", "/api/search",
+    ],
+    "Prometheus": [
+        "/-/healthy", "/-/ready", "/api/v1/status/config", "/api/v1/status/flags",
+        "/api/v1/status/runtimeinfo", "/api/v1/status/buildinfo", "/api/v1/targets",
+        "/api/v1/rules", "/api/v1/alerts", "/api/v1/metadata",
+    ],
+    "Elasticsearch": [
+        "/_cluster/health", "/_cluster/settings", "/_nodes", "/_nodes/http",
+        "/_nodes/settings", "/_cat/health", "/_cat/nodes", "/_cat/indices",
+        "/_cat/templates", "/_search", "/_security/_authenticate",
+    ],
+    "Kibana": [
+        "/app/kibana", "/app/home", "/api/status", "/status",
+        "/api/features", "/api/spaces/space", "/api/saved_objects/_find?type=index-pattern",
+    ],
+    "Kubernetes API": [
+        "/version", "/api", "/apis", "/openapi/v2", "/openapi/v3",
+        "/livez?verbose", "/readyz?verbose", "/api/v1/namespaces",
+        "/api/v1/nodes", "/api/v1/pods", "/metrics",
+    ],
+    "Docker API": [
+        "/_ping", "/version", "/info", "/containers/json", "/images/json",
+        "/networks", "/volumes", "/services", "/tasks",
+    ],
+    "HashiCorp Vault": [
+        "/ui/", "/v1/sys/health", "/v1/sys/seal-status", "/v1/sys/mounts",
+        "/v1/sys/auth", "/v1/sys/policies/acl", "/v1/sys/internal/ui/mounts",
+    ],
+    "HashiCorp Consul": [
+        "/ui/", "/v1/status/leader", "/v1/status/peers", "/v1/agent/self",
+        "/v1/agent/services", "/v1/catalog/services", "/v1/catalog/nodes",
+        "/v1/health/state/any",
+    ],
+    "RabbitMQ Management": [
+        "/api/overview", "/api/whoami", "/api/nodes", "/api/connections",
+        "/api/channels", "/api/exchanges", "/api/queues", "/api/vhosts",
+    ],
+    "Apache Solr": [
+        "/solr/", "/solr/admin/info/system", "/solr/admin/info/properties",
+        "/solr/admin/cores", "/solr/admin/collections?action=LIST", "/solr/admin/zookeeper",
+    ],
+    "Apache Airflow": [
+        "/health", "/api/v1/health", "/admin/", "/api/v1/dags",
+        "/api/v1/config", "/api/v1/pools", "/api/v1/variables",
+    ],
+    "SonarQube": [
+        "/api/system/status", "/api/system/health", "/api/server/version",
+        "/api/components/search?qualifiers=TRK", "/api/settings/values", "/api/users/search",
+    ],
+    "Keycloak": [
+        "/realms/master/.well-known/openid-configuration", "/realms/master",
+        "/admin/master/console/", "/auth/realms/master/.well-known/openid-configuration",
+        "/auth/admin/master/console/",
+    ],
+    "Gitea": [
+        "/user/login", "/api/v1/version", "/api/swagger", "/explore/repos",
+        "/.well-known/openid-configuration",
+    ],
+    "GitLab": [
+        "/users/sign_in", "/help", "/api/v4/version", "/api/v4/metadata",
+        "/-/health", "/-/readiness", "/-/liveness",
+    ],
+}
+
+_AMBIGUOUS_TECHNOLOGY_HINT_PATHS = {
+    "/", "/admin", "/api", "/api/health", "/api/plugins", "/api/search",
+    "/docs", "/examples", "/health", "/help", "/info", "/login", "/manage",
+    "/management", "/metrics", "/networks", "/script", "/services", "/status",
+    "/tasks", "/ui", "/user/login", "/version", "/volumes",
+    "/.well-known/openid-configuration",
+}
+
+
+def _technology_hints(url: str) -> list[str]:
+    """Return product hints for an exact technology-specific route."""
+    from urllib.parse import urlparse
+    path = urlparse(url).path.rstrip("/") or "/"
+    if path in _AMBIGUOUS_TECHNOLOGY_HINT_PATHS:
+        return []
+    hints: list[str] = []
+    for technology, routes in COMMON_TECHNOLOGY_ENDPOINTS.items():
+        if any((urlparse(route).path.rstrip("/") or "/") == path for route in routes):
+            hints.append(technology)
+    return hints
+
+
 ENDPOINT_WORDLISTS: dict[str, list[str]] = {
     "api": [
         "/swagger", "/swagger-ui.html", "/swagger-ui/", "/swagger-ui/index.html",
@@ -739,6 +874,10 @@ ENDPOINT_WORDLISTS: dict[str, list[str]] = {
         "/metrics", "/prometheus", "/grafana", "/status.php", "/phpinfo",
     ],
 }
+
+ENDPOINT_WORDLISTS["technologies"] = list(dict.fromkeys(
+    route for routes in COMMON_TECHNOLOGY_ENDPOINTS.values() for route in routes
+))
 
 # Combined "all" is the union, deduplicated and capped at 100
 _ALL_PATHS = list(dict.fromkeys(p for paths in ENDPOINT_WORDLISTS.values() for p in paths))[:100]
@@ -928,6 +1067,7 @@ async def _run_endpoint_check(job_id: str, targets: list[str], paths: list[str],
                     "title": data.get("title", ""),
                     "content_type": data.get("content-type", data.get("content_type", "")),
                     "content_length": data.get("content_length", data.get("content-length")),
+                    "technology_hints": _technology_hints(data.get("url", "")),
                 }
                 # Drop responses that just echo the host's catch-all app shell.
                 if _is_soft404(result, baselines):

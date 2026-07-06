@@ -2,10 +2,11 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertTriangle, Boxes, Check, ChevronDown, ChevronRight, Circle, CloudCog, Copy, Database,
   FileCode2, GitBranch, GitCommitHorizontal, GitFork, KeyRound, Loader2, Network,
-  Play, RefreshCw, SearchCode, Send, Server, ShieldAlert, Square, TerminalSquare,
+  Play, RefreshCw, SearchCode, Send, Server, ShieldAlert, Sparkles, Square, TerminalSquare,
 } from 'lucide-react'
 import { WorkspaceShell } from '@/components/layout/WorkspaceShell'
 import { Input } from '@/components/ui/input'
+import { Markdown } from '@/components/shared/Markdown'
 import { api } from '@/api/http-client'
 import { wsClient } from '@/api/ws-client'
 import { cn } from '@/lib/utils'
@@ -13,7 +14,20 @@ import { useAppStore } from '@/stores/app-store'
 import { useReconStore } from '@/stores/recon-store'
 import { toast } from '@/stores/toast-store'
 
-type EvidenceView = 'overview' | 'secrets' | 'history' | 'providers' | 'architecture'
+type EvidenceView = 'brief' | 'overview' | 'findings' | 'secrets' | 'history' | 'providers' | 'architecture'
+
+interface CodeFinding {
+  severity: 'critical' | 'high' | 'medium' | 'low' | 'info'
+  category: string
+  title: string
+  source: string
+  line: number
+  symbol: string
+  evidence: string
+  rationale: string
+  remediation: string
+  command: string
+}
 
 interface SecretEvidence {
   detector: string
@@ -23,6 +37,7 @@ interface SecretEvidence {
   commit: string
   evidence: string
   historical: boolean
+  low_confidence: boolean
 }
 
 interface ProviderEvidence {
@@ -68,6 +83,13 @@ interface RepositoryReport {
     services: ServiceEvidence[]
     urls: Array<{ url: string; host: string; port: number | null; scheme: string; source: string }>
   }
+  technologies: string[]
+  routes: Array<{ route: string; controller: string; method: string; base_class: string; source: string; line: number }>
+  sensitive_files: Array<{ source: string; size: number; sha256: string; extension: string }>
+  findings: CodeFinding[]
+  next_steps: Array<{ priority: string; title: string; reason: string; command: string }>
+  ai_brief?: string | null
+  ai_brief_generated_at?: string | null
   summary: {
     commits: number
     files: number
@@ -76,6 +98,9 @@ interface RepositoryReport {
     providers: number
     hosts: number
     services: number
+    findings: number
+    critical_findings: number
+    routes: number
   }
 }
 
@@ -92,10 +117,13 @@ const STAGES = [
   { id: 'history', label: 'History', detail: 'Files, commits & secrets', icon: GitCommitHorizontal },
   { id: 'providers', label: 'Providers', detail: 'GitHub, GitLab, Bitbucket', icon: CloudCog },
   { id: 'architecture', label: 'Architecture', detail: 'Hosts, services & paths', icon: Network },
+  { id: 'code-analysis', label: 'Code analysis', detail: 'Routes, controls & risky flows', icon: SearchCode },
 ] as const
 
 const VIEWS: Array<{ id: EvidenceView; label: string; icon: typeof Boxes }> = [
+  { id: 'brief', label: 'AI Briefing', icon: Sparkles },
   { id: 'overview', label: 'Case file', icon: Boxes },
+  { id: 'findings', label: 'Findings', icon: ShieldAlert },
   { id: 'secrets', label: 'Secrets', icon: KeyRound },
   { id: 'history', label: 'History', icon: GitCommitHorizontal },
   { id: 'providers', label: 'Providers', icon: CloudCog },
@@ -104,6 +132,10 @@ const VIEWS: Array<{ id: EvidenceView; label: string; icon: typeof Boxes }> = [
 
 function projectTarget(scope?: string[]) {
   return scope?.find(Boolean) || ''
+}
+
+function lastTargetKey(projectId: string) {
+  return `nexhunt.repo-intel.last-target.${projectId}`
 }
 
 function cleanError(error: unknown) {
@@ -189,6 +221,7 @@ function SummaryLedger({ report, setView }: { report: RepositoryReport; setView:
     ['providers', report.summary.providers, 'providers', 'text-violet-400'],
     ['hosts', report.summary.hosts, 'architecture', 'text-cyan-400'],
     ['services', report.summary.services, 'architecture', 'text-cyan-400'],
+    ['findings', report.summary.findings || 0, 'findings', report.summary.critical_findings ? 'text-red-400' : 'text-amber-400'],
   ]
   return (
     <div className="flex flex-wrap items-stretch border border-zinc-800/80 rounded-lg bg-zinc-950/65 overflow-hidden">
@@ -240,19 +273,85 @@ function Overview({ report }: { report: RepositoryReport }) {
   )
 }
 
+function AiBriefView({ report, projectId, onUpdated }: {
+  report: RepositoryReport
+  projectId: string
+  onUpdated: (patch: { ai_brief: string; ai_brief_generated_at: string }) => void
+}) {
+  const [loading, setLoading] = useState(false)
+
+  const generate = async () => {
+    setLoading(true)
+    try {
+      const response = await api.post<{ ai_brief: string; ai_brief_generated_at: string }>('/api/repository-intelligence/ai-brief', {
+        project_id: projectId, target: report.target,
+      })
+      onUpdated(response)
+      toast.success('AI briefing ready')
+    } catch (error) {
+      toast.error('AI briefing failed', cleanError(error))
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  if (!report.ai_brief) {
+    return (
+      <div className="min-h-[320px] flex flex-col items-center justify-center border border-dashed border-zinc-800 rounded-lg bg-zinc-950/30 px-8 text-center">
+        <Sparkles size={26} className="text-violet-400 mb-4" />
+        <h2 className="text-[14px] font-semibold text-zinc-200">No AI briefing yet</h2>
+        <p className="mt-2 max-w-md text-[11px] leading-relaxed text-zinc-600">
+          Have the AI read every finding and secret, discard likely false positives (vendored certificates,
+          test fixtures, code fragments misread as secrets) and hand you a short, prioritized brief with
+          exact next steps for what actually matters.
+        </p>
+        <button onClick={generate} disabled={loading} className="mt-5 inline-flex h-9 items-center gap-2 rounded border border-violet-800 bg-violet-950/40 px-4 text-[11px] font-medium text-violet-300 hover:bg-violet-950/70 disabled:opacity-50">
+          {loading ? <Loader2 size={13} className="animate-spin motion-reduce:animate-none" /> : <Sparkles size={13} />} Generate briefing
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="border border-zinc-800 rounded-lg overflow-hidden">
+      <header className="flex flex-wrap items-center gap-2 px-3 py-2 border-b border-zinc-800 bg-zinc-900/30">
+        <Sparkles size={13} className="text-violet-400" />
+        <span className="text-[11px] font-medium text-zinc-300">AI triage briefing</span>
+        {report.ai_brief_generated_at && (
+          <span className="text-[9px] text-zinc-600">generated {new Date(report.ai_brief_generated_at).toLocaleString()}</span>
+        )}
+        <button onClick={generate} disabled={loading} className="ml-auto inline-flex items-center gap-1.5 rounded border border-violet-900 bg-violet-950/25 px-2.5 py-1 text-[9px] text-violet-400 hover:bg-violet-950/50 disabled:opacity-40">
+          {loading ? <Loader2 size={10} className="animate-spin motion-reduce:animate-none" /> : <RefreshCw size={10} />} Regenerate
+        </button>
+      </header>
+      <div className="p-4 max-w-3xl overflow-x-auto">
+        <Markdown text={report.ai_brief} />
+      </div>
+    </div>
+  )
+}
+
 function SecretsView({ secrets }: { secrets: SecretEvidence[] }) {
   const [historicalOnly, setHistoricalOnly] = useState(false)
+  const [hideLowConfidence, setHideLowConfidence] = useState(true)
   const [query, setQuery] = useState('')
   const filtered = useMemo(() => secrets.filter(secret => {
     if (historicalOnly && !secret.historical) return false
+    if (hideLowConfidence && secret.low_confidence) return false
     const haystack = `${secret.detector} ${secret.source} ${secret.raw} ${secret.commit}`.toLowerCase()
     return haystack.includes(query.toLowerCase())
-  }), [secrets, historicalOnly, query])
+  }), [secrets, historicalOnly, hideLowConfidence, query])
+  const lowConfidenceCount = useMemo(() => secrets.filter(secret => secret.low_confidence).length, [secrets])
   return (
     <div>
       <div className="flex flex-col sm:flex-row gap-2 mb-3">
         <div className="relative flex-1"><SearchCode size={13} className="absolute left-2.5 top-2.5 text-zinc-600" /><Input value={query} onChange={event => setQuery(event.target.value)} placeholder="Filter detector, file, value or commit" className="h-8 pl-8 text-[11px] font-mono" /></div>
         <button onClick={() => setHistoricalOnly(value => !value)} className={cn('h-8 px-3 rounded border text-[10px] transition-colors', historicalOnly ? 'border-red-800 bg-red-950/30 text-red-400' : 'border-zinc-800 text-zinc-500 hover:text-zinc-300')}>Historical only</button>
+        {lowConfidenceCount > 0 && (
+          <button onClick={() => setHideLowConfidence(value => !value)} className={cn('h-8 px-3 rounded border text-[10px] transition-colors whitespace-nowrap', hideLowConfidence ? 'border-zinc-800 text-zinc-500 hover:text-zinc-300' : 'border-amber-800 bg-amber-950/20 text-amber-400')}>
+            {hideLowConfidence ? `Show ${lowConfidenceCount} vendor/test noise` : `Hide ${lowConfidenceCount} vendor/test noise`}
+          </button>
+        )}
       </div>
       <div className="mb-3 flex items-center gap-2 rounded border border-amber-900/50 bg-amber-950/15 px-3 py-2 text-[10px] text-amber-500/90">
         <AlertTriangle size={12} className="shrink-0" /> Evidence is intentionally shown in cleartext. Handle exports and screenshots as sensitive material.
@@ -265,6 +364,7 @@ function SecretsView({ secrets }: { secrets: SecretEvidence[] }) {
               <KeyRound size={12} className={secret.historical ? 'text-red-400' : 'text-amber-400'} />
               <span className="text-[11px] font-medium text-zinc-200">{secret.detector}</span>
               <span className={cn('rounded px-1.5 py-0.5 text-[8px] uppercase tracking-wider', secret.historical ? 'bg-red-950/50 text-red-400' : 'bg-amber-950/50 text-amber-400')}>{secret.historical ? 'history' : 'current'}</span>
+              {secret.low_confidence && <span className="rounded px-1.5 py-0.5 text-[8px] uppercase tracking-wider bg-zinc-800 text-zinc-500">vendor/test</span>}
               <span className="ml-auto font-mono text-[9px] text-zinc-600">{secret.source}:{secret.line}</span>
             </header>
             <div className="p-3">
@@ -278,6 +378,59 @@ function SecretsView({ secrets }: { secrets: SecretEvidence[] }) {
           </article>
         ))}
       </div>
+    </div>
+  )
+}
+
+function FindingsView({ report }: { report: RepositoryReport }) {
+  const [severity, setSeverity] = useState('all')
+  const [query, setQuery] = useState('')
+  const findings = useMemo(() => (report.findings || []).filter(finding => {
+    if (severity !== 'all' && finding.severity !== severity) return false
+    const value = `${finding.title} ${finding.category} ${finding.source} ${finding.evidence}`.toLowerCase()
+    return value.includes(query.toLowerCase())
+  }), [report.findings, severity, query])
+  const severityClass = (value: CodeFinding['severity']) => ({
+    critical: 'border-red-800 bg-red-950/35 text-red-300',
+    high: 'border-orange-800 bg-orange-950/25 text-orange-300',
+    medium: 'border-amber-800 bg-amber-950/20 text-amber-300',
+    low: 'border-cyan-900 bg-cyan-950/20 text-cyan-300',
+    info: 'border-zinc-700 bg-zinc-900 text-zinc-400',
+  }[value])
+  return (
+    <div className="space-y-3">
+      <div className="grid gap-2 md:grid-cols-[1fr_150px]">
+        <div className="relative"><SearchCode size={13} className="absolute left-2.5 top-2.5 text-zinc-600" /><Input value={query} onChange={event => setQuery(event.target.value)} placeholder="Filter title, category, file or evidence" className="h-8 pl-8 text-[11px] font-mono" /></div>
+        <select value={severity} onChange={event => setSeverity(event.target.value)} className="h-8 rounded border border-zinc-800 bg-zinc-950 px-2 text-[11px] text-zinc-300 focus:outline-none focus:border-green-800">
+          <option value="all">All severities</option><option value="critical">Critical</option><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option><option value="info">Info</option>
+        </select>
+      </div>
+      {(report.technologies || []).length > 0 && <div className="flex flex-wrap gap-1.5">{report.technologies.map(item => <span key={item} className="rounded border border-zinc-800 bg-zinc-900/50 px-2 py-1 text-[9px] text-zinc-400">{item}</span>)}</div>}
+      <div className="space-y-2">
+        {findings.length === 0 && <div className="rounded border border-dashed border-zinc-800 py-14 text-center text-[11px] text-zinc-600">No findings match this filter.</div>}
+        {findings.map((finding, index) => (
+          <article key={`${finding.source}-${finding.line}-${finding.category}-${index}`} className="overflow-hidden rounded-lg border border-zinc-800 bg-zinc-950/60">
+            <header className="flex flex-wrap items-center gap-2 border-b border-zinc-800 bg-zinc-900/30 px-3 py-2">
+              <span className={cn('rounded border px-1.5 py-0.5 text-[8px] font-semibold uppercase tracking-wider', severityClass(finding.severity))}>{finding.severity}</span>
+              <span className="text-[11px] font-medium text-zinc-200">{finding.title}</span>
+              <span className="ml-auto font-mono text-[9px] text-zinc-600">{finding.source}:{finding.line}</span>
+            </header>
+            <div className="grid gap-3 p-3 xl:grid-cols-[1.25fr_0.75fr]">
+              <div>
+                <code className="block whitespace-pre-wrap break-all rounded border border-zinc-800 bg-black/25 p-2.5 text-[10px] leading-relaxed text-amber-100">{finding.evidence}</code>
+                <p className="mt-2 text-[10px] leading-relaxed text-zinc-400">{finding.rationale}</p>
+                <p className="mt-1 text-[10px] leading-relaxed text-green-500/80">{finding.remediation}</p>
+              </div>
+              <div className="rounded border border-zinc-800 bg-zinc-950 p-2.5">
+                <div className="mb-2 text-[8px] uppercase tracking-wider text-zinc-600">Local evidence command</div>
+                <code className="block break-all text-[9px] leading-relaxed text-zinc-400">{finding.command}</code>
+                <button onClick={() => copy(finding.command, 'Command')} className="mt-2 inline-flex items-center gap-1.5 text-[9px] text-green-500 hover:text-green-300"><Copy size={10} /> Copy command</button>
+              </div>
+            </div>
+          </article>
+        ))}
+      </div>
+      {(report.next_steps || []).length > 0 && <section className="rounded-lg border border-zinc-800 bg-zinc-950/50 p-3"><h3 className="text-[11px] font-medium text-zinc-300">Recommended next steps</h3><div className="mt-2 grid gap-2 lg:grid-cols-2">{report.next_steps.map(step => <div key={step.title} className="rounded border border-zinc-800 p-2.5"><div className="text-[10px] font-medium text-zinc-200">{step.title}</div><p className="mt-1 text-[9px] text-zinc-600">{step.reason}</p><button onClick={() => copy(step.command, 'Command')} className="mt-2 flex w-full items-start gap-2 rounded bg-black/25 p-2 text-left"><TerminalSquare size={10} className="mt-0.5 shrink-0 text-green-500" /><code className="break-all text-[8px] text-green-400/80">{step.command}</code></button></div>)}</div></section>}
     </div>
   )
 }
@@ -451,7 +604,7 @@ export function RepositoryIntelligencePage({ embedded = false }: { embedded?: bo
   const activeProjectData = useAppStore(state => state.activeProjectData)
   const [target, setTarget] = useState(() => projectTarget(activeProjectData?.scope))
   const [report, setReport] = useState<RepositoryReport | null>(null)
-  const [view, setView] = useState<EvidenceView>('overview')
+  const [view, setView] = useState<EvidenceView>('brief')
   const [running, setRunning] = useState(false)
   const [jobId, setJobId] = useState<string | null>(null)
   const [stage, setStage] = useState('')
@@ -466,11 +619,28 @@ export function RepositoryIntelligencePage({ embedded = false }: { embedded?: bo
     if (!target && activeProjectData?.scope?.length) setTarget(projectTarget(activeProjectData.scope))
   }, [activeProjectData, target])
 
+  // Restores the last case worked on (this project's most recently analyzed target) whenever the
+  // page mounts or the active project changes — otherwise navigating away and back loses the report.
   useEffect(() => {
+    let cancelled = false
+    const remembered = activeProject ? localStorage.getItem(lastTargetKey(activeProject)) : null
+    const resolved = remembered || (activeProjectData?.id === activeProject ? projectTarget(activeProjectData.scope) : '')
     setReport(null)
-    setTarget(activeProjectData?.id === activeProject ? projectTarget(activeProjectData.scope) : '')
+    setTarget(resolved)
     setStage('')
     setStatus('Ready to inspect target')
+    setSelectedHosts([])
+    if (activeProject && resolved) {
+      api.get<{ report: RepositoryReport | null }>('/api/repository-intelligence/latest', { project_id: activeProject, target: resolved })
+        .then(response => {
+          if (cancelled || !response.report) return
+          setReport(response.report)
+          setStage('complete')
+          setStatus('Stored case loaded')
+        })
+        .catch(() => {})
+    }
+    return () => { cancelled = true }
   }, [activeProject])
 
   useEffect(() => {
@@ -492,6 +662,7 @@ export function RepositoryIntelligencePage({ embedded = false }: { embedded?: bo
           setJobId(null)
           setStage('complete')
           setStatus('Repository intelligence report ready')
+          setView('brief')
           toast.success('Repository case completed', `${event.report.summary.secrets} secrets and ${event.report.summary.hosts} hosts extracted`)
         }
       } else if (event.event === 'bulk_completed') {
@@ -499,6 +670,7 @@ export function RepositoryIntelligencePage({ embedded = false }: { embedded?: bo
         setJobId(null)
         setStage('complete')
         setBulkProgress(null)
+        setView('brief')
         setStatus(`Sweep complete — ${event.host_total ?? 0} host(s) analyzed`)
         toast.success('Repository sweep completed', `${event.host_total ?? 0} host(s) analyzed`)
       } else if (event.event === 'failed') {
@@ -536,6 +708,7 @@ export function RepositoryIntelligencePage({ embedded = false }: { embedded?: bo
           target, project_id: activeProject, recover: true, scan_history: scanHistory,
         })
         setJobId(response.job_id)
+        localStorage.setItem(lastTargetKey(activeProject), target)
       }
     } catch (error) {
       setRunning(false)
@@ -559,6 +732,8 @@ export function RepositoryIntelligencePage({ embedded = false }: { embedded?: bo
         setReport(response.report)
         setStage('complete')
         setStatus('Stored case loaded')
+        setView('brief')
+        localStorage.setItem(lastTargetKey(activeProject), target)
       } else toast.error('No stored case for this target')
     } catch (error) { toast.error('Could not load stored case', cleanError(error)) }
   }
@@ -597,7 +772,15 @@ export function RepositoryIntelligencePage({ embedded = false }: { embedded?: bo
             {report && <SummaryLedger report={report} setView={setView} />}
             {report && <nav className="flex overflow-x-auto border-b border-zinc-800" aria-label="Repository evidence views">{VIEWS.map(item => { const Icon = item.icon; return <button key={item.id} onClick={() => setView(item.id)} className={cn('flex shrink-0 items-center gap-1.5 border-b-2 px-3 py-2 text-[10px] transition-colors', view === item.id ? 'border-green-500 text-green-400' : 'border-transparent text-zinc-600 hover:text-zinc-300')}><Icon size={11} />{item.label}{item.id === 'secrets' && report.summary.secrets > 0 && <span className="rounded bg-amber-950/50 px-1 text-[8px] text-amber-400">{report.summary.secrets}</span>}</button> })}</nav>}
             {!report && <EmptyCase />}
+            {report && view === 'brief' && activeProject && (
+              <AiBriefView
+                report={report}
+                projectId={activeProject}
+                onUpdated={patch => setReport(prev => prev ? { ...prev, ...patch } : prev)}
+              />
+            )}
             {report && view === 'overview' && <Overview report={report} />}
+            {report && view === 'findings' && <FindingsView report={report} />}
             {report && view === 'secrets' && <SecretsView secrets={report.secrets} />}
             {report && view === 'history' && <HistoryView report={report} />}
             {report && view === 'providers' && <ProvidersView report={report} />}

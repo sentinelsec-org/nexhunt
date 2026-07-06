@@ -98,7 +98,15 @@ done
 # Allow local X11 connections (needed when running as root)
 xhost +local: >/dev/null 2>&1 || true
 
-# Kill any leftover backend from previous session
+# Do not kill active scans when the desktop launcher is clicked twice. Electron
+# already enforces a single instance; leave the healthy existing instance alone.
+if curl -fsS http://127.0.0.1:17707/api/health >/dev/null 2>&1 && \
+   pgrep -u "$(id -u)" -f "$NEXHUNT_DIR/node_modules/.bin/electron|$NEXHUNT_DIR/node_modules/electron/dist/electron" >/dev/null 2>&1; then
+  echo "NexHunt is already running; keeping active scans alive."
+  exit 0
+fi
+
+# Kill a stale backend left behind without a matching desktop process.
 fuser -k 17707/tcp >/dev/null 2>&1 || true
 sleep 1
 

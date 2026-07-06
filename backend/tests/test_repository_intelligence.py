@@ -10,6 +10,7 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from nexhunt.services.repository_intelligence import (
+    analyze_code_risks,
     detect_providers,
     extract_architecture,
     materialize_working_tree,
@@ -82,6 +83,27 @@ class RepositoryIntelligenceTests(unittest.TestCase):
 
         providers = detect_providers(["git@gitlab.com:team/app.git"], [])
         self.assertEqual(providers[0]["provider"], "gitlab")
+
+    def test_code_analysis_maps_framework_routes_and_high_risk_sinks(self):
+        controllers = self.repo / "application" / "controllers"
+        controllers.mkdir(parents=True)
+        (controllers / "Utility.php").write_text(
+            "<?php\nclass Utility extends CI_Controller {\n"
+            "  public function fetch() { $url = $_GET['url']; return file_get_contents($url); }\n"
+            "  public function upload() { move_uploaded_file($_FILES['f']['tmp_name'], '/tmp/x'); }\n"
+            "}\n"
+        )
+        (self.repo / "application" / "config").mkdir()
+        (self.repo / "application" / "config" / "config.php").write_text("<?php\n")
+        (self.repo / "signing.p12").write_bytes(b"test-pkcs12-material")
+
+        analysis = analyze_code_risks(self.repo)
+
+        self.assertIn("CodeIgniter", analysis["technologies"])
+        self.assertTrue(any(route["route"] == "/utility/fetch" for route in analysis["routes"]))
+        categories = {finding["category"] for finding in analysis["findings"]}
+        self.assertTrue({"authorization", "ssrf", "file-upload", "sensitive-file"}.issubset(categories))
+        self.assertTrue(all(finding["evidence"] and finding["command"] for finding in analysis["findings"]))
 
     def test_materialization_never_executes_hooks_or_creates_symlinks(self):
         (self.repo / "safe.txt").write_text("recovered source\n")

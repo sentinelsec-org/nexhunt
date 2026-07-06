@@ -74,7 +74,7 @@ export const useReconStore = create<ReconState>((set) => ({
       const existing = byUrl.get(r.url)
       if (!existing) byUrl.set(r.url, r)
       else if (r.status_code != null && r.status_code !== existing.status_code) {
-        byUrl.set(r.url, { ...existing, status_code: r.status_code })
+        byUrl.set(r.url, { ...existing, status_code: r.status_code, content_length: r.content_length ?? existing.content_length })
       }
     }
     return { urls: Array.from(byUrl.values()) }
