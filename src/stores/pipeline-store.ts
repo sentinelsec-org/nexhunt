@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import type { PipelineEvent } from '@/types'
 
-export type PipelineType = 'xss' | 'sqli' | 'js_scan'
+export type PipelineType = 'xss' | 'sqli' | 'lfi' | 'js_scan'
 
 export interface PipelineFinding {
   severity: 'critical' | 'high' | 'medium' | 'low' | 'info'
@@ -26,6 +26,10 @@ export interface PipelineRun {
   findings: PipelineFinding[]
   log: string[]
   startedAt: number
+  // Count of param/JS candidates. On a cache-hit run the per-URL stream is not
+  // replayed, so `candidates` (the URL list) stays empty; this carries the count
+  // reported by the 'cached'/'completed' events so the UI still shows it.
+  candidateCount: number
   stats: {
     totalUrls: number
     jsFiles?: number
@@ -45,6 +49,7 @@ let runCounter = 0
 const PIPELINE_LABELS: Record<PipelineType, string> = {
   xss: 'XSS Pipeline',
   sqli: 'SQLi Probe',
+  lfi: 'LFI Probe',
   js_scan: 'JS Scanner',
 }
 
@@ -65,6 +70,7 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
       findings: [],
       log: [`[•] ${PIPELINE_LABELS[type]} started for ${target}`],
       startedAt: Date.now(),
+      candidateCount: 0,
       stats: { totalUrls: 0 },
     }
     set(state => ({ runs: [run, ...state.runs], activeRunId: id }))
@@ -101,6 +107,7 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
             updated.stats = { ...updated.stats, totalUrls: updated.katanaUrls.length }
             if (event.has_params || event.is_form) {
               updated.candidates = [...updated.candidates, event.url]
+              updated.candidateCount = updated.candidates.length
               updated.log.push(`  [param] ${event.url}`)
             }
             // Skip logging plain URLs — too noisy. Stats panel shows the count.
@@ -109,11 +116,19 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
               updated.log.push(`  [•] ${updated.katanaUrls.length} URLs crawled so far...`)
             }
           } else if (event.event === 'cached') {
+            // Cache hit: the per-URL stream is skipped, so pull the counts off the
+            // event itself, otherwise the panel would show 0 URLs / 0 candidates.
+            updated.stats = { ...updated.stats, totalUrls: event.total ?? updated.stats.totalUrls }
+            updated.candidateCount = event.xss_candidates ?? updated.candidateCount
             updated.log.push(`[Katana] ♻ ${event.message ?? 'reused cached crawl'}`)
+          } else if (event.event === 'skipped') {
+            updated.log.push(`[→] ${event.message ?? 'Crawl skipped — continuing with URLs found so far'}`)
           } else if (event.event === 'completed') {
             const cLabel = run.type === 'js_scan' ? 'JS files' : 'param URLs'
+            updated.stats = { ...updated.stats, totalUrls: Math.max(updated.stats.totalUrls, event.total_urls ?? 0) }
+            updated.candidateCount = Math.max(updated.candidateCount, event.xss_candidates ?? 0)
             updated.log.push(
-              `[Katana] Done — ${event.total_urls ?? updated.katanaUrls.length} URLs crawled, ${updated.candidates.length} ${cLabel} found`
+              `[Katana] Done — ${event.total_urls ?? updated.katanaUrls.length} URLs crawled, ${event.xss_candidates ?? updated.candidates.length} ${cLabel} found`
             )
           } else if (event.event === 'failed') {
             updated.phase = 'failed'
@@ -137,6 +152,8 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
             updated.log.push(
               `  [XSS FOUND] ${event.finding.url ?? ''} — param: ${event.finding.parameter ?? '?'}`
             )
+          } else if (event.event === 'skipped') {
+            updated.log.push(`[→] ${event.message ?? 'Dalfox scan stopped'}`)
           } else if (event.event === 'completed') {
             updated.phase = 'completed'
             updated.log.push(`[Dalfox] Done — ${event.findings ?? 0} XSS finding(s)`)
@@ -147,11 +164,13 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
           }
         }
 
-        // ── JS endpoint parsing phase (SQLi pipeline) ──
+        // ── JS endpoint parsing phase (XSS + SQLi pipelines) ──
         if (event.phase === 'js_parse') {
           updated.phase = 'js_parse'
           if (event.event === 'started') {
             updated.log.push(`[JS] Parsing ${event.targets ?? 0} JS files for hidden endpoints...`)
+          } else if (event.event === 'skipped') {
+            updated.log.push(`[→] ${event.message ?? 'JS parse skipped'}`)
           } else if (event.event === 'completed') {
             const n = event.js_endpoints ?? 0
             updated.log.push(`[JS] Added ${n} new parameterized endpoint(s) from JS`)
@@ -164,6 +183,8 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
           updated.phase = 'sqli_probe'
           if (event.event === 'started') {
             updated.log.push(`[SQLi] Probing ${event.targets ?? 0} URLs (error + boolean + time-based)...`)
+          } else if (event.event === 'skipped') {
+            updated.log.push(`[→] ${event.message ?? 'SQLi probe stopped'}`)
           } else if (event.event === 'finding' && event.finding) {
             updated.findingsCount += 1
             const f = event.finding
@@ -189,6 +210,36 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
           }
         }
 
+        // ── LFI probe phase ──
+        if (event.phase === 'lfi_probe') {
+          updated.phase = 'lfi_probe'
+          if (event.event === 'started') {
+            updated.log.push(`[LFI] Probing ${event.targets ?? 0} URLs (traversal + wrappers + bypasses)...`)
+          } else if (event.event === 'skipped') {
+            updated.log.push(`[→] ${event.message ?? 'LFI probe stopped'}`)
+          } else if (event.event === 'finding' && event.finding) {
+            updated.findingsCount += 1
+            const f = event.finding
+            const conf = (f as { confidence?: string }).confidence === 'tentative' ? 'medium' : 'high'
+            updated.findings = [...updated.findings, {
+              severity: conf as PipelineFinding['severity'], label: 'LFI',
+              text: `param: ${f.parameter} — ${(f as { technique?: string }).technique ?? ''} — ${f.evidence?.slice(0, 60) ?? ''}`,
+              url: f.original_url ?? f.url,
+              param: f.parameter,
+            }]
+            updated.log.push(
+              `  [LFI] ${f.original_url ?? f.url} — param: ${f.parameter} — ${(f as { payload?: string }).payload ?? ''}`
+            )
+          } else if (event.event === 'completed') {
+            updated.phase = 'completed'
+            updated.log.push(`[LFI] Done — ${event.findings ?? 0} potential finding(s)`)
+            updated.log.push(`[✓] Pipeline completed`)
+          } else if (event.event === 'failed') {
+            updated.phase = 'failed'
+            updated.log.push(`[LFI] ERROR: ${event.error}`)
+          }
+        }
+
         // ── JS scan phase ──
         if (event.phase === 'js_scan') {
           updated.phase = 'js_scan'
@@ -210,6 +261,8 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
             updated.log.push(
               `  [${f.severity?.toUpperCase()}] ${f.label} in ${f.js_url} :${f.line} — ${f.match?.slice(0, 60)}`
             )
+          } else if (event.event === 'skipped') {
+            updated.log.push(`[→] ${event.message ?? 'JS scan stopped'}`)
           } else if (event.event === 'completed') {
             updated.phase = 'completed'
             updated.log.push(`[JS] Done — ${event.findings ?? 0} finding(s) in ${event.js_files ?? 0} files`)
@@ -234,6 +287,8 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
               text: f.title ?? '', url: f.url,
             }]
             updated.log.push(`  [${f.severity?.toUpperCase()}] [Cloud] ${f.title} — ${f.url}`)
+          } else if (event.event === 'skipped') {
+            updated.log.push(`[→] ${event.message ?? 'Bucket check stopped'}`)
           } else if (event.event === 'completed') {
             updated.log.push(`[Buckets] ${event.message ?? 'done'}`)
           }

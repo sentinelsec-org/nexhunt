@@ -118,6 +118,18 @@ async def run_bypass_403_bulk(req: BulkToolRequest):
     return {"status": "started", "count": len(job_ids), "job_ids": job_ids}
 
 
+@router.post("/lfi", dependencies=[Depends(require_pro("LFI Scanner"))])
+async def run_lfi(req: ToolRequest):
+    return _start_tool("lfi", req.target, req.options, req.project_id or None)
+
+
+@router.post("/lfi-bulk", dependencies=[Depends(require_pro("LFI Scanner"))])
+async def run_lfi_bulk(req: BulkToolRequest):
+    targets = [t.strip() for t in req.targets if t.strip()][:50]
+    job_ids = [_start_tool("lfi", t, req.options, req.project_id or None)["job_id"] for t in targets]
+    return {"status": "started", "count": len(job_ids), "job_ids": job_ids}
+
+
 @router.post("/cloud-buckets", dependencies=[Depends(require_pro("Cloud Buckets"))])
 async def run_cloud_buckets(req: ToolRequest):
     return _start_tool("cloud_buckets", req.target, req.options, req.project_id or None)

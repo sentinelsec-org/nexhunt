@@ -12,7 +12,7 @@ from nexhunt.licensing.guard import require_pro
 
 from nexhunt.database import init_db
 from nexhunt.version import __version__
-from nexhunt.api import proxy, recon, scanner, exploit, copilot, project, tools, settings, websocket, pipeline, js_scanner, terminal, bizlogic, cve, jwt_attacks, security_tools, license, update, bruteforce, wordlists, wordpress, exposure_intel, api_scanner, repository_intelligence
+from nexhunt.api import proxy, recon, scanner, exploit, copilot, project, tools, settings, websocket, pipeline, js_scanner, terminal, bizlogic, cve, jwt_attacks, oauth_attacks, security_tools, license, update, bruteforce, wordlists, wordpress, exposure_intel, api_scanner, repository_intelligence
 
 logging.basicConfig(
     level=logging.INFO,
@@ -86,6 +86,7 @@ app.include_router(pipeline.router)  # XSS is Free; SQLi and JS Secrets are gate
 # PRO-only routers (whole feature gated behind a valid license)
 app.include_router(copilot.router, dependencies=[Depends(require_pro("AI Copilot"))])
 app.include_router(jwt_attacks.router, dependencies=[Depends(require_pro("JWT attack suite"))])
+app.include_router(oauth_attacks.router, dependencies=[Depends(require_pro("OAuth attack suite"))])
 app.include_router(bizlogic.router, dependencies=[Depends(require_pro("Business logic suite"))])
 app.include_router(exposure_intel.router, dependencies=[Depends(require_pro("Exposure Intelligence"))])
 app.include_router(api_scanner.router, dependencies=[Depends(require_pro("API Scanner"))])

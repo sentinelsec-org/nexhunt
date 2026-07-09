@@ -103,6 +103,20 @@ def _sqli_to_finding(f: dict) -> dict:
     }
 
 
+def _lfi_to_finding(f: dict) -> dict:
+    conf = f.get("confidence", "confirmed")
+    severity = "high" if conf == "confirmed" else "medium"
+    return {
+        "title": f"[LFI Pipeline] {f.get('technique')} — param: {f.get('parameter')}",
+        "severity": severity, "vuln_type": "lfi",
+        "url": f.get("original_url") or f.get("url"), "parameter": f.get("parameter"),
+        "evidence": f"Payload: {f.get('payload')}\nConfidence: {conf}\nEvidence: {f.get('evidence', '')}\n\nPoC: {f.get('url')}",
+        "description": "Potential Local File Inclusion / path traversal. "
+                       + ("Confirmed by file-content signature." if conf == "confirmed" else "Confirm manually."),
+        "tool": "lfi_pipeline", "template_id": f.get("technique"), "status": "new",
+    }
+
+
 def _secret_to_finding(f: dict) -> dict:
     return {
         "title": f"[JS Secret] {f.get('label')} in {f.get('js_url')}",
@@ -860,6 +874,121 @@ async def run_sqli_probe_pipeline(req: PipelineRequest):
         "candidates": len(param_urls),
         "findings": len(all_findings),
         "results": all_findings,
+    }
+
+
+@router.post("/lfi", dependencies=[Depends(require_pro("LFI Probe pipeline"))])
+async def run_lfi_pipeline(req: PipelineRequest):
+    """
+    LFI probe pipeline:
+    1. Katana crawl (shared cache) + discovered endpoints + JS-mined endpoints
+    2. For each parameterized URL, probe params with traversal/wrapper/bypass payloads
+    3. Stream results via WebSocket channel 'pipeline' (phase='lfi_probe')
+    """
+    from nexhunt.services import lfi_engine
+
+    target = req.target.strip()
+    opts = req.options
+    project_id = req.project_id or None
+
+    try:
+        all_results, param_results = await _katana_crawl_streaming(target, opts, pipeline="lfi")
+    except RuntimeError as e:
+        return {"error": str(e)}
+
+    param_urls = {r["url"] for r in param_results}
+
+    await ws_manager.broadcast("pipeline", {
+        "phase": "katana", "event": "completed", "pipeline": "lfi",
+        "total_urls": len(all_results), "xss_candidates": len(param_urls),
+        "message": f"Found {len(all_results)} URLs — {len(param_urls)} with parameters",
+    })
+
+    cookie = opts.get("cookie", "") or None
+    sess_headers = _parse_session_headers(opts.get("session_headers", ""))
+
+    discovered = await _discovered_endpoint_urls(project_id, _base_domain(target))
+    for u in discovered:
+        if "?" in u and parse_qs(urlparse(u).query):
+            param_urls.add(u)
+
+    if opts.get("parse_js", True):
+        _SKIP_EXT = (".js", ".css", ".png", ".jpg", ".jpeg", ".gif", ".svg",
+                     ".webp", ".ico", ".woff", ".woff2", ".ttf", ".pdf", ".zip", ".mp4")
+        js_urls = [r["url"] for r in all_results if r["url"].split("?")[0].endswith(".js")]
+        js_urls += [u for u in discovered if u.split("?")[0].endswith(".js")]
+        html_urls = list({
+            r["url"] for r in all_results
+            if not r["url"].split("?")[0].lower().endswith(_SKIP_EXT)
+        } | {
+            u for u in discovered if not u.split("?")[0].lower().endswith(_SKIP_EXT)
+        })[:120]
+        if js_urls or html_urls:
+            js_endpoints: set[str] = set()
+            workers = int(opts.get("workers", 5))
+
+            def _collect(content: str, source_url: str):
+                for ep in _extract_js_endpoints(content, source_url):
+                    if "?" in ep and parse_qs(urlparse(ep).query) and ep not in param_urls:
+                        js_endpoints.add(ep)
+
+            for i in range(0, len(js_urls), workers):
+                chunk = js_urls[i:i + workers]
+                contents = await asyncio.gather(*[_fetch_js(u, cookie, sess_headers) for u in chunk])
+                for u, content in zip(chunk, contents):
+                    if content:
+                        _collect(content, u)
+            for i in range(0, len(html_urls), workers):
+                chunk = html_urls[i:i + workers]
+                contents = await asyncio.gather(*[_fetch_js(u, cookie, sess_headers) for u in chunk])
+                for u, content in zip(chunk, contents):
+                    if content:
+                        inline = _extract_inline_scripts(content)
+                        if inline:
+                            _collect(inline, u)
+            param_urls |= js_endpoints
+
+    param_urls = list(param_urls)
+    if not param_urls:
+        return {"status": "completed", "total_urls": len(all_results), "candidates": 0, "findings": 0}
+
+    await ws_manager.broadcast("pipeline", {
+        "phase": "lfi_probe", "event": "started", "pipeline": "lfi",
+        "targets": len(param_urls),
+        "message": f"Probing {len(param_urls)} URLs for LFI / path traversal...",
+    })
+
+    probe_headers = dict(sess_headers)
+    if cookie:
+        probe_headers["Cookie"] = cookie
+
+    all_findings = []
+    workers = int(opts.get("workers", 5))
+    for i in range(0, len(param_urls), workers):
+        chunk = param_urls[i:i + workers]
+        results = await asyncio.gather(*[
+            lfi_engine.probe_url(url, headers=probe_headers, thorough=False) for url in chunk
+        ])
+        for findings in results:
+            for finding in findings:
+                all_findings.append(finding)
+                saved = await _persist_finding(_lfi_to_finding(finding), project_id)
+                await ws_manager.broadcast("findings", saved)
+                await ws_manager.broadcast("pipeline", {
+                    "phase": "lfi_probe", "event": "finding", "pipeline": "lfi",
+                    "finding": finding, "total_findings": len(all_findings),
+                })
+                logger.info(f"[LFI probe] Potential finding: {finding['url']} param={finding['parameter']}")
+
+    await ws_manager.broadcast("pipeline", {
+        "phase": "lfi_probe", "event": "completed", "pipeline": "lfi",
+        "findings": len(all_findings),
+        "message": f"LFI probe done — {len(all_findings)} potential finding(s)",
+    })
+
+    return {
+        "status": "completed", "total_urls": len(all_results),
+        "candidates": len(param_urls), "findings": len(all_findings), "results": all_findings,
     }
 
 

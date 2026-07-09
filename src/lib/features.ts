@@ -16,6 +16,7 @@ export const PRO_FEATURES = {
   endpointBulk: 'Bulk endpoint discovery',
   corsBulk: 'Bulk CORS scanning',
   jwt: 'JWT attack suite',
+  oauth: 'OAuth attack suite',
   bizlogic: 'Business logic suite',
   reportExport: 'Professional report export',
   premiumTemplates: 'Premium templates and wordlists',

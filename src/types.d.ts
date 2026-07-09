@@ -172,9 +172,9 @@ export interface EndpointResult {
 }
 
 export interface PipelineEvent {
-  phase: 'katana' | 'dalfox' | 'sqli_probe' | 'js_scan' | 'js_parse' | 'bucket_check'
-  pipeline?: 'xss' | 'sqli' | 'js_scan'
-  event: 'started' | 'url_found' | 'completed' | 'failed' | 'finding' | 'js_file' | 'cached'
+  phase: 'katana' | 'dalfox' | 'sqli_probe' | 'lfi_probe' | 'js_scan' | 'js_parse' | 'bucket_check'
+  pipeline?: 'xss' | 'sqli' | 'lfi' | 'js_scan'
+  event: 'started' | 'url_found' | 'completed' | 'failed' | 'finding' | 'js_file' | 'cached' | 'skipped'
   message?: string
   url?: string
   has_params?: boolean

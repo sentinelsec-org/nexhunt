@@ -16,14 +16,15 @@ import { toast } from '@/stores/toast-store'
 import { PAYLOAD_SETS, CATEGORY_ORDER, type PayloadSet } from '@/lib/intruder-payloads'
 import type { HttpFlow } from '@/types'
 import type { RepeaterTab, IntruderResult } from '@/stores/proxy-store'
+import { OAuthAttackTab } from '@/pages/proxy/OAuthAttackTab'
 import {
   Play, Square, Shield, ShieldOff, Trash2, Search, Send,
   Plus, X, Repeat2, Crosshair, Filter, ChevronDown, ChevronRight,
   AlertTriangle, CheckCircle, Loader2, RotateCcw, BookOpen, Sparkles, Globe,
-  Key, Copy, Check, ChevronUp, ExternalLink, Network, KeyRound, Folder, Crown,
+  Key, Copy, Check, ChevronUp, ExternalLink, Network, KeyRound, Folder, Crown, ShieldCheck,
 } from 'lucide-react'
 
-type Tab = 'intercept' | 'history' | 'sitemap' | 'repeater' | 'intruder' | 'jwt'
+type Tab = 'intercept' | 'history' | 'sitemap' | 'repeater' | 'intruder' | 'jwt' | 'oauth'
 
 type PayloadSetConfig = {
   type: 'builtin' | 'custom' | 'numbers'
@@ -91,7 +92,7 @@ export function ProxyPage() {
     interceptQueue, setInterceptQueue, removeFromInterceptQueue,
     proxyRunning, setProxyRunning,
     filter, setFilter, clearFlows, mergeFlows,
-    sendToRepeater, sendToIntruder, sendToJwt, sendToBruteForce,
+    sendToRepeater, sendToIntruder, sendToJwt, sendToOauth, sendToBruteForce,
   } = useProxyStore()
   const { activeProjectData } = useAppStore()
   const navigate = useNavigate()
@@ -302,6 +303,7 @@ export function ProxyPage() {
               { id: 'repeater', label: 'Repeater', icon: Repeat2 },
               { id: 'intruder', label: 'Intruder', icon: Crosshair },
               { id: 'jwt', label: 'JWT Attacks', icon: Key },
+              { id: 'oauth', label: 'OAuth Attacks', icon: ShieldCheck },
             ] as { id: Tab; label: string; icon: React.FC<any> }[]).map(t => (
               <button key={t.id} onClick={() => setActiveTab(t.id as Tab)}
                 className={cn('flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors',
@@ -344,6 +346,7 @@ export function ProxyPage() {
             sendToRepeater={(f) => { sendToRepeater(f); setActiveTab('repeater') }}
             sendToIntruder={(f) => { sendToIntruder(f); setActiveTab('intruder') }}
             sendToJwt={(f) => { sendToJwt(f); setActiveTab('jwt') }}
+            sendToOauth={(f) => { sendToOauth(f); setActiveTab('oauth') }}
             sendToBruteForce={(f) => { sendToBruteForce(f); navigate('/offense?tab=brute') }}
           />
         )}
@@ -359,6 +362,7 @@ export function ProxyPage() {
         {activeTab === 'repeater' && <RepeaterTab onOpenIntruder={() => setActiveTab('intruder')} />}
         {activeTab === 'intruder' && <IntruderTab />}
         {activeTab === 'jwt' && <ProGate feature="JWT Attack Suite"><JwtAttackTab /></ProGate>}
+        {activeTab === 'oauth' && <ProGate feature="OAuth Attack Suite"><OAuthAttackTab /></ProGate>}
       </div>
     </WorkspaceShell>
   )
@@ -500,7 +504,7 @@ function InterceptTab({ queue, enabled, removeFromQueue }: {
 }
 
 // ── History tab ───────────────────────────────────────────────────────────────
-function HistoryTab({ filteredFlows, selectedFlow, filter, setFilter, selectFlow, selectedFlowId, proxyRunning, scopeDomains, sendToRepeater, sendToIntruder, sendToJwt, sendToBruteForce }: {
+function HistoryTab({ filteredFlows, selectedFlow, filter, setFilter, selectFlow, selectedFlowId, proxyRunning, scopeDomains, sendToRepeater, sendToIntruder, sendToJwt, sendToOauth, sendToBruteForce }: {
   filteredFlows: HttpFlow[]
   selectedFlow: HttpFlow | undefined
   filter: any
@@ -512,6 +516,7 @@ function HistoryTab({ filteredFlows, selectedFlow, filter, setFilter, selectFlow
   sendToRepeater: (f: HttpFlow) => void
   sendToIntruder: (f: HttpFlow) => void
   sendToJwt: (f: HttpFlow) => void
+  sendToOauth: (f: HttpFlow) => void
   sendToBruteForce: (f: HttpFlow) => void
 }) {
   const [ctxMenu, setCtxMenu] = useState<ContextMenuState>({ visible: false, x: 0, y: 0 })
@@ -678,6 +683,11 @@ function HistoryTab({ filteredFlows, selectedFlow, filter, setFilter, selectFlow
             label: 'Send to JWT Attacks',
             icon: <Key size={12} />,
             onClick: () => { if (ctxFlow) sendToJwt(ctxFlow) },
+          },
+          {
+            label: 'Send to OAuth Attacks',
+            icon: <ShieldCheck size={12} />,
+            onClick: () => { if (ctxFlow) sendToOauth(ctxFlow) },
           },
           {
             label: 'Send to Brute Force',

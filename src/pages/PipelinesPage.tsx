@@ -19,7 +19,7 @@ import {
 } from 'lucide-react'
 
 // Tools tagged by the pipelines themselves — used to show persisted results after a restart.
-const PIPELINE_TOOLS = ['dalfox', 'sqli_pipeline', 'js_scan_pipeline', 'viewstate_audit', 'cloud_buckets']
+const PIPELINE_TOOLS = ['dalfox', 'sqli_pipeline', 'lfi_pipeline', 'js_scan_pipeline', 'viewstate_audit', 'cloud_buckets']
 
 const ACCENTS = {
   xss: {
@@ -31,6 +31,11 @@ const ACCENTS = {
     border: 'border-red-500/30', bg: 'bg-red-950/15', text: 'text-red-400',
     iconBg: 'bg-red-500/15 text-red-400', btn: 'bg-red-700 hover:bg-red-600',
     accentInput: 'accent-red-500',
+  },
+  lfi: {
+    border: 'border-amber-500/30', bg: 'bg-amber-950/15', text: 'text-amber-400',
+    iconBg: 'bg-amber-500/15 text-amber-400', btn: 'bg-amber-700 hover:bg-amber-600',
+    accentInput: 'accent-amber-500',
   },
   js_scan: {
     border: 'border-blue-500/30', bg: 'bg-blue-950/15', text: 'text-blue-400',
@@ -196,6 +201,36 @@ export function PipelinesPage({ embedded }: { embedded?: boolean }) {
     } catch (err) { toast.error('SQLi pipeline failed', err) }
   })
 
+  // ── LFI ──
+  const [lfiRunning, setLfiRunning] = useState(false)
+  const [lfiOpts, setLfiOpts] = useState({
+    depth: '3', concurrency: '10', rate_limit: '150',
+    js_crawl: true, crawl_forms: true, restrict_scope: true, headless: false, force_recrawl: false,
+    workers: '5', cookie: '', parse_js: true,
+  })
+
+  const handleLfi = () => runOnTargets(setLfiRunning, async (target) => {
+    startRun('lfi', target)
+    try {
+      const sess = getSessionOpts()
+      await api.post('/api/pipeline/lfi', {
+        target,
+        project_id: activeProject ?? '',
+        options: {
+          depth: parseInt(lfiOpts.depth) || 3,
+          concurrency: parseInt(lfiOpts.concurrency) || 10,
+          rate_limit: parseInt(lfiOpts.rate_limit) || 150,
+          js_crawl: lfiOpts.js_crawl, crawl_forms: lfiOpts.crawl_forms,
+          restrict_scope: lfiOpts.restrict_scope, headless: lfiOpts.headless, force_recrawl: lfiOpts.force_recrawl,
+          parse_js: lfiOpts.parse_js,
+          cookie: lfiOpts.cookie || sess.session_cookies || undefined,
+          workers: parseInt(lfiOpts.workers) || 5,
+          ...sess,
+        },
+      }, 0)
+    } catch (err) { toast.error('LFI pipeline failed', err) }
+  })
+
   // ── JS Secrets ──
   const [jsRunning, setJsRunning] = useState(false)
   const [jsOpts, setJsOpts] = useState({
@@ -225,7 +260,7 @@ export function PipelinesPage({ embedded }: { embedded?: boolean }) {
     } catch (err) { toast.error('JS scan pipeline failed', err) }
   })
 
-  const anyRunning = xssRunning || sqliRunning || jsRunning
+  const anyRunning = xssRunning || sqliRunning || lfiRunning || jsRunning
   const targets = getTargets()
   const noTarget = targets.length === 0
 
@@ -278,7 +313,7 @@ export function PipelinesPage({ embedded }: { embedded?: boolean }) {
         </div>
 
         {/* Pipeline gallery */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <PipelineCard
             accent={ACCENTS.xss}
             icon={<Zap size={18} />}
@@ -318,6 +353,27 @@ export function PipelinesPage({ embedded }: { embedded?: boolean }) {
               <OptRow label="Workers" placeholder="5" value={sqliOpts.workers} onChange={v => setSqliOpts(p => ({ ...p, workers: v }))} />
               <OptRow label="Cookie" placeholder="(usa Session del sidebar)" value={sqliOpts.cookie} onChange={v => setSqliOpts(p => ({ ...p, cookie: v }))} />
               <Check label="Parsear .js (fetch/axios/XHR/$.ajax)" checked={sqliOpts.parse_js} onChange={v => setSqliOpts(p => ({ ...p, parse_js: v }))} accent={ACCENTS.sqli.accentInput} />
+            </div>
+          </PipelineCard>
+
+          <PipelineCard
+            accent={ACCENTS.lfi}
+            icon={<FileCode size={18} />}
+            title="LFI Probe"
+            chain="Katana → mine JS → traversal + wrappers"
+            desc="Prueba cada parámetro tipo archivo con una matriz generada (no un diccionario plano): traversal a varias profundidades, encodings (%2e, doble, ....//, overlong UTF-8), backslash Windows, null-byte, y wrappers PHP (php://filter, data://, expect://). Confirma por firma de contenido, no por longitud."
+            running={lfiRunning}
+            runLabel={runLabel('Run LFI Probe')}
+            disabled={noTarget}
+            onRun={handleLfi}
+            locked={!isPro}
+          >
+            <CrawlOpts opts={lfiOpts} set={setLfiOpts} accent={ACCENTS.lfi.accentInput} />
+            <div className="space-y-1.5 border border-zinc-800 rounded-lg p-3">
+              <div className="text-[10px] font-semibold text-zinc-400 mb-1">Probe</div>
+              <OptRow label="Workers" placeholder="5" value={lfiOpts.workers} onChange={v => setLfiOpts(p => ({ ...p, workers: v }))} />
+              <OptRow label="Cookie" placeholder="(usa Session del sidebar)" value={lfiOpts.cookie} onChange={v => setLfiOpts(p => ({ ...p, cookie: v }))} />
+              <Check label="Parsear .js (fetch/axios/XHR/$.ajax)" checked={lfiOpts.parse_js} onChange={v => setLfiOpts(p => ({ ...p, parse_js: v }))} accent={ACCENTS.lfi.accentInput} />
             </div>
           </PipelineCard>
 
@@ -388,7 +444,7 @@ export function PipelinesPage({ embedded }: { embedded?: boolean }) {
                 const isActive = run.id === activeRunId
                 const isViewing = run.id === viewRun?.id
                 const hostShort = run.target.replace(/^https?:\/\//, '').split('/')[0]
-                const typeLabel = run.type === 'xss' ? 'XSS' : run.type === 'sqli' ? 'SQLi' : 'JS'
+                const typeLabel = run.type === 'xss' ? 'XSS' : run.type === 'sqli' ? 'SQLi' : run.type === 'lfi' ? 'LFI' : 'JS'
                 return (
                   <button
                     key={run.id}
@@ -402,7 +458,8 @@ export function PipelinesPage({ embedded }: { embedded?: boolean }) {
                   >
                     <span className={cn('font-mono font-bold text-[9px]',
                       typeLabel === 'XSS' ? 'text-orange-400' :
-                      typeLabel === 'SQLi' ? 'text-red-400' : 'text-blue-400'
+                      typeLabel === 'SQLi' ? 'text-red-400' :
+                      typeLabel === 'LFI' ? 'text-amber-400' : 'text-blue-400'
                     )}>{typeLabel}</span>
                     <span className="truncate max-w-[120px]">{hostShort}</span>
                     {run.findingsCount > 0 && (
@@ -425,23 +482,28 @@ export function PipelinesPage({ embedded }: { embedded?: boolean }) {
               <PhaseStep label="Katana" active={viewRun.phase === 'katana'} done={viewRun.phase !== 'katana' && viewRun.phase !== 'idle'} />
               <span className="text-zinc-700">→</span>
               {viewRun.type === 'xss' && <>
-                <PhaseStep label="Filter + mine" active={viewRun.phase === 'js_parse'} done={viewRun.candidates.length > 0 && viewRun.phase !== 'js_parse'} />
+                <PhaseStep label="Filter + mine" active={viewRun.phase === 'js_parse'} done={Math.max(viewRun.candidates.length, viewRun.candidateCount) > 0 && viewRun.phase !== 'js_parse'} />
                 <span className="text-zinc-700">→</span>
                 <PhaseStep label="Dalfox" active={viewRun.phase === 'dalfox'} done={viewRun.phase === 'completed'} />
               </>}
               {viewRun.type === 'sqli' && <>
-                <PhaseStep label="Filter + mine" active={viewRun.phase === 'js_parse'} done={viewRun.candidates.length > 0 && viewRun.phase !== 'js_parse'} />
+                <PhaseStep label="Filter + mine" active={viewRun.phase === 'js_parse'} done={Math.max(viewRun.candidates.length, viewRun.candidateCount) > 0 && viewRun.phase !== 'js_parse'} />
                 <span className="text-zinc-700">→</span>
                 <PhaseStep label="SQLi Probe" active={viewRun.phase === 'sqli_probe'} done={viewRun.phase === 'completed'} />
               </>}
+              {viewRun.type === 'lfi' && <>
+                <PhaseStep label="Filter + mine" active={viewRun.phase === 'js_parse'} done={Math.max(viewRun.candidates.length, viewRun.candidateCount) > 0 && viewRun.phase !== 'js_parse'} />
+                <span className="text-zinc-700">→</span>
+                <PhaseStep label="LFI Probe" active={viewRun.phase === 'lfi_probe'} done={viewRun.phase === 'completed'} />
+              </>}
               {viewRun.type === 'js_scan' && <>
-                <PhaseStep label="fetch .js" active={false} done={viewRun.candidates.length > 0} />
+                <PhaseStep label="fetch .js" active={false} done={Math.max(viewRun.candidates.length, viewRun.candidateCount) > 0} />
                 <span className="text-zinc-700">→</span>
                 <PhaseStep label="Grep secrets" active={viewRun.phase === 'js_scan'} done={viewRun.phase === 'completed'} />
               </>}
               <div className="ml-auto flex items-center gap-3">
-                <span className="text-[9px] text-zinc-600">{viewRun.katanaUrls.length} URLs</span>
-                <span className="text-[9px] text-zinc-600">{viewRun.candidates.length} {viewRun.type === 'js_scan' ? 'JS files' : 'candidates'}</span>
+                <span className="text-[9px] text-zinc-600">{Math.max(viewRun.katanaUrls.length, viewRun.stats.totalUrls)} URLs</span>
+                <span className="text-[9px] text-zinc-600">{Math.max(viewRun.candidates.length, viewRun.candidateCount)} {viewRun.type === 'js_scan' ? 'JS files' : 'candidates'}</span>
                 {viewRun.phase === 'completed' && <span className="text-green-400 font-medium text-[10px]">✓ Done</span>}
                 {viewRun.phase === 'failed' && <span className="text-red-400 font-medium text-[10px]">✗ Failed</span>}
               </div>

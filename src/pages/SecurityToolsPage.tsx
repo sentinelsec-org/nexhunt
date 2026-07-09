@@ -19,11 +19,11 @@ import { useWorkspaceStore } from '@/stores/workspace-store'
 import type { Finding } from '@/types'
 import { JsApiMapResults } from '@/components/security/JsApiMapResults'
 
-type ToolId = 'cors' | 'bypass_403' | 'cloud_buckets' | 'exposed_files' | 'viewstate_audit' | 'github_scanner' | 'interactsh' | 'exploit_intel' | 'js_api_mapper'
+type ToolId = 'cors' | 'bypass_403' | 'lfi' | 'cloud_buckets' | 'exposed_files' | 'viewstate_audit' | 'github_scanner' | 'interactsh' | 'exploit_intel' | 'js_api_mapper'
 type ViewMode = 'findings' | 'terminal'
 
 // PRO-only tools in prod.
-const PRO_TOOLS: ToolId[] = ['cloud_buckets', 'js_api_mapper']
+const PRO_TOOLS: ToolId[] = ['cloud_buckets', 'js_api_mapper', 'lfi']
 
 // Tools that take a live-host URL — get the host picker + bulk scan.
 const HOST_TOOLS: ToolId[] = ['cors', 'bypass_403', 'exposed_files', 'viewstate_audit']
@@ -34,6 +34,7 @@ const BULK_ENDPOINT: Partial<Record<ToolId, string>> = {
   cloud_buckets: '/api/tools/cloud-buckets-bulk',
   viewstate_audit: '/api/tools/viewstate-bulk',
   js_api_mapper: '/api/tools/js-api-mapper-bulk',
+  lfi: '/api/tools/lfi-bulk',
 }
 
 interface ToolDef {
@@ -82,6 +83,21 @@ const TOOLS: ToolDef[] = [
     border: 'border-orange-500/30',
     bg: 'bg-orange-950/15',
     endpoint: '/api/tools/bypass-403',
+  },
+  {
+    id: 'lfi',
+    label: 'LFI Scanner',
+    icon: FileCode2,
+    tagline: 'traversal + wrappers + filter-bypass encodings, signature-confirmed',
+    what: 'Takes a URL with a file-ish parameter (?file=, ?page=, ?path=...) and tries to make it read arbitrary files off the server via Local File Inclusion / path traversal.',
+    impact: 'A working LFI leaks source code, config with DB/API credentials, /etc/passwd, environment variables (/proc/self/environ) and, with php://filter / data:// / expect:// wrappers, can escalate to source disclosure or RCE. Hits are confirmed by file-content signature, not guesswork.',
+    desc: 'Ranks parameters that look file-like, then throws a generated matrix (not a flat wordlist) at each: ../ traversal at many depths, URL-encoded (%2e%2e%2f), double-encoded (%252e), filter-strip (....//), semicolon (..;/) and overlong-UTF-8 (..%c0%af) variants, backslash traversal for Windows, absolute paths, null-byte and path-truncation tricks, and PHP stream wrappers (php://filter base64, data://, expect://). Each response is matched against per-target signatures (root:...:0:0: for /etc/passwd, [boot loader]/[fonts] for win.ini/boot.ini, environ markers), base64-decoding php://filter output before matching. Only signature confirmations are flagged high; add custom paths in Advanced options.',
+    inputLabel: 'Target URL (with a file param)',
+    placeholder: 'https://target.com/index.php?file=home',
+    color: 'text-amber-400',
+    border: 'border-amber-500/30',
+    bg: 'bg-amber-950/15',
+    endpoint: '/api/tools/lfi',
   },
   {
     id: 'cloud_buckets',
@@ -225,7 +241,7 @@ const TOOL_BINARY: Partial<Record<ToolId, string>> = {
 export function SecurityToolsPage({ embedded }: { embedded?: boolean }) {
   const [activeTab, setActiveTab] = useState<ToolId>('cors')
   const [targets, setTargets] = useState<Record<ToolId, string>>({
-    cors: '', bypass_403: '', cloud_buckets: '', exposed_files: '', viewstate_audit: '', github_scanner: '', interactsh: '', exploit_intel: '', js_api_mapper: '',
+    cors: '', bypass_403: '', lfi: '', cloud_buckets: '', exposed_files: '', viewstate_audit: '', github_scanner: '', interactsh: '', exploit_intel: '', js_api_mapper: '',
   })
   const [cloudTestWrite, setCloudTestWrite] = useState(false)
   const [msfRhosts, setMsfRhosts] = useState('')

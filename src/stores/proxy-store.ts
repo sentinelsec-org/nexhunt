@@ -119,6 +119,11 @@ interface ProxyState {
   sendToJwt: (flow: HttpFlow) => void
   clearJwtFlow: () => void
 
+  // OAuth
+  oauthFlow: HttpFlow | null
+  sendToOauth: (flow: HttpFlow) => void
+  clearOauthFlow: () => void
+
   // Brute force
   sendToBruteForce: (flow: HttpFlow) => void
 
@@ -159,6 +164,10 @@ export const useProxyStore = create<ProxyState>((set) => ({
   jwtFlow: null,
   sendToJwt: (flow) => set({ jwtFlow: flow }),
   clearJwtFlow: () => set({ jwtFlow: null }),
+
+  oauthFlow: null,
+  sendToOauth: (flow) => set({ oauthFlow: flow }),
+  clearOauthFlow: () => set({ oauthFlow: null }),
 
   sendToBruteForce: (flow) => {
     useBruteForceStore.getState().setPrefill(buildBruteForceConfig(flow))

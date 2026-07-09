@@ -185,6 +185,7 @@ const SCANNER_STAGES = [
         options: [
           { key: 'extensions', label: 'Extensions', placeholder: 'php,html,js,txt' },
           { key: 'threads', label: 'Threads', placeholder: '20' },
+          { key: 'recursion_depth', label: 'Recursion depth', placeholder: 'off (e.g. 2)' },
           { key: 'wordlist', label: 'Wordlist', type: 'wordlist-select' as const },
         ],
         scanTypes: [],
