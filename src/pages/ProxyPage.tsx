@@ -1260,6 +1260,25 @@ function IntruderTab() {
             </span>
           </div>
 
+          {/* How payload sets map to positions — depends on the attack type */}
+          <div className="rounded border border-zinc-800 bg-zinc-900/40 p-2.5 text-[11px] text-zinc-400 space-y-1">
+            {markerCount === 0 ? (
+              <p className="text-amber-400">Mark at least one §position§ in the Positions tab first.</p>
+            ) : attackType === 'sniper' ? (
+              <>
+                <p><span className="text-zinc-200 font-medium">Sniper</span> uses <span className="text-zinc-200">one</span> payload list, applied to each of the {markerCount} marked position{markerCount > 1 ? 's' : ''} one at a time.</p>
+                {markerCount > 1 && (
+                  <p>Want a different list per position? Switch to{' '}
+                    <button onClick={() => setAttackType('cluster_bomb')} className="text-orange-400 hover:underline">Cluster Bomb</button>{' or '}
+                    <button onClick={() => setAttackType('pitchfork')} className="text-orange-400 hover:underline">Pitchfork</button>, then use <span className="text-zinc-200">Add payload set</span> below.
+                  </p>
+                )}
+              </>
+            ) : (
+              <p><span className="text-zinc-200 font-medium">{attackType === 'cluster_bomb' ? 'Cluster Bomb' : 'Pitchfork'}</span> uses one payload list per position — {payloadSets.length}/{markerCount} configured. Use <span className="text-zinc-200">Add payload set</span> below to add one per marked position.</p>
+            )}
+          </div>
+
           {payloadSets.map((ps, idx) => (
             <PayloadSetEditor
               key={idx}
