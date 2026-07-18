@@ -1,4 +1,5 @@
 import re
+import asyncio
 from typing import AsyncIterator
 from urllib.parse import parse_qs, quote, urlparse, urlunparse
 from nexhunt.adapters.base import ToolAdapter
@@ -410,6 +411,43 @@ def _to_finding(f: dict, url: str) -> dict:
     }
 
 
+def _format_probe_progress(event: dict) -> str | None:
+    name = event.get("event")
+    if name == "baseline":
+        params = ", ".join(event.get("params") or [])
+        return f"  Baseline request... params: {params} | tests: {event.get('total_tests', 0)}"
+    if name == "baseline_done":
+        return f"  Baseline OK: HTTP {event.get('status_code')} ({event.get('bytes')} bytes)"
+    if name == "baseline_error":
+        return f"  [!] baseline error: {event.get('error')}"
+    if name == "param_start":
+        return f"  Testing param {event.get('parameter')} ({event.get('param_index')}/{event.get('param_total')})"
+    if name == "payload":
+        payload = str(event.get("payload", ""))
+        if len(payload) > 90:
+            payload = payload[:87] + "..."
+        return (
+            f"    try {event.get('checked')}/{event.get('total_tests')} "
+            f"{event.get('technique')} -> {event.get('parameter')}={payload}"
+        )
+    if name == "payload_error":
+        return (
+            f"    [timeout/error] {event.get('technique')} "
+            f"{event.get('checked')}/{event.get('total_tests')} — {event.get('error')}"
+        )
+    if name == "finding":
+        return (
+            f"  [+] confirmed during probe: {event.get('parameter')} via "
+            f"{event.get('technique')} ({event.get('confidence')})"
+        )
+    if name == "complete":
+        return (
+            f"  Probe complete: checked {event.get('checked')}/{event.get('total_tests')} "
+            f"payload attempts, findings={event.get('findings')}"
+        )
+    return None
+
+
 class LfiAdapter(ToolAdapter):
     name = "lfi"
     binary_name = ""
@@ -436,6 +474,11 @@ class LfiAdapter(ToolAdapter):
         except (TypeError, ValueError):
             pid_max = 1500
         pid_max = max(0, min(pid_max, 60000))
+        try:
+            progress_every = int(options.get("progress_every") or 10)
+        except (TypeError, ValueError):
+            progress_every = 10
+        progress_every = max(1, min(progress_every, 250))
 
         headers = _parse_headers(options.get("headers", "") or options.get("session_headers", ""))
         cookie = options.get("cookie") or options.get("session_cookies")
@@ -448,9 +491,35 @@ class LfiAdapter(ToolAdapter):
         if params:
             yield {"_raw": True, "line": f"  Params: {', '.join(params[:12])}"}
 
+        progress_queue: asyncio.Queue[dict] = asyncio.Queue()
+
+        async def progress_cb(event: dict):
+            await progress_queue.put(event)
+
+        probe_task = asyncio.create_task(lfi_engine.probe_url(
+            url,
+            headers=headers,
+            extra_wordlist=extra,
+            thorough=True,
+            progress_cb=progress_cb,
+            progress_every=progress_every,
+        ))
+
         try:
-            findings = await lfi_engine.probe_url(url, headers=headers, extra_wordlist=extra, thorough=True)
+            while True:
+                if probe_task.done() and progress_queue.empty():
+                    break
+                try:
+                    event = await asyncio.wait_for(progress_queue.get(), timeout=0.25)
+                except asyncio.TimeoutError:
+                    continue
+                line = _format_probe_progress(event)
+                if line:
+                    yield {"_raw": True, "line": line}
+            findings = await probe_task
         except Exception as e:
+            if not probe_task.done():
+                probe_task.cancel()
             yield {"_raw": True, "line": f"  [!] error: {e}"}
             return
 

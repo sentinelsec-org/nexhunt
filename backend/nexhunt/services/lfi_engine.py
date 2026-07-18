@@ -9,6 +9,7 @@ target-file x bypass-technique, not a flat wordlist.
 import re
 import base64
 import logging
+from typing import Awaitable, Callable
 from urllib.parse import urlparse, parse_qs, urlencode, urlunparse, quote
 
 logger = logging.getLogger(__name__)
@@ -156,6 +157,8 @@ async def probe_url(
     extra_wordlist: list[str] | None = None,
     thorough: bool = True,
     max_params: int = 6,
+    progress_cb: Callable[[dict], Awaitable[None]] | None = None,
+    progress_every: int = 10,
 ) -> list[dict]:
     """Probe every parameter of url for LFI. Returns a list of finding dicts."""
     import httpx
@@ -167,6 +170,8 @@ async def probe_url(
 
     ranked = rank_params(params)[:max_params]
     payloads = generate_payloads(extra_wordlist, thorough)
+    total_tests = len(ranked) * len(payloads)
+    checked = 0
 
     hdrs = {"User-Agent": "Mozilla/5.0 NexHunt LFI-Probe"}
     if headers:
@@ -183,21 +188,71 @@ async def probe_url(
 
     findings: list[dict] = []
     async with httpx.AsyncClient(verify=False, follow_redirects=True, timeout=12) as client:
+        if progress_cb:
+            await progress_cb({
+                "event": "baseline",
+                "url": url,
+                "params": ranked,
+                "payloads": len(payloads),
+                "total_tests": total_tests,
+            })
         try:
             base = await client.get(url, headers=hdrs)
             base_len = len(base.text)
+            if progress_cb:
+                await progress_cb({
+                    "event": "baseline_done",
+                    "status_code": base.status_code,
+                    "bytes": len(base.content),
+                    "base_len": base_len,
+                })
         except Exception as e:
             logger.debug(f"LFI baseline failed for {url}: {e}")
             base_len = None
+            if progress_cb:
+                await progress_cb({"event": "baseline_error", "error": str(e) or type(e).__name__})
 
-        for param_name in ranked:
+        for param_idx, param_name in enumerate(ranked, start=1):
             hit = False
-            for p in payloads:
+            if progress_cb:
+                await progress_cb({
+                    "event": "param_start",
+                    "parameter": param_name,
+                    "param_index": param_idx,
+                    "param_total": len(ranked),
+                })
+            for payload_idx, p in enumerate(payloads, start=1):
                 if hit:
                     break
+                checked += 1
+                should_report = (
+                    checked <= 5
+                    or checked == total_tests
+                    or payload_idx == 1
+                    or (progress_every > 0 and checked % progress_every == 0)
+                )
+                if progress_cb and should_report:
+                    await progress_cb({
+                        "event": "payload",
+                        "parameter": param_name,
+                        "payload": p["value"],
+                        "technique": p["technique"],
+                        "checked": checked,
+                        "total_tests": total_tests,
+                    })
                 try:
                     r = await client.get(build(param_name, p["value"]), headers=hdrs)
-                except Exception:
+                except Exception as e:
+                    if progress_cb and should_report:
+                        await progress_cb({
+                            "event": "payload_error",
+                            "parameter": param_name,
+                            "payload": p["value"],
+                            "technique": p["technique"],
+                            "error": str(e) or type(e).__name__,
+                            "checked": checked,
+                            "total_tests": total_tests,
+                        })
                     continue
 
                 body = r.text
@@ -217,7 +272,7 @@ async def probe_url(
                         evidence = hay[max(0, m.start() - 30):m.end() + 140].strip()
 
                 if matched:
-                    findings.append({
+                    finding = {
                         "url": build(param_name, p["value"]),
                         "original_url": url,
                         "parameter": param_name,
@@ -226,7 +281,27 @@ async def probe_url(
                         "evidence": evidence[:400],
                         "technique": p["technique"],
                         "confidence": "confirmed" if sig is not None else "tentative",
-                    })
+                    }
+                    findings.append(finding)
+                    if progress_cb:
+                        await progress_cb({
+                            "event": "finding",
+                            "parameter": param_name,
+                            "payload": p["value"],
+                            "technique": p["technique"],
+                            "confidence": finding["confidence"],
+                            "status_code": r.status_code,
+                            "checked": checked,
+                            "total_tests": total_tests,
+                        })
                     hit = True
+
+        if progress_cb:
+            await progress_cb({
+                "event": "complete",
+                "checked": checked,
+                "total_tests": total_tests,
+                "findings": len(findings),
+            })
 
     return findings
