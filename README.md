@@ -269,7 +269,7 @@ Have a feature request? [Open an issue](https://github.com/sentinelsec-org/nexhu
 
 ---
 
-## 🐛 Known issues (beta)
+## 🐛 Known limitations
 
 - Very large targets (1000+ subdomains) may slow down the UI during recon — we're working on pagination
 - gowitness requires a display server; headless environments need Xvfb
@@ -287,6 +287,6 @@ NexHunt is proprietary software. The **free tier** is free to use indefinitely f
 
 Built with 🖤 by **[Sentinel Security](https://nexhunt.myshopify.com)**
 
-*NexHunt v1.2.1 beta — Linux*
+*NexHunt v1.8.0 - Linux*
 
 </div>

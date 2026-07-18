@@ -254,7 +254,7 @@ O desde dentro de la app: **Ajustes → Actualizaciones → Buscar actualizacion
 
 ---
 
-## 🐛 Issues conocidos (beta)
+## 🐛 Limitaciones conocidas
 
 - Targets muy grandes (1000+ subdominios) pueden ralentizar la UI durante el recon — estamos trabajando en paginación
 - gowitness requiere servidor de display; entornos headless necesitan Xvfb
@@ -272,6 +272,6 @@ NexHunt es software propietario. El **tier gratuito** es libre de usar indefinid
 
 Hecho con 🖤 por **[Sentinel Security](https://nexhunt.myshopify.com)**
 
-*NexHunt v1.6.0 beta — Linux*
+*NexHunt v1.8.0 - Linux*
 
 </div>
