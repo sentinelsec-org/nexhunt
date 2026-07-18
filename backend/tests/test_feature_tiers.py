@@ -33,6 +33,7 @@ class FeatureTierTests(unittest.TestCase):
     def test_free_attack_features_have_no_pro_dependency(self):
         free_routes = [
             "/api/pipeline/xss",
+            "/api/pipeline/lfi",
             "/api/proxy/intruder/start",
             "/api/wordpress/scan",
             "/api/bruteforce/start",
@@ -49,6 +50,10 @@ class FeatureTierTests(unittest.TestCase):
         self.assertEqual(
             _pro_features("/api/pipeline/js_scan"),
             ["JS Secrets pipeline"],
+        )
+        self.assertEqual(
+            _pro_features("/api/exploit/lfi"),
+            ["LFI Scanner"],
         )
 
 

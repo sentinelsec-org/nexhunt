@@ -214,9 +214,16 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
         if (event.phase === 'lfi_probe') {
           updated.phase = 'lfi_probe'
           if (event.event === 'started') {
-            updated.log.push(`[LFI] Probing ${event.targets ?? 0} URLs (traversal + wrappers + bypasses)...`)
+            updated.candidateCount = Math.max(updated.candidateCount, event.targets ?? 0)
+            updated.log.push(`[LFI] ${event.message ?? `Probing ${event.targets ?? 0} URLs (traversal + wrappers + bypasses)...`}`)
           } else if (event.event === 'skipped') {
             updated.log.push(`[→] ${event.message ?? 'LFI probe stopped'}`)
+          } else if (event.event === 'progress') {
+            updated.log.push(`[LFI] ${event.message ?? `Checked ${event.checked ?? 0}/${event.targets ?? 0} URLs`}`)
+          } else if (event.event === 'candidate') {
+            const params = event.params?.length ? event.params.join(', ') : 'no params'
+            const fileish = event.fileish?.length ? ` file-like: ${event.fileish.join(', ')}` : ''
+            updated.log.push(`  [lfi candidate] ${event.url ?? ''} — params: ${params}${fileish}`)
           } else if (event.event === 'finding' && event.finding) {
             updated.findingsCount += 1
             const f = event.finding
@@ -232,7 +239,8 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
             )
           } else if (event.event === 'completed') {
             updated.phase = 'completed'
-            updated.log.push(`[LFI] Done — ${event.findings ?? 0} potential finding(s)`)
+            if (event.targets !== undefined) updated.candidateCount = Math.max(updated.candidateCount, event.targets)
+            updated.log.push(`[LFI] ${event.message ?? `Done — ${event.findings ?? 0} potential finding(s)`}`)
             updated.log.push(`[✓] Pipeline completed`)
           } else if (event.event === 'failed') {
             updated.phase = 'failed'

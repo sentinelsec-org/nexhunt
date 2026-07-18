@@ -13,7 +13,7 @@ import { useAppStore } from '@/stores/app-store'
 import { useScannerStore } from '@/stores/scanner-store'
 import { useLicenseStore } from '@/stores/license-store'
 import {
-  Play, Loader2, Database, Zap, Bug, Trash2, FileCode,
+  Play, Loader2, Database, Zap, Bug, Trash2, FileCode, FileSearch,
   ChevronDown, Server, Settings2, CheckSquare, Square as SquareIcon,
   Sparkles, X, History, Crown, Copy,
 } from 'lucide-react'
@@ -358,7 +358,7 @@ export function PipelinesPage({ embedded }: { embedded?: boolean }) {
 
           <PipelineCard
             accent={ACCENTS.lfi}
-            icon={<FileCode size={18} />}
+            icon={<FileSearch size={18} />}
             title="LFI Probe"
             chain="Katana → mine JS → traversal + wrappers"
             desc="Prueba cada parámetro tipo archivo con una matriz generada (no un diccionario plano): traversal a varias profundidades, encodings (%2e, doble, ....//, overlong UTF-8), backslash Windows, null-byte, y wrappers PHP (php://filter, data://, expect://). Confirma por firma de contenido, no por longitud."

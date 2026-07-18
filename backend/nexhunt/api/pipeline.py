@@ -4,6 +4,7 @@ Automated Bug Bounty pipelines — chain tools together.
 Pipelines:
   POST /api/pipeline/xss        — Katana crawl → filter params → Dalfox XSS scan
   POST /api/pipeline/sqli_probe — Katana crawl → inject ' → detect SQL errors
+  POST /api/pipeline/lfi        — Katana crawl → mine params → traversal / wrapper probe
   POST /api/pipeline/js_scan    — Katana crawl → fetch .js files → grep secrets
 """
 import re
@@ -541,6 +542,42 @@ def _classify_params(params: dict) -> list[str]:
     return sorted(params.keys(), key=rank)
 
 
+def _summarize_lfi_candidates(urls: list[str], lfi_engine) -> dict:
+    """Small scan plan for UI visibility; the actual probing still lives in lfi_engine."""
+    fileish_hint_count = 0
+    total_params = 0
+    samples = []
+    hint_words = tuple(getattr(lfi_engine, "RANKED_PARAM_HINTS", ()))
+
+    for url in urls:
+        parsed = urlparse(url)
+        params = parse_qs(parsed.query, keep_blank_values=True)
+        if not params:
+            continue
+        names = list(params.keys())
+        total_params += len(names)
+        fileish = [
+            name for name in names
+            if any(h in name.lower() for h in hint_words)
+            or "/" in (params[name][0] if params[name] else "")
+            or "\\" in (params[name][0] if params[name] else "")
+            or re.search(r"\.[A-Za-z0-9]{2,5}$", params[name][0] if params[name] else "")
+        ]
+        fileish_hint_count += len(fileish)
+        if len(samples) < 12:
+            samples.append({
+                "url": url,
+                "params": names[:8],
+                "fileish": fileish[:8],
+            })
+
+    return {
+        "total_params": total_params,
+        "fileish_params": fileish_hint_count,
+        "samples": samples,
+    }
+
+
 # Endpoint extraction patterns for JS bodies. Each captures the full URL
 # *argument expression* (which may be a "str"+var+"str" concatenation), so we
 # can recover params whose values are JS variables.
@@ -877,7 +914,7 @@ async def run_sqli_probe_pipeline(req: PipelineRequest):
     }
 
 
-@router.post("/lfi", dependencies=[Depends(require_pro("LFI Probe pipeline"))])
+@router.post("/lfi")
 async def run_lfi_pipeline(req: PipelineRequest):
     """
     LFI probe pipeline:
@@ -897,6 +934,7 @@ async def run_lfi_pipeline(req: PipelineRequest):
         return {"error": str(e)}
 
     param_urls = {r["url"] for r in param_results}
+    crawl_param_count = len(param_urls)
 
     await ws_manager.broadcast("pipeline", {
         "phase": "katana", "event": "completed", "pipeline": "lfi",
@@ -908,9 +946,19 @@ async def run_lfi_pipeline(req: PipelineRequest):
     sess_headers = _parse_session_headers(opts.get("session_headers", ""))
 
     discovered = await _discovered_endpoint_urls(project_id, _base_domain(target))
+    discovered_param_count = 0
     for u in discovered:
         if "?" in u and parse_qs(urlparse(u).query):
             param_urls.add(u)
+            discovered_param_count += 1
+    if discovered:
+        await ws_manager.broadcast("pipeline", {
+            "phase": "lfi_probe", "event": "progress", "pipeline": "lfi",
+            "message": (
+                f"Loaded {len(discovered)} live endpoint(s) from this project; "
+                f"{discovered_param_count} had query parameters"
+            ),
+        })
 
     if opts.get("parse_js", True):
         _SKIP_EXT = (".js", ".css", ".png", ".jpg", ".jpeg", ".gif", ".svg",
@@ -926,6 +974,16 @@ async def run_lfi_pipeline(req: PipelineRequest):
         if js_urls or html_urls:
             js_endpoints: set[str] = set()
             workers = int(opts.get("workers", 5))
+
+            await ws_manager.broadcast("pipeline", {
+                "phase": "js_parse", "event": "started", "pipeline": "lfi",
+                "targets": len(js_urls) + len(html_urls),
+                "js_files": len(js_urls),
+                "message": (
+                    f"Mining {len(js_urls)} JS file(s) and {len(html_urls)} HTML page(s) "
+                    "for hidden parameterized endpoints"
+                ),
+            })
 
             def _collect(content: str, source_url: str):
                 for ep in _extract_js_endpoints(content, source_url):
@@ -947,16 +1005,75 @@ async def run_lfi_pipeline(req: PipelineRequest):
                         if inline:
                             _collect(inline, u)
             param_urls |= js_endpoints
+            await ws_manager.broadcast("pipeline", {
+                "phase": "js_parse", "event": "completed", "pipeline": "lfi",
+                "js_endpoints": len(js_endpoints),
+                "message": (
+                    f"JS/HTML mining added {len(js_endpoints)} new parameterized endpoint(s); "
+                    f"{len(param_urls)} total LFI candidate URL(s)"
+                ),
+            })
+        else:
+            await ws_manager.broadcast("pipeline", {
+                "phase": "js_parse", "event": "skipped", "pipeline": "lfi",
+                "message": "No JS or HTML pages available for endpoint mining",
+            })
+    else:
+        await ws_manager.broadcast("pipeline", {
+            "phase": "js_parse", "event": "skipped", "pipeline": "lfi",
+            "message": "JS endpoint mining disabled in options",
+        })
 
-    param_urls = list(param_urls)
+    param_urls = sorted(param_urls)
     if not param_urls:
+        await ws_manager.broadcast("pipeline", {
+            "phase": "lfi_probe", "event": "skipped", "pipeline": "lfi",
+            "message": (
+                "No parameterized URLs to test. Run Recon/Endpoint Check first or pass a URL "
+                "like https://host/page?file=home"
+            ),
+        })
+        await ws_manager.broadcast("pipeline", {
+            "phase": "lfi_probe", "event": "completed", "pipeline": "lfi",
+            "findings": 0,
+            "message": "LFI probe skipped — 0 candidate URL(s)",
+        })
         return {"status": "completed", "total_urls": len(all_results), "candidates": 0, "findings": 0}
+
+    plan = _summarize_lfi_candidates(param_urls, lfi_engine)
+    payloads_per_param = len(lfi_engine.generate_payloads(thorough=False))
+    total_payload_slots = plan["total_params"] * payloads_per_param
 
     await ws_manager.broadcast("pipeline", {
         "phase": "lfi_probe", "event": "started", "pipeline": "lfi",
         "targets": len(param_urls),
-        "message": f"Probing {len(param_urls)} URLs for LFI / path traversal...",
+        "total_params": plan["total_params"],
+        "payloads_per_param": payloads_per_param,
+        "fileish_params": plan["fileish_params"],
+        "message": (
+            f"Probing {len(param_urls)} URL(s), {plan['total_params']} parameter(s), "
+            f"{payloads_per_param} payloads per parameter ({total_payload_slots} max requests)"
+        ),
     })
+    await ws_manager.broadcast("pipeline", {
+        "phase": "lfi_probe", "event": "progress", "pipeline": "lfi",
+        "message": (
+            f"Candidate sources: {crawl_param_count} from crawl, "
+            f"{discovered_param_count} from saved endpoints, {len(param_urls) - crawl_param_count} after enrichment"
+        ),
+    })
+    if plan["fileish_params"]:
+        await ws_manager.broadcast("pipeline", {
+            "phase": "lfi_probe", "event": "progress", "pipeline": "lfi",
+            "message": f"{plan['fileish_params']} parameter(s) look file/path-like and will be prioritized",
+        })
+    for sample in plan["samples"]:
+        await ws_manager.broadcast("pipeline", {
+            "phase": "lfi_probe", "event": "candidate", "pipeline": "lfi",
+            "url": sample["url"],
+            "params": sample["params"],
+            "fileish": sample["fileish"],
+        })
 
     probe_headers = dict(sess_headers)
     if cookie:
@@ -964,11 +1081,13 @@ async def run_lfi_pipeline(req: PipelineRequest):
 
     all_findings = []
     workers = int(opts.get("workers", 5))
+    checked = 0
     for i in range(0, len(param_urls), workers):
         chunk = param_urls[i:i + workers]
         results = await asyncio.gather(*[
             lfi_engine.probe_url(url, headers=probe_headers, thorough=False) for url in chunk
         ])
+        checked += len(chunk)
         for findings in results:
             for finding in findings:
                 all_findings.append(finding)
@@ -979,11 +1098,26 @@ async def run_lfi_pipeline(req: PipelineRequest):
                     "finding": finding, "total_findings": len(all_findings),
                 })
                 logger.info(f"[LFI probe] Potential finding: {finding['url']} param={finding['parameter']}")
+        await ws_manager.broadcast("pipeline", {
+            "phase": "lfi_probe", "event": "progress", "pipeline": "lfi",
+            "checked": checked,
+            "targets": len(param_urls),
+            "findings": len(all_findings),
+            "message": f"Checked {checked}/{len(param_urls)} candidate URL(s); findings so far: {len(all_findings)}",
+        })
 
     await ws_manager.broadcast("pipeline", {
         "phase": "lfi_probe", "event": "completed", "pipeline": "lfi",
         "findings": len(all_findings),
-        "message": f"LFI probe done — {len(all_findings)} potential finding(s)",
+        "targets": len(param_urls),
+        "total_params": plan["total_params"],
+        "payloads_per_param": payloads_per_param,
+        "fileish_params": plan["fileish_params"],
+        "message": (
+            f"LFI probe done — {len(all_findings)} potential finding(s). "
+            f"Covered {len(param_urls)} URL(s), {plan['total_params']} parameter(s), "
+            f"{payloads_per_param} payloads/param"
+        ),
     })
 
     return {

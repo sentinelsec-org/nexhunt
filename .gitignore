@@ -39,6 +39,7 @@ kali/
 
 # Scan output files (never commit)
 backend/nikto_*.txt
+backend/reports/
 backend/*.txt
 backend/*.xml
 backend/*.json
