@@ -282,6 +282,80 @@ function classifyPort(port: string): { label: string; interesting: boolean } {
   return { label: 'Unusual service', interesting: true }
 }
 
+function lfiPathSignal(path: string): { label: string; classes: string; pathClass: string; interesting: boolean } {
+  const p = path.toLowerCase()
+  if (/(id_rsa|id_dsa|id_ecdsa|id_ed25519|authorized_keys|shadow|sudoers|\.ssh)/.test(p)) {
+    return {
+      label: 'high-value',
+      classes: 'border-red-800/60 bg-red-950/15',
+      pathClass: 'text-red-300',
+      interesting: true,
+    }
+  }
+  if (/(\/\.env|config|settings|database|credential|secret|token|key|password)/.test(p)) {
+    return {
+      label: 'secrets lead',
+      classes: 'border-amber-700/60 bg-amber-950/15',
+      pathClass: 'text-amber-300',
+      interesting: true,
+    }
+  }
+  if (p.includes('/proc/self/environ') || p.includes('/proc/self/cmdline') || p.includes('/proc/net/')) {
+    return {
+      label: '/proc clue',
+      classes: 'border-yellow-800/50 bg-yellow-950/10',
+      pathClass: 'text-yellow-300',
+      interesting: true,
+    }
+  }
+  if (/(app\.py|main\.py|requirements\.txt|package\.json|composer\.json|pom\.xml|web\.config)/.test(p)) {
+    return {
+      label: 'source clue',
+      classes: 'border-cyan-800/50 bg-cyan-950/10',
+      pathClass: 'text-cyan-300',
+      interesting: true,
+    }
+  }
+  return {
+    label: 'normal read',
+    classes: 'border-zinc-800/80 bg-black/30',
+    pathClass: 'text-zinc-100',
+    interesting: false,
+  }
+}
+
+function lfiProcessSignal(command: string): { label: string; classes: string; commandClass: string } {
+  const cmd = command.toLowerCase()
+  if (/(gdbserver|debug|jdwp|node --inspect|pydevd|xdebug)/.test(cmd)) {
+    return {
+      label: 'debug service',
+      classes: 'border-red-800/60 bg-red-950/15',
+      commandClass: 'text-red-200',
+    }
+  }
+  if (/(root|sudo|su |ssh|scp|rsync|backup|cron)/.test(cmd)) {
+    return {
+      label: 'privilege clue',
+      classes: 'border-amber-700/60 bg-amber-950/15',
+      commandClass: 'text-amber-200',
+    }
+  }
+  return {
+    label: 'process clue',
+    classes: 'border-emerald-900/50 bg-emerald-950/10',
+    commandClass: 'text-emerald-200',
+  }
+}
+
+function userClass(user: string): string {
+  const systemUsers = new Set([
+    'root', 'daemon', 'bin', 'sys', 'sync', 'games', 'man', 'lp', 'mail', 'news',
+    'uucp', 'proxy', 'www-data', 'backup', 'list', 'irc', '_apt', 'nobody',
+    'systemd-network', 'systemd-resolve', 'messagebus', 'sshd',
+  ])
+  return systemUsers.has(user) ? 'border-zinc-800 bg-zinc-950 text-zinc-500' : 'border-emerald-700/60 bg-emerald-950/20 text-emerald-300'
+}
+
 function parseLfiEvidence(evidence?: string | null): LfiEvidenceSummary {
   const text = evidence ?? ''
   const analysisText = text.split(/\n\nAnalysis:\n/, 2)[1] ?? ''
@@ -403,18 +477,23 @@ function DetailBlock({ title, icon: Icon, children }: { title: string; icon: Rea
 function LfiFindingDetails({ finding, onExpand }: { finding: Finding; onExpand: () => void }) {
   const summary = parseLfiEvidence(finding.evidence)
   const interestingSockets = summary.sockets.filter(socket => socket.interesting)
+  const interestingReads = summary.fileReads.filter(read => lfiPathSignal(read.path).interesting)
+  const highlightedProcessClues = summary.processClues.filter(clue => lfiProcessSignal(clue.command).label !== 'process clue')
 
   return (
     <div className="space-y-3">
       <div className="grid grid-cols-3 gap-2">
         {[
-          ['Files', summary.fileReads.length.toString()],
-          ['Ports', summary.sockets.length.toString()],
-          ['Clues', summary.processClues.length.toString()],
-        ].map(([label, value]) => (
-          <div key={label} className="rounded-md border border-zinc-800 bg-zinc-950/70 px-2.5 py-2">
+          ['Files', summary.fileReads.length.toString(), interestingReads.length ? 'text-yellow-300' : 'text-zinc-100'],
+          ['Ports', summary.sockets.length.toString(), interestingSockets.length ? 'text-amber-300' : 'text-zinc-100'],
+          ['Clues', summary.processClues.length.toString(), highlightedProcessClues.length ? 'text-red-300' : summary.processClues.length ? 'text-emerald-300' : 'text-zinc-100'],
+        ].map(([label, value, valueClass]) => (
+          <div key={label} className={cn(
+            'rounded-md border bg-zinc-950/70 px-2.5 py-2',
+            valueClass !== 'text-zinc-100' ? 'border-amber-800/50' : 'border-zinc-800'
+          )}>
             <div className="text-[9px] text-zinc-600">{label}</div>
-            <div className="text-lg leading-none font-semibold text-zinc-100">{value}</div>
+            <div className={cn('text-lg leading-none font-semibold', valueClass)}>{value}</div>
           </div>
         ))}
       </div>
@@ -442,17 +521,36 @@ function LfiFindingDetails({ finding, onExpand }: { finding: Finding; onExpand: 
       <DetailBlock title="System Files Read" icon={FileCode2}>
         {summary.fileReads.length > 0 ? (
           <div className="space-y-2">
-            {summary.fileReads.slice(0, 8).map(read => (
-              <div key={`${read.path}-${read.payload}`} className="rounded-md border border-zinc-800/80 bg-black/30 p-2">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="font-mono text-[10px] text-zinc-100 break-all">{read.path}</span>
-                  {read.bytes && <span className="text-[9px] text-zinc-600 shrink-0">{read.bytes} bytes</span>}
+            {summary.fileReads.slice(0, 8).map(read => {
+              const signal = lfiPathSignal(read.path)
+              return (
+                <div key={`${read.path}-${read.payload}`} className={cn('rounded-md border p-2', signal.classes)}>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className={cn('font-mono text-[10px] break-all', signal.pathClass)}>{read.path}</span>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {signal.interesting && (
+                        <span className={cn(
+                          'rounded border px-1.5 py-0.5 text-[8px]',
+                          signal.pathClass.includes('red') ? 'border-red-800 bg-red-950/40 text-red-300' :
+                          signal.pathClass.includes('amber') ? 'border-amber-800 bg-amber-950/40 text-amber-300' :
+                          signal.pathClass.includes('yellow') ? 'border-yellow-800 bg-yellow-950/40 text-yellow-300' :
+                          'border-cyan-800 bg-cyan-950/40 text-cyan-300'
+                        )}>
+                          {signal.label}
+                        </span>
+                      )}
+                      {read.bytes && <span className="text-[9px] text-zinc-600">{read.bytes} bytes</span>}
+                    </div>
+                  </div>
+                  {read.sample && (
+                    <pre className={cn(
+                      'mt-1.5 max-h-24 overflow-hidden whitespace-pre-wrap break-all text-[9px] leading-relaxed',
+                      signal.interesting ? 'text-zinc-300/80' : 'text-zinc-500'
+                    )}>{read.sample}</pre>
+                  )}
                 </div>
-                {read.sample && (
-                  <pre className="mt-1.5 max-h-24 overflow-hidden whitespace-pre-wrap break-all text-[9px] leading-relaxed text-zinc-500">{read.sample}</pre>
-                )}
-              </div>
-            ))}
+              )
+            })}
             {summary.fileReads.length > 8 && (
               <div className="text-[10px] text-zinc-500">+ {summary.fileReads.length - 8} more reads in raw evidence.</div>
             )}
@@ -472,9 +570,15 @@ function LfiFindingDetails({ finding, onExpand }: { finding: Finding; onExpand: 
               </div>
             )}
             {summary.users.length > 0 && (
-              <div className="flex items-start justify-between gap-2">
-                <span className="text-zinc-500">Local users</span>
-                <span className="font-mono text-emerald-300 text-right break-all">{summary.users.join(', ')}</span>
+              <div>
+                <div className="text-zinc-500 mb-1">Local users</div>
+                <div className="flex flex-wrap gap-1">
+                  {summary.users.map(user => (
+                    <span key={user} className={cn('rounded border px-1.5 py-0.5 font-mono text-[9px]', userClass(user))}>
+                      {user}
+                    </span>
+                  ))}
+                </div>
               </div>
             )}
             {summary.runtimeCommand && (
@@ -501,8 +605,11 @@ function LfiFindingDetails({ finding, onExpand }: { finding: Finding; onExpand: 
               </thead>
               <tbody>
                 {summary.sockets.map(socket => (
-                  <tr key={`${socket.source}-${socket.host}-${socket.port}-${socket.inode}`} className="border-t border-zinc-800/70">
-                    <td className="px-2 py-1.5 font-mono text-zinc-100">{socket.host}:{socket.port}</td>
+                  <tr
+                    key={`${socket.source}-${socket.host}-${socket.port}-${socket.inode}`}
+                    className={cn('border-t', socket.interesting ? 'border-amber-900/50 bg-amber-950/10' : 'border-zinc-800/70')}
+                  >
+                    <td className={cn('px-2 py-1.5 font-mono', socket.interesting ? 'text-amber-200' : 'text-zinc-100')}>{socket.host}:{socket.port}</td>
                     <td className="px-2 py-1.5">
                       <span className={cn(
                         'rounded px-1.5 py-0.5 border text-[9px]',
@@ -532,15 +639,26 @@ function LfiFindingDetails({ finding, onExpand }: { finding: Finding; onExpand: 
       {summary.processClues.length > 0 && (
         <DetailBlock title="Process Clues" icon={Crosshair}>
           <div className="space-y-2">
-            {summary.processClues.map(clue => (
-              <div key={`${clue.path}-${clue.command}`} className="rounded-md border border-emerald-900/50 bg-emerald-950/10 p-2">
-                <div className="flex items-center justify-between gap-2 text-[10px]">
-                  <span className="font-mono text-emerald-300">{clue.path}</span>
-                  <span className="text-[9px] text-zinc-500">port {clue.ports.join(', ')}</span>
+            {summary.processClues.map(clue => {
+              const signal = lfiProcessSignal(clue.command)
+              return (
+                <div key={`${clue.path}-${clue.command}`} className={cn('rounded-md border p-2', signal.classes)}>
+                  <div className="flex items-center justify-between gap-2 text-[10px]">
+                    <span className="font-mono text-emerald-300">{clue.path}</span>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <span className={cn(
+                        'rounded border px-1.5 py-0.5 text-[8px]',
+                        signal.commandClass.includes('red') ? 'border-red-800 bg-red-950/40 text-red-300' :
+                        signal.commandClass.includes('amber') ? 'border-amber-800 bg-amber-950/40 text-amber-300' :
+                        'border-emerald-800 bg-emerald-950/40 text-emerald-300'
+                      )}>{signal.label}</span>
+                      <span className="text-[9px] text-zinc-500">port {clue.ports.join(', ')}</span>
+                    </div>
+                  </div>
+                  <div className={cn('mt-1 font-mono text-[10px] break-all', signal.commandClass)}>{clue.command}</div>
                 </div>
-                <div className="mt-1 font-mono text-[10px] text-zinc-200 break-all">{clue.command}</div>
-              </div>
-            ))}
+              )
+            })}
           </div>
         </DetailBlock>
       )}
