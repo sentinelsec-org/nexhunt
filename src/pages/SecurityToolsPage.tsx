@@ -88,10 +88,10 @@ const TOOLS: ToolDef[] = [
     id: 'lfi',
     label: 'LFI Scanner',
     icon: FileCode2,
-    tagline: 'traversal + wrappers + filter-bypass encodings, signature-confirmed',
+    tagline: 'live payload stream + /proc enum + deep PID scan',
     what: 'Takes a URL with a file-ish parameter (?file=, ?page=, ?path=...) and tries to make it read arbitrary files off the server via Local File Inclusion / path traversal.',
-    impact: 'A working LFI leaks source code, config with DB/API credentials, /etc/passwd, environment variables (/proc/self/environ) and, with php://filter / data:// / expect:// wrappers, can escalate to source disclosure or RCE. Hits are confirmed by file-content signature, not guesswork.',
-    desc: 'Ranks parameters that look file-like, then throws a generated matrix (not a flat wordlist) at each: ../ traversal at many depths, URL-encoded (%2e%2e%2f), double-encoded (%252e), filter-strip (....//), semicolon (..;/) and overlong-UTF-8 (..%c0%af) variants, backslash traversal for Windows, absolute paths, null-byte and path-truncation tricks, and PHP stream wrappers (php://filter base64, data://, expect://). Each response is matched against per-target signatures (root:...:0:0: for /etc/passwd, [boot loader]/[fonts] for win.ini/boot.ini, environ markers), base64-decoding php://filter output before matching. Only signature confirmations are flagged high; add custom paths in Advanced options.',
+    impact: 'A working LFI leaks source code, config, /etc/passwd and process context. After confirmation, NexHunt reads useful /proc and system files, decodes listening sockets from /proc/net/tcp, and scans /proc/<PID>/cmdline for process clues that can move the attack forward.',
+    desc: 'Streams every probe stage in Raw Output: baseline, current parameter, payload attempts, confirmed payload, post-confirm file reads, analysis, odd listening ports and Deep PID scan. Payloads include traversal at many depths, encoded/double-encoded/filter-strip/semicolon/overlong variants, Windows traversal, absolute paths, null-byte/path-truncation tricks and PHP stream wrappers. Findings are signature-confirmed and enriched with the post-confirm evidence.',
     inputLabel: 'Target URL (with a file param)',
     placeholder: 'https://target.com/index.php?file=home',
     color: 'text-amber-400',
@@ -422,6 +422,8 @@ export function SecurityToolsPage({ embedded }: { embedded?: boolean }) {
       return
     }
     clearToolOutput(activeTab)
+    setView('terminal')
+    setSelected(null)
     try {
       await api.post(tool.endpoint, { target, options: optsFor(activeTab), project_id: activeProject ?? '' })
     } catch (err) {
@@ -530,6 +532,8 @@ export function SecurityToolsPage({ embedded }: { embedded?: boolean }) {
       return
     }
     clearToolOutput(activeTab)
+    setView('terminal')
+    setSelected(null)
     try {
       const res = await api.post<{ count: number }>(endpoint, {
         targets: scanTargets,

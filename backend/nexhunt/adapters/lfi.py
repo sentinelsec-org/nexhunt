@@ -411,6 +411,41 @@ def _to_finding(f: dict, url: str) -> dict:
     }
 
 
+def _enrich_finding_evidence(finding: dict, followups: list[dict], process_hits: list[dict]) -> dict:
+    if not followups and not process_hits:
+        return finding
+
+    sections = [finding.get("evidence", "").rstrip()]
+    if followups:
+        sections.append("Post-confirm file reads:")
+        for item in followups[:12]:
+            if item.get("error"):
+                sections.append(f"- /{item['path']}: {item['error']}")
+                continue
+            snippet = _clean_snippet(item.get("snippet", ""), limit=350)
+            sections.append(
+                f"- /{item['path']} ({item.get('bytes')} bytes) via {item.get('payload')}\n"
+                f"{snippet}"
+            )
+
+    notes = _analyze_reads(
+        {
+            "payload": finding.get("evidence", "").split("Payload: ", 1)[-1].splitlines()[0]
+            if "Payload: " in finding.get("evidence", "") else "",
+        },
+        followups + process_hits,
+    )
+    if notes:
+        sections.append("Analysis:")
+        sections.extend(f"- {note}" for note in notes)
+
+    finding = {**finding}
+    finding["evidence"] = "\n\n".join(s for s in sections if s).strip()
+    if process_hits:
+        finding["title"] = finding["title"] + " + process clue"
+    return finding
+
+
 def _format_probe_progress(event: dict) -> str | None:
     name = event.get("event")
     if name == "baseline":
@@ -529,8 +564,8 @@ class LfiAdapter(ToolAdapter):
 
         for f in findings:
             yield {"_raw": True, "line": f"  [+] {f['parameter']} via {f['technique']} — {f['payload']}"}
-            yield _to_finding(f, url)
 
+        process_hits = []
         followups = await _followup_file_reads(url, findings[0], headers, extra)
         if followups:
             yield {"_raw": True, "line": "  Post-confirm file reads:"}
@@ -569,3 +604,9 @@ class LfiAdapter(ToolAdapter):
                             yield {"_raw": True, "line": f"    [>] {note}"}
                 else:
                     yield {"_raw": True, "line": "    [-] no process command line matched those ports in the selected PID range"}
+
+        for i, f in enumerate(findings):
+            finding = _to_finding(f, url)
+            if i == 0:
+                finding = _enrich_finding_evidence(finding, followups, process_hits)
+            yield finding
