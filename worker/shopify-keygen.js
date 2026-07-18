@@ -85,8 +85,22 @@ async function suspendLicense(env, id) {
 }
 
 // ── email (optional, via Resend) ──────────────────────────────────────────────
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"']/g, (char) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;",
+  }[char]));
+}
+
 async function emailKey(env, email, key) {
   if (!env.RESEND_API_KEY || !env.MAIL_FROM) return false;
+  const safeKey = escapeHtml(key);
+  const downloadUrl = "https://github.com/sentinelsec-org/nexhunt/releases";
+  const proUrl = "https://nexhunt.myshopify.com/products/nexhunt-pro";
+  const supportEmail = "license@sentinelsec.online";
   const resp = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: {
@@ -96,13 +110,51 @@ async function emailKey(env, email, key) {
     body: JSON.stringify({
       from: env.MAIL_FROM,
       to: email,
-      subject: "Your NexHunt PRO license key",
+      subject: "Your NexHunt PRO license key is ready",
       text:
-        `Thanks for buying NexHunt PRO.\n\n` +
-        `Your license key:\n\n  ${key}\n\n` +
-        `Activate it in NexHunt: Settings -> License -> paste the key -> Activate.\n` +
-        `One key activates a limited number of machines; deactivate from Settings to move it.\n\n` +
-        `Sentinel Security`,
+        `Thanks for buying NexHunt PRO. Your lifetime PRO license is ready.\n\n` +
+        `LICENSE KEY\n${key}\n\n` +
+        `HOW TO ACTIVATE\n` +
+        `1. Install or open NexHunt on Linux (Kali, Debian, or Ubuntu).\n` +
+        `2. Open Settings -> License.\n` +
+        `3. Paste the license key above and click Activate.\n` +
+        `4. When the status changes to PRO, the Copilot, pipelines, bulk scans, JWT suite, GraphQL Auditor, and PRO reports are unlocked.\n\n` +
+        `MOVING TO ANOTHER MACHINE\n` +
+        `Open Settings -> License -> Deactivate on the old machine, then activate the same key on the new one.\n\n` +
+        `Download / updates: ${downloadUrl}\n` +
+        `Order page: ${proUrl}\n` +
+        `Need help? Reply to this email or contact ${supportEmail}.\n\n` +
+        `- NexHunt`,
+      html:
+        `<!doctype html>` +
+        `<html><body style="margin:0;background:#09090b;color:#f4f4f5;font-family:Inter,Arial,sans-serif;">` +
+        `<div style="max-width:640px;margin:0 auto;padding:32px 18px;">` +
+        `<div style="border:1px solid #27272a;background:#111113;border-radius:12px;overflow:hidden;">` +
+        `<div style="padding:24px 24px 18px;border-bottom:1px solid #27272a;background:#0f1110;">` +
+        `<div style="font-size:12px;letter-spacing:1.8px;text-transform:uppercase;color:#f59e0b;font-weight:700;">NexHunt PRO</div>` +
+        `<h1 style="margin:10px 0 8px;font-size:28px;line-height:1.12;color:#ffffff;">Your license key is ready</h1>` +
+        `<p style="margin:0;color:#a1a1aa;font-size:15px;line-height:1.6;">Thanks for buying NexHunt PRO. Use this key to unlock the lifetime PRO workspace on Linux.</p>` +
+        `</div>` +
+        `<div style="padding:24px;">` +
+        `<div style="font-size:12px;letter-spacing:1.5px;text-transform:uppercase;color:#22c55e;font-weight:700;margin-bottom:8px;">License key</div>` +
+        `<div style="font-family:'JetBrains Mono','SFMono-Regular',Consolas,monospace;font-size:18px;line-height:1.5;color:#ffffff;background:#09090b;border:1px solid #3f3f46;border-radius:8px;padding:16px;word-break:break-all;">${safeKey}</div>` +
+        `<h2 style="font-size:18px;margin:26px 0 10px;color:#ffffff;">How to activate</h2>` +
+        `<ol style="margin:0 0 22px;padding-left:22px;color:#d4d4d8;font-size:15px;line-height:1.7;">` +
+        `<li>Install or open NexHunt on Linux: Kali, Debian, or Ubuntu.</li>` +
+        `<li>Go to <strong>Settings -> License</strong>.</li>` +
+        `<li>Paste the license key and click <strong>Activate</strong>.</li>` +
+        `<li>When the badge changes to <strong>PRO</strong>, Copilot, pipelines, bulk scans, JWT, GraphQL, and PRO reports are unlocked.</li>` +
+        `</ol>` +
+        `<div style="border-top:1px solid #27272a;padding-top:18px;color:#a1a1aa;font-size:14px;line-height:1.6;">` +
+        `<strong style="color:#f4f4f5;">Moving machines?</strong><br>` +
+        `Open <strong>Settings -> License -> Deactivate</strong> on the old machine, then activate this same key on the new one.` +
+        `</div>` +
+        `<div style="margin-top:22px;display:flex;gap:10px;flex-wrap:wrap;">` +
+        `<a href="${downloadUrl}" style="display:inline-block;background:#22c55e;color:#04130a;text-decoration:none;font-weight:700;border-radius:8px;padding:11px 14px;">Download NexHunt</a>` +
+        `<a href="${proUrl}" style="display:inline-block;color:#f59e0b;text-decoration:none;font-weight:700;border:1px solid #3f3f46;border-radius:8px;padding:10px 13px;">Order page</a>` +
+        `</div>` +
+        `<p style="margin:22px 0 0;color:#71717a;font-size:13px;line-height:1.6;">Need help? Reply to this email or contact <a href="mailto:${supportEmail}" style="color:#f59e0b;">${supportEmail}</a>.</p>` +
+        `</div></div></div></body></html>`,
     }),
   });
   return resp.ok;
