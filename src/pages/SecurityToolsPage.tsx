@@ -214,6 +214,45 @@ const SEV_COLORS: Record<string, string> = {
   info:     'bg-zinc-800 text-zinc-400 border-zinc-700',
 }
 
+interface LfiFileRead {
+  path: string
+  bytes?: string
+  payload?: string
+  sample: string
+}
+
+interface LfiSocket {
+  source: string
+  host: string
+  port: string
+  uid: string
+  inode: string
+  label: string
+  interesting: boolean
+}
+
+interface LfiProcessClue {
+  path: string
+  ports: string[]
+  command: string
+}
+
+interface LfiEvidenceSummary {
+  technique: string
+  payload: string
+  httpStatus: string
+  confidence: string
+  poc: string
+  fileReads: LfiFileRead[]
+  sockets: LfiSocket[]
+  processClues: LfiProcessClue[]
+  analysis: string[]
+  stack: string
+  users: string[]
+  runtimeCommand: string
+  nextSteps: string[]
+}
+
 // Render plain evidence text with clickable http(s) links (e.g. bucket object URLs).
 function linkify(text: string): React.ReactNode[] {
   const parts = text.split(/(https?:\/\/[^\s)<>"']+)/g)
@@ -224,11 +263,318 @@ function linkify(text: string): React.ReactNode[] {
   )
 }
 
+function classifyPort(port: string): { label: string; interesting: boolean } {
+  const known: Record<string, string> = {
+    '21': 'FTP',
+    '22': 'SSH',
+    '25': 'SMTP',
+    '53': 'DNS',
+    '80': 'HTTP',
+    '443': 'HTTPS',
+    '3306': 'MySQL',
+    '5432': 'Postgres',
+    '6379': 'Redis',
+    '8000': 'Web app',
+    '8080': 'HTTP alt',
+    '8443': 'HTTPS alt',
+  }
+  if (known[port]) return { label: known[port], interesting: !['80', '443', '8000', '8080', '8443'].includes(port) }
+  return { label: 'Unusual service', interesting: true }
+}
+
+function parseLfiEvidence(evidence?: string | null): LfiEvidenceSummary {
+  const text = evidence ?? ''
+  const analysisText = text.split(/\n\nAnalysis:\n/, 2)[1] ?? ''
+  const analysis = [...analysisText.matchAll(/^- (.+)$/gm)].map(m => m[1].trim()).filter(Boolean)
+  const fileReadsText = text.split(/\n\nPost-confirm file reads:\n/, 2)[1]?.split(/\n\nAnalysis:\n/, 1)[0] ?? ''
+  const fileReads: LfiFileRead[] = []
+  const fileRegex = /^- \/([^\n(]+?)(?: \((\d+) bytes\))?(?: via ([^\n]+))?\n([\s\S]*?)(?=\n- \/|\n\nAnalysis:|$)/gm
+  for (const match of fileReadsText.matchAll(fileRegex)) {
+    fileReads.push({
+      path: `/${match[1].trim()}`,
+      bytes: match[2],
+      payload: match[3]?.trim(),
+      sample: match[4].trim().split('\n').slice(0, 5).join('\n'),
+    })
+  }
+
+  const sockets: LfiSocket[] = []
+  const socketRegex = /Listening sockets from \/(proc\/net\/\w+): (.+?)\./g
+  for (const match of analysisText.matchAll(socketRegex)) {
+    const source = `/${match[1]}`
+    for (const raw of match[2].split(/,\s+/)) {
+      const socketMatch = raw.match(/(.+):(\d+)\s+uid=(\d+)\s+inode=(\S+)/)
+      if (!socketMatch) continue
+      const portInfo = classifyPort(socketMatch[2])
+      sockets.push({
+        source,
+        host: socketMatch[1],
+        port: socketMatch[2],
+        uid: socketMatch[3],
+        inode: socketMatch[4],
+        label: portInfo.label,
+        interesting: portInfo.interesting,
+      })
+    }
+  }
+
+  const processClues: LfiProcessClue[] = []
+  for (const match of analysisText.matchAll(/Process clue: \/(.*?) mentions port ([\d,\s]+): (.+?)\./g)) {
+    processClues.push({
+      path: `/${match[1]}`,
+      ports: match[2].split(',').map(port => port.trim()).filter(Boolean),
+      command: match[3].trim(),
+    })
+  }
+
+  const technique = text.match(/^Technique:\s*(.+)$/m)?.[1]?.trim() ?? 'LFI'
+  const payload = text.match(/^Payload:\s*(.+)$/m)?.[1]?.trim() ?? ''
+  const status = text.match(/^Status:\s*(\d+)/m)?.[1]?.trim() ?? ''
+  const confidence = text.match(/Confidence:\s*([^\n]+)/)?.[1]?.trim() ?? ''
+  const poc = text.match(/^PoC:\s*(.+)$/m)?.[1]?.trim() ?? ''
+  const stack = analysis.find(line => line.startsWith('Likely stack:'))?.replace('Likely stack:', '').replace(/\.$/, '').trim() ?? ''
+  const users = (analysis.find(line => line.startsWith('Useful local user(s):')) ?? '')
+    .replace('Useful local user(s):', '')
+    .replace(/\.$/, '')
+    .split(',')
+    .map(user => user.trim())
+    .filter(Boolean)
+  const runtimeCommand = analysis.find(line => line.startsWith('Process command line:'))?.replace('Process command line:', '').replace(/\.$/, '').trim() ?? ''
+
+  const nextSteps = [
+    fileReads.some(read => read.path.includes('/proc/self/cwd') || read.path.endsWith('/.env'))
+      ? 'Review readable app source/config for credentials, routes and file-handling paths.'
+      : 'Try app source/config paths next; LFI is confirmed, but source context is what turns it into impact.',
+    sockets.some(socket => socket.interesting)
+      ? 'Validate unusual listening services and match them to process clues before choosing an attack path.'
+      : '',
+    processClues.length > 0
+      ? 'Use the process clue to understand what service is exposed and what user owns it.'
+      : '',
+  ].filter(Boolean)
+
+  return {
+    technique,
+    payload,
+    httpStatus: status,
+    confidence,
+    poc,
+    fileReads,
+    sockets,
+    processClues,
+    analysis,
+    stack,
+    users,
+    runtimeCommand,
+    nextSteps,
+  }
+}
+
+function lfiShortSummary(finding: Finding): string {
+  const summary = parseLfiEvidence(finding.evidence)
+  const parts = [
+    summary.fileReads.length ? `${summary.fileReads.length} files read` : '',
+    summary.sockets.length ? `${summary.sockets.length} open ports` : '',
+    summary.processClues.length ? `${summary.processClues.length} process clue${summary.processClues.length === 1 ? '' : 's'}` : '',
+  ].filter(Boolean)
+  return parts.join(' · ') || 'confirmed file read'
+}
+
 function SevBadge({ severity }: { severity: string }) {
   return (
     <span className={cn('text-[10px] px-1.5 py-0.5 rounded border font-medium capitalize shrink-0', SEV_COLORS[severity] ?? SEV_COLORS.info)}>
       {severity}
     </span>
+  )
+}
+
+function DetailBlock({ title, icon: Icon, children }: { title: string; icon: React.ComponentType<{ size?: number; className?: string }>; children: React.ReactNode }) {
+  return (
+    <section className="border-t border-zinc-800/80 pt-3 space-y-2">
+      <div className="flex items-center gap-1.5 text-[10px] font-semibold text-zinc-300">
+        <Icon size={11} className="text-amber-400" />
+        {title}
+      </div>
+      {children}
+    </section>
+  )
+}
+
+function LfiFindingDetails({ finding, onExpand }: { finding: Finding; onExpand: () => void }) {
+  const summary = parseLfiEvidence(finding.evidence)
+  const interestingSockets = summary.sockets.filter(socket => socket.interesting)
+
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-3 gap-2">
+        {[
+          ['Files', summary.fileReads.length.toString()],
+          ['Ports', summary.sockets.length.toString()],
+          ['Clues', summary.processClues.length.toString()],
+        ].map(([label, value]) => (
+          <div key={label} className="rounded-md border border-zinc-800 bg-zinc-950/70 px-2.5 py-2">
+            <div className="text-[9px] text-zinc-600">{label}</div>
+            <div className="text-lg leading-none font-semibold text-zinc-100">{value}</div>
+          </div>
+        ))}
+      </div>
+
+      <DetailBlock title="Confirmed Read" icon={CheckCircle2}>
+        <div className="space-y-1.5 text-[10px]">
+          <div className="flex items-start justify-between gap-2">
+            <span className="text-zinc-500 shrink-0">Technique</span>
+            <span className="font-mono text-amber-300 text-right break-all">{summary.technique}</span>
+          </div>
+          <div className="flex items-start justify-between gap-2">
+            <span className="text-zinc-500 shrink-0">Payload</span>
+            <span className="font-mono text-zinc-200 text-right break-all">{summary.payload || 'unknown'}</span>
+          </div>
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-zinc-500">HTTP / confidence</span>
+            <span className="font-mono text-emerald-300">{summary.httpStatus || '?'} · {summary.confidence || 'confirmed'}</span>
+          </div>
+          {summary.poc && (
+            <div className="pt-1 font-mono text-[9px] text-cyan-400 break-all leading-relaxed">{summary.poc}</div>
+          )}
+        </div>
+      </DetailBlock>
+
+      <DetailBlock title="System Files Read" icon={FileCode2}>
+        {summary.fileReads.length > 0 ? (
+          <div className="space-y-2">
+            {summary.fileReads.slice(0, 8).map(read => (
+              <div key={`${read.path}-${read.payload}`} className="rounded-md border border-zinc-800/80 bg-black/30 p-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-mono text-[10px] text-zinc-100 break-all">{read.path}</span>
+                  {read.bytes && <span className="text-[9px] text-zinc-600 shrink-0">{read.bytes} bytes</span>}
+                </div>
+                {read.sample && (
+                  <pre className="mt-1.5 max-h-24 overflow-hidden whitespace-pre-wrap break-all text-[9px] leading-relaxed text-zinc-500">{read.sample}</pre>
+                )}
+              </div>
+            ))}
+            {summary.fileReads.length > 8 && (
+              <div className="text-[10px] text-zinc-500">+ {summary.fileReads.length - 8} more reads in raw evidence.</div>
+            )}
+          </div>
+        ) : (
+          <div className="text-[10px] text-zinc-600">No post-confirm file reads were attached to this finding.</div>
+        )}
+      </DetailBlock>
+
+      {(summary.stack || summary.users.length > 0 || summary.runtimeCommand) && (
+        <DetailBlock title="Runtime Context" icon={Server}>
+          <div className="space-y-1.5 text-[10px]">
+            {summary.stack && (
+              <div className="flex items-start justify-between gap-2">
+                <span className="text-zinc-500">Stack</span>
+                <span className="text-zinc-200 text-right">{summary.stack}</span>
+              </div>
+            )}
+            {summary.users.length > 0 && (
+              <div className="flex items-start justify-between gap-2">
+                <span className="text-zinc-500">Local users</span>
+                <span className="font-mono text-emerald-300 text-right break-all">{summary.users.join(', ')}</span>
+              </div>
+            )}
+            {summary.runtimeCommand && (
+              <div>
+                <div className="text-zinc-500 mb-1">Current process</div>
+                <div className="font-mono text-[10px] text-zinc-200 break-all rounded border border-zinc-800 bg-zinc-950 px-2 py-1.5">{summary.runtimeCommand}</div>
+              </div>
+            )}
+          </div>
+        </DetailBlock>
+      )}
+
+      <DetailBlock title="Open Ports and Services" icon={Globe}>
+        {summary.sockets.length > 0 ? (
+          <div className="overflow-hidden rounded-md border border-zinc-800">
+            <table className="w-full text-[10px]">
+              <thead className="bg-zinc-950 text-zinc-600">
+                <tr className="text-left">
+                  <th className="px-2 py-1.5">Port</th>
+                  <th className="px-2 py-1.5">Service</th>
+                  <th className="px-2 py-1.5">UID</th>
+                  <th className="px-2 py-1.5 hidden xl:table-cell">Source</th>
+                </tr>
+              </thead>
+              <tbody>
+                {summary.sockets.map(socket => (
+                  <tr key={`${socket.source}-${socket.host}-${socket.port}-${socket.inode}`} className="border-t border-zinc-800/70">
+                    <td className="px-2 py-1.5 font-mono text-zinc-100">{socket.host}:{socket.port}</td>
+                    <td className="px-2 py-1.5">
+                      <span className={cn(
+                        'rounded px-1.5 py-0.5 border text-[9px]',
+                        socket.interesting ? 'border-amber-700/60 bg-amber-950/30 text-amber-300' : 'border-zinc-700 bg-zinc-900 text-zinc-400'
+                      )}>
+                        {socket.label}
+                      </span>
+                    </td>
+                    <td className="px-2 py-1.5 font-mono text-zinc-500">{socket.uid}</td>
+                    <td className="px-2 py-1.5 font-mono text-zinc-600 hidden xl:table-cell">{socket.source}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="text-[10px] text-zinc-600">No listening sockets were decoded from /proc in this finding.</div>
+        )}
+        {interestingSockets.length > 0 && (
+          <div className="flex items-start gap-1.5 text-[10px] text-amber-300/90">
+            <Info size={11} className="mt-0.5 shrink-0" />
+            Unusual ports deserve manual service validation; NexHunt is showing the lead, not claiming exploitability.
+          </div>
+        )}
+      </DetailBlock>
+
+      {summary.processClues.length > 0 && (
+        <DetailBlock title="Process Clues" icon={Crosshair}>
+          <div className="space-y-2">
+            {summary.processClues.map(clue => (
+              <div key={`${clue.path}-${clue.command}`} className="rounded-md border border-emerald-900/50 bg-emerald-950/10 p-2">
+                <div className="flex items-center justify-between gap-2 text-[10px]">
+                  <span className="font-mono text-emerald-300">{clue.path}</span>
+                  <span className="text-[9px] text-zinc-500">port {clue.ports.join(', ')}</span>
+                </div>
+                <div className="mt-1 font-mono text-[10px] text-zinc-200 break-all">{clue.command}</div>
+              </div>
+            ))}
+          </div>
+        </DetailBlock>
+      )}
+
+      <DetailBlock title="What This Means" icon={Info}>
+        <div className="space-y-2">
+          {summary.nextSteps.map(step => (
+            <div key={step} className="flex gap-2 text-[10px] leading-relaxed text-zinc-400">
+              <span className="mt-1 h-1.5 w-1.5 rounded-full bg-amber-400 shrink-0" />
+              <span>{step}</span>
+            </div>
+          ))}
+        </div>
+      </DetailBlock>
+
+      {finding.evidence && (
+        <div className="border-t border-zinc-800/80 pt-3">
+          <div className="flex items-center justify-between mb-1.5">
+            <div className="flex items-center gap-1.5 text-[10px] font-semibold text-zinc-300">
+              <Terminal size={11} className="text-zinc-500" /> Raw Evidence
+            </div>
+            <button
+              onClick={onExpand}
+              className="flex items-center gap-1 text-[10px] text-cyan-400/80 hover:text-cyan-300 transition-colors"
+            >
+              <Maximize2 size={10} /> Expand
+            </button>
+          </div>
+          <pre className="text-[9px] bg-zinc-950 rounded p-2 overflow-auto text-zinc-500 whitespace-pre-wrap break-all leading-relaxed max-h-32">
+            {finding.evidence}
+          </pre>
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -922,22 +1268,28 @@ export function SecurityToolsPage({ embedded }: { embedded?: boolean }) {
                     </tr>
                   </thead>
                   <tbody>
-                    {tabFindings.map((f, i) => (
-                      <tr
-                        key={f.id ?? i}
-                        onClick={() => setSelected(selected?.id === f.id ? null : f)}
-                        className={cn(
-                          'border-b border-zinc-800/50 cursor-pointer transition-colors',
-                          selected?.id === f.id ? 'bg-zinc-800' : 'hover:bg-zinc-800/40'
-                        )}
-                      >
-                        <td className="px-3 py-1.5"><SevBadge severity={f.severity} /></td>
-                        <td className="px-3 py-1.5 text-zinc-300">{f.title}</td>
-                        <td className="px-3 py-1.5 text-zinc-600 font-mono text-[10px] hidden lg:table-cell truncate max-w-[110px]">
-                          {hostForUrl(f.url)}
-                        </td>
-                      </tr>
-                    ))}
+                    {tabFindings.map((f, i) => {
+                      const lfiSummary = f.tool === 'lfi' ? lfiShortSummary(f) : ''
+                      return (
+                        <tr
+                          key={f.id ?? i}
+                          onClick={() => setSelected(selected?.id === f.id ? null : f)}
+                          className={cn(
+                            'border-b border-zinc-800/50 cursor-pointer transition-colors',
+                            selected?.id === f.id ? 'bg-zinc-800' : 'hover:bg-zinc-800/40'
+                          )}
+                        >
+                          <td className="px-3 py-1.5"><SevBadge severity={f.severity} /></td>
+                          <td className="px-3 py-1.5">
+                            <div className="text-zinc-300">{f.title}</div>
+                            {lfiSummary && <div className="mt-0.5 text-[10px] text-amber-300/80">{lfiSummary}</div>}
+                          </td>
+                          <td className="px-3 py-1.5 text-zinc-600 font-mono text-[10px] hidden lg:table-cell truncate max-w-[110px]">
+                            {hostForUrl(f.url)}
+                          </td>
+                        </tr>
+                      )
+                    })}
                     {tabFindings.length === 0 && (
                       <tr>
                         <td colSpan={3} className="px-3 py-16 text-center text-zinc-600 text-xs">
@@ -982,7 +1334,9 @@ export function SecurityToolsPage({ embedded }: { embedded?: boolean }) {
                       <div className="text-zinc-400 leading-relaxed">{selected.description}</div>
                     </div>
                   )}
-                  {selected.evidence && (
+                  {selected.tool === 'lfi' ? (
+                    <LfiFindingDetails finding={selected} onExpand={() => setEvidenceOpen(true)} />
+                  ) : selected.evidence && (
                     <div>
                       <div className="flex items-center justify-between mb-0.5">
                         <div className="text-zinc-600 text-[10px]">Evidence</div>
