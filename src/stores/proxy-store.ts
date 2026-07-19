@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import type { HttpFlow } from '@/types'
 import { useBruteForceStore, emptyConfig } from '@/stores/bruteforce-store'
+import { useExploitStore } from '@/stores/exploit-store'
 
 function buildBruteForceConfig(flow: HttpFlow) {
   const https = flow.request_url.startsWith('https')
@@ -127,6 +128,9 @@ interface ProxyState {
   // Brute force
   sendToBruteForce: (flow: HttpFlow) => void
 
+  // Login SQLi bypass
+  sendToLoginBypass: (flow: HttpFlow) => void
+
   // Intruder actions
   sendToIntruder: (flow: HttpFlow) => void
   sendRawToIntruder: (raw: string, host: string, port: number, https: boolean) => void
@@ -171,6 +175,16 @@ export const useProxyStore = create<ProxyState>((set) => ({
 
   sendToBruteForce: (flow) => {
     useBruteForceStore.getState().setPrefill(buildBruteForceConfig(flow))
+  },
+
+  sendToLoginBypass: (flow) => {
+    const https = flow.request_url.startsWith('https')
+    useExploitStore.getState().prefillLoginBypass(
+      flowToRaw(flow),
+      flow.request_host,
+      flow.request_port || (https ? 443 : 80),
+      https,
+    )
   },
 
   addFlow: (flow) => set((s) => ({

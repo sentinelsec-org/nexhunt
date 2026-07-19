@@ -138,6 +138,7 @@ export interface UrlResult {
 }
 
 export interface PortResult {
+  target?: string
   ip: string
   hostname?: string
   addresses?: Record<string, string>
@@ -169,6 +170,7 @@ export interface EndpointResult {
   title: string | null
   content_type: string | null
   content_length: number | null
+  technology_hints?: string[]
 }
 
 export interface PipelineEvent {

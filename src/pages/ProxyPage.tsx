@@ -21,7 +21,7 @@ import {
   Play, Square, Shield, ShieldOff, Trash2, Search, Send,
   Plus, X, Repeat2, Crosshair, Filter, ChevronDown, ChevronRight,
   AlertTriangle, CheckCircle, Loader2, RotateCcw, BookOpen, Sparkles, Globe,
-  Key, Copy, Check, ChevronUp, ExternalLink, Network, KeyRound, Folder, Crown, ShieldCheck,
+  Key, Copy, Check, ChevronUp, ExternalLink, Network, KeyRound, Folder, Crown, ShieldCheck, LogIn,
 } from 'lucide-react'
 
 type Tab = 'intercept' | 'history' | 'sitemap' | 'repeater' | 'intruder' | 'jwt' | 'oauth'
@@ -92,7 +92,7 @@ export function ProxyPage() {
     interceptQueue, setInterceptQueue, removeFromInterceptQueue,
     proxyRunning, setProxyRunning,
     filter, setFilter, clearFlows, mergeFlows,
-    sendToRepeater, sendToIntruder, sendToJwt, sendToOauth, sendToBruteForce,
+    sendToRepeater, sendToIntruder, sendToJwt, sendToOauth, sendToBruteForce, sendToLoginBypass,
   } = useProxyStore()
   const { activeProjectData } = useAppStore()
   const navigate = useNavigate()
@@ -348,6 +348,7 @@ export function ProxyPage() {
             sendToJwt={(f) => { sendToJwt(f); setActiveTab('jwt') }}
             sendToOauth={(f) => { sendToOauth(f); setActiveTab('oauth') }}
             sendToBruteForce={(f) => { sendToBruteForce(f); navigate('/offense?tab=brute') }}
+            sendToLoginBypass={(f) => { sendToLoginBypass(f); navigate('/offense?tab=injection') }}
           />
         )}
         {activeTab === 'sitemap' && (
@@ -504,7 +505,7 @@ function InterceptTab({ queue, enabled, removeFromQueue }: {
 }
 
 // ── History tab ───────────────────────────────────────────────────────────────
-function HistoryTab({ filteredFlows, selectedFlow, filter, setFilter, selectFlow, selectedFlowId, proxyRunning, scopeDomains, sendToRepeater, sendToIntruder, sendToJwt, sendToOauth, sendToBruteForce }: {
+function HistoryTab({ filteredFlows, selectedFlow, filter, setFilter, selectFlow, selectedFlowId, proxyRunning, scopeDomains, sendToRepeater, sendToIntruder, sendToJwt, sendToOauth, sendToBruteForce, sendToLoginBypass }: {
   filteredFlows: HttpFlow[]
   selectedFlow: HttpFlow | undefined
   filter: any
@@ -518,6 +519,7 @@ function HistoryTab({ filteredFlows, selectedFlow, filter, setFilter, selectFlow
   sendToJwt: (f: HttpFlow) => void
   sendToOauth: (f: HttpFlow) => void
   sendToBruteForce: (f: HttpFlow) => void
+  sendToLoginBypass: (f: HttpFlow) => void
 }) {
   const [ctxMenu, setCtxMenu] = useState<ContextMenuState>({ visible: false, x: 0, y: 0 })
   const [ctxFlow, setCtxFlow] = useState<HttpFlow | null>(null)
@@ -693,6 +695,11 @@ function HistoryTab({ filteredFlows, selectedFlow, filter, setFilter, selectFlow
             label: 'Send to Brute Force',
             icon: <KeyRound size={12} />,
             onClick: () => { if (ctxFlow) sendToBruteForce(ctxFlow) },
+          },
+          {
+            label: 'Send to Login SQLi Bypass',
+            icon: <LogIn size={12} />,
+            onClick: () => { if (ctxFlow) sendToLoginBypass(ctxFlow) },
           },
         ]}
       />
