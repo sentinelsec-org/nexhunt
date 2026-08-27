@@ -61,11 +61,15 @@ download_and_verify() {
 }
 
 if [ -n "$DEB_URL" ]; then
-  DEB_PATH="$(download_and_verify "$DEB_URL")"
-  apt install -y "$DEB_PATH"
-  bash /opt/nexhunt/install-toolchain.sh
-  echo "NexHunt installed successfully. Start it with: nexhunt"
-  exit 0
+  # Prefer the .deb, but do not hard-fail the whole install if the release is
+  # missing it (or its checksum) - fall back to the tarball below instead.
+  if DEB_PATH="$(download_and_verify "$DEB_URL")"; then
+    apt install -y "$DEB_PATH"
+    bash /opt/nexhunt/install-toolchain.sh
+    echo "NexHunt installed successfully. Start it with: nexhunt"
+    exit 0
+  fi
+  echo "No .deb asset available for ${LATEST_TAG}; falling back to the tarball." >&2
 fi
 
 [ "$ARCH" = "amd64" ] || { echo "No NexHunt package is available for architecture: ${ARCH:-unknown}." >&2; exit 1; }
